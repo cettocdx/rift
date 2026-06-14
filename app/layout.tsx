@@ -1,5 +1,10 @@
 import type { Metadata } from "next";
-import { JetBrains_Mono, Inter, Instrument_Serif } from "next/font/google";
+import {
+  JetBrains_Mono,
+  Inter,
+  Instrument_Serif,
+  Space_Grotesk,
+} from "next/font/google";
 import "./globals.css";
 import "./globals-terminal.css";
 
@@ -21,6 +26,14 @@ const jetbrainsMono = JetBrains_Mono({
 
 const inter = Inter({
   variable: "--font-inter",
+  subsets: ["latin"],
+  display: "swap",
+});
+
+// Modern geometric display face used for big bold headings and numeric
+// readouts across the "Glass Command" UI.
+const spaceGrotesk = Space_Grotesk({
+  variable: "--font-display",
   subsets: ["latin"],
   display: "swap",
 });
@@ -138,7 +151,7 @@ export default function RootLayout({
           <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
         </head>
         <body
-          className={`${jetbrainsMono.variable} ${inter.variable} ${instrumentSerif.variable} antialiased h-full`}
+          className={`${jetbrainsMono.variable} ${inter.variable} ${spaceGrotesk.variable} ${instrumentSerif.variable} antialiased h-full`}
           suppressHydrationWarning
         >
           <ConvexClientProvider>{content}</ConvexClientProvider>

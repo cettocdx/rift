@@ -104,13 +104,15 @@ const UnauthenticatedContent = () => {
               <button
                 type="button"
                 onClick={launch}
-                className="group mt-9 inline-flex items-center gap-2 border border-primary/60 bg-primary/10 px-7 py-3 font-semibold uppercase tracking-widest text-primary transition-colors hover:bg-primary hover:text-primary-foreground rift-live"
+                className="sheen group mt-9 inline-flex items-center gap-2 rounded-full gradient-signal px-8 py-3.5 font-semibold uppercase tracking-widest transition-all duration-200 hover:-translate-y-0.5 hover:brightness-110"
               >
-                <span className="text-primary/70 group-hover:text-primary-foreground">
-                  $
-                </span>
                 Launch App
-                <span aria-hidden>▸</span>
+                <span
+                  aria-hidden
+                  className="transition-transform group-hover:translate-x-0.5"
+                >
+                  ▸
+                </span>
               </button>
               <div className="hud-label mt-3 text-muted-foreground">
                 no setup · runs in the cloud

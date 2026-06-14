@@ -9,9 +9,12 @@
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
-  /* RIFT is a full-terminal aesthetic: sans utilities resolve to mono too. */
-  --font-sans: var(--font-jetbrains-mono), ui-monospace, monospace;
+  /* RIFT "Glass Command" — modern geometric sans for UI, JetBrains Mono kept
+     for numeric / telemetry readouts, Space Grotesk for big display headings. */
+  --font-sans: var(--font-inter), ui-sans-serif, system-ui, sans-serif;
   --font-mono: var(--font-jetbrains-mono), ui-monospace, monospace;
+  --font-display:
+    var(--font-display), var(--font-inter), ui-sans-serif, sans-serif;
   --color-sidebar-ring: var(--sidebar-ring);
   --color-sidebar-border: var(--sidebar-border);
   --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
@@ -51,107 +54,122 @@
   --radius-lg: var(--radius);
   --radius-xl: calc(var(--radius) + 4px);
 
-  /* RIFT — "Surveillance Brutalism" signal palette exposed as Tailwind color
-     utilities (text-terminal-green, bg-terminal-green, border-terminal-green,
-     etc.). The legacy var names are kept so existing markup re-themes with zero
-     edits; their VALUES are now cyan surveillance signal on true black.
+  /* RIFT — "Glass Command" signal palette exposed as Tailwind color utilities
+     (text-terminal-green, bg-terminal-green, border-terminal-green, etc.).
+     Legacy var NAMES are kept so existing markup re-themes with zero edits;
+     their VALUES are now an electric-cyan command-deck signal on deep space.
      Literal values so utilities (incl. /opacity modifiers) always generate. */
-  --color-terminal-green: #00ff66; /* primary phosphor-green signal */
-  --color-terminal-green-dim: #0a9d4a; /* mid ramp */
-  --color-terminal-sky: #36f0ff; /* secondary terminal cyan */
-  --color-terminal-text: #c5f2d2; /* phosphor-tinted readout white */
-  --color-terminal-text-dim: #4f8a66;
-  --color-terminal-border: #10331f;
-  --color-terminal-bg: #000000;
-  --color-terminal-primary: #000000;
-  --color-terminal-secondary: #020602;
+  --color-terminal-green: #2ee6ff; /* primary electric-cyan signal */
+  --color-terminal-green-dim: #1c91b8; /* mid ramp */
+  --color-terminal-sky: #5ad1ff; /* secondary sky-cyan */
+  --color-terminal-text: #e8f2fb; /* soft readout white */
+  --color-terminal-text-dim: #8aa3bd;
+  --color-terminal-border: rgba(120, 200, 255, 0.16);
+  --color-terminal-bg: #070b14;
+  --color-terminal-primary: #070b14;
+  --color-terminal-secondary: #0c1320;
 
   /* Canonical RIFT tokens (preferred names for new components) */
-  --color-rift: #00ff66;
-  --color-rift-dim: #0a9d4a;
-  --color-rift-deep: #063a20;
-  --color-rift-hot: #9dffc4;
-  --color-alarm: #ff3b1d; /* reserved: target acquired / breach / critical */
+  --color-rift: #2ee6ff; /* electric cyan */
+  --color-rift-dim: #1c91b8;
+  --color-rift-deep: #0b2a3a;
+  --color-rift-hot: #a7ecff;
+  --color-rift-violet: #8b7bff; /* aurora accent for gradients */
+  --color-rift-teal: #34e7c8; /* safe / online */
+  --color-rift-amber: #ffb347; /* warning */
+  --color-alarm: #ff5470; /* reserved: target acquired / breach / critical */
 }
 
 :root {
-  --radius: 0rem;
-  /* RIFT OS — "Classified Hacker Terminal"
-     Pure-black void · phosphor-green primary signal · terminal cyan secondary
-     · red reserved for alarm. BIOS/CRT readout, no SaaS surfaces. */
-  --background: #000000;
-  --foreground: #c5f2d2;
-  --card: #000000;
-  --card-foreground: #c5f2d2;
-  --popover: #020602;
-  --popover-foreground: #c5f2d2;
-  --primary: #00ff66;
-  --primary-foreground: #00220e;
-  --secondary: #020602;
-  --secondary-foreground: #c5f2d2;
-  --muted: #030703;
-  --muted-foreground: #4f8a66;
-  --accent: #04140a;
-  --accent-foreground: #36f0ff;
-  --destructive: #ff3b1d;
-  --border: #10331f;
-  --input: #10331f;
-  --ring: #00ff66;
-  --chart-1: #00ff66;
-  --chart-2: #36f0ff;
-  --chart-3: #0a9d4a;
-  --chart-4: #063a20;
-  --chart-5: #ff3b1d;
-  --sidebar: #000000;
-  --sidebar-foreground: #c5f2d2;
-  --sidebar-primary: #00ff66;
-  --sidebar-primary-foreground: #00220e;
-  --sidebar-accent: #030703;
-  --sidebar-accent-foreground: #36f0ff;
-  --sidebar-border: #10331f;
-  --sidebar-ring: #00ff66;
+  --radius: 1.1rem;
+  /* RIFT OS — "Glass Command Deck"
+     Deep-space base with real depth · frosted glass surfaces · electric-cyan
+     primary signal · aurora-violet + teal accents · soft cinematic glow.
+     A modern mission-control aesthetic, not a flat terminal. */
+  --background: #060a13;
+  --foreground: #e8f2fb;
+  --card: rgba(255, 255, 255, 0.045);
+  --card-foreground: #e8f2fb;
+  --popover: #0b1220;
+  --popover-foreground: #e8f2fb;
+  --primary: #2ee6ff;
+  --primary-foreground: #04141d;
+  --secondary: rgba(255, 255, 255, 0.06);
+  --secondary-foreground: #e8f2fb;
+  --muted: rgba(255, 255, 255, 0.035);
+  --muted-foreground: #8aa3bd;
+  --accent: rgba(46, 230, 255, 0.12);
+  --accent-foreground: #a7ecff;
+  --destructive: #ff5470;
+  --border: rgba(133, 197, 255, 0.12);
+  --input: rgba(255, 255, 255, 0.08);
+  --ring: rgba(46, 230, 255, 0.65);
+  --chart-1: #2ee6ff;
+  --chart-2: #8b7bff;
+  --chart-3: #34e7c8;
+  --chart-4: #ffb347;
+  --chart-5: #ff5470;
+  --sidebar: rgba(255, 255, 255, 0.02);
+  --sidebar-foreground: #cdddec;
+  --sidebar-primary: #2ee6ff;
+  --sidebar-primary-foreground: #04141d;
+  --sidebar-accent: rgba(255, 255, 255, 0.05);
+  --sidebar-accent-foreground: #a7ecff;
+  --sidebar-border: rgba(133, 197, 255, 0.1);
+  --sidebar-ring: rgba(46, 230, 255, 0.6);
 
   /* Surfaces & ramp (new RIFT names) */
-  --surface: #000000;
-  --border-strong: #1c5a36;
-  --rift-glow: rgba(0, 255, 102, 0.4);
+  --surface: #0a101c;
+  --surface-raised: #0e1626;
+  --border-strong: rgba(133, 197, 255, 0.24);
+  --rift-glow: rgba(46, 230, 255, 0.45);
+
+  /* Glass system */
+  --glass-bg: rgba(255, 255, 255, 0.05);
+  --glass-bg-strong: rgba(16, 24, 40, 0.62);
+  --glass-border: rgba(255, 255, 255, 0.1);
+  --glass-highlight: rgba(255, 255, 255, 0.16);
+  --glass-blur: 18px;
+  --glass-shadow:
+    0 1px 0 0 var(--glass-highlight) inset, 0 18px 50px -12px rgba(0, 0, 0, 0.7);
 
   /* Custom chat input */
-  --fill-input-chat: #000000;
+  --fill-input-chat: rgba(255, 255, 255, 0.05);
 
   /* Custom link colors */
-  --link-color: #36f0ff;
+  --link-color: #5ad1ff;
 
   /* Premium/Upgrade colors */
-  --premium-bg: #030703;
-  --premium-text: #36f0ff;
-  --premium-hover: #00ff66;
+  --premium-bg: rgba(139, 123, 255, 0.14);
+  --premium-text: #c4bcff;
+  --premium-hover: #8b7bff;
 
   /* Scrollbar colors */
-  --scrollbar-track: #000000;
-  --scrollbar-thumb: rgba(0, 255, 102, 0.28);
-  --scrollbar-thumb-hover: rgba(0, 255, 102, 0.5);
+  --scrollbar-track: transparent;
+  --scrollbar-thumb: rgba(46, 230, 255, 0.28);
+  --scrollbar-thumb-hover: rgba(46, 230, 255, 0.5);
 
   /* Sidebar text mask for truncation */
   --sidebar-mask: linear-gradient(
     90deg,
-    #040404 0%,
-    #040404 95%,
+    #0a101c 0%,
+    #0a101c 95%,
     transparent 100%,
     transparent 100%
   );
   --sidebar-mask-active: linear-gradient(
     90deg,
-    #040404 0%,
-    #040404 88%,
+    #0e1626 0%,
+    #0e1626 88%,
     transparent 93%,
     transparent 100%
   );
 
-  /* Signal glow effect (cyan) */
-  --neon-glow: 0 0 10px rgba(0, 255, 102, 0.5), 0 0 20px rgba(0, 255, 102, 0.3);
+  /* Signal glow effect (electric cyan) */
+  --neon-glow:
+    0 0 12px rgba(46, 230, 255, 0.45), 0 0 28px rgba(46, 230, 255, 0.22);
   --neon-glow-intense:
-    0 0 15px rgba(0, 255, 102, 0.7), 0 0 30px rgba(0, 255, 102, 0.5);
+    0 0 18px rgba(46, 230, 255, 0.65), 0 0 40px rgba(46, 230, 255, 0.4);
 }
 
 @layer base {
@@ -160,6 +178,202 @@
   }
   body {
     @apply bg-background text-foreground;
+    /* Cinematic ambient depth — soft cyan/violet auroras bleeding from the
+       corners over a deep-space base. Fixed so it stays put while scrolling. */
+    background-color: var(--background);
+    background-image:
+      radial-gradient(
+        ellipse 80% 60% at 8% -10%,
+        rgba(46, 230, 255, 0.1),
+        transparent 60%
+      ),
+      radial-gradient(
+        ellipse 70% 60% at 100% 0%,
+        rgba(139, 123, 255, 0.1),
+        transparent 55%
+      ),
+      radial-gradient(
+        ellipse 90% 70% at 50% 120%,
+        rgba(52, 231, 200, 0.07),
+        transparent 60%
+      );
+    background-attachment: fixed;
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+  }
+  /* Big display headings pick up the geometric face automatically. */
+  h1,
+  h2,
+  .font-display {
+    font-family: var(--font-display);
+    letter-spacing: -0.02em;
+  }
+}
+
+/* ============================================================
+   RIFT — "Glass Command" surface system
+   Frosted glass panels, gradient signal buttons, glow rings.
+   ============================================================ */
+
+.glass {
+  background: var(--glass-bg);
+  backdrop-filter: blur(var(--glass-blur)) saturate(160%);
+  -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(160%);
+  border: 1px solid var(--glass-border);
+  box-shadow: var(--glass-shadow);
+}
+
+/* More opaque frosted panel for content that needs readability over imagery */
+.glass-panel {
+  position: relative;
+  background: var(--glass-bg-strong);
+  backdrop-filter: blur(calc(var(--glass-blur) + 6px)) saturate(150%);
+  -webkit-backdrop-filter: blur(calc(var(--glass-blur) + 6px)) saturate(150%);
+  border: 1px solid var(--glass-border);
+  border-radius: var(--radius);
+  box-shadow: var(--glass-shadow);
+}
+
+/* Subtle top-edge sheen that sells the "glass" read */
+.glass-panel::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  padding: 1px;
+  background: linear-gradient(160deg, var(--glass-highlight), transparent 40%);
+  -webkit-mask:
+    linear-gradient(#000 0 0) content-box,
+    linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+  mask-composite: exclude;
+  pointer-events: none;
+  opacity: 0.7;
+}
+
+/* Gradient signal surface for primary CTAs and active chips */
+.gradient-signal {
+  background: linear-gradient(
+    135deg,
+    var(--color-rift) 0%,
+    var(--color-rift-teal) 100%
+  );
+  color: var(--primary-foreground);
+  box-shadow:
+    0 0 0 1px rgba(255, 255, 255, 0.08) inset,
+    0 10px 30px -10px rgba(46, 230, 255, 0.6);
+}
+.gradient-aurora {
+  background: linear-gradient(
+    120deg,
+    var(--color-rift) 0%,
+    var(--color-rift-violet) 55%,
+    var(--color-rift-teal) 100%
+  );
+}
+
+.glow-ring {
+  box-shadow:
+    0 0 0 1px rgba(46, 230, 255, 0.35),
+    0 0 24px -2px rgba(46, 230, 255, 0.45);
+}
+.glow-soft {
+  box-shadow: 0 0 40px -8px rgba(46, 230, 255, 0.35);
+}
+
+/* Big gradient display text (hero numerals / titles) */
+.text-gradient {
+  background: linear-gradient(
+    120deg,
+    var(--foreground) 0%,
+    var(--color-rift-hot) 60%,
+    var(--color-rift) 100%
+  );
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+
+/* Hover lift used on interactive cards / tiles */
+.lift {
+  transition:
+    transform var(--rift-dur-base, 220ms) var(--rift-ease-snap, ease),
+    box-shadow var(--rift-dur-base, 220ms) var(--rift-ease-snap, ease),
+    border-color var(--rift-dur-base, 220ms) var(--rift-ease-snap, ease);
+}
+.lift:hover {
+  transform: translateY(-3px);
+  border-color: var(--border-strong);
+  box-shadow:
+    var(--glass-shadow),
+    0 0 32px -6px rgba(46, 230, 255, 0.3);
+}
+
+/* Slow ambient float for hero / accent elements */
+@keyframes rift-float {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-10px);
+  }
+}
+.animate-float {
+  animation: rift-float 7s ease-in-out infinite;
+}
+
+/* Slow rotating conic aura (mission-control ring backdrops) */
+@keyframes rift-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+.animate-spin-slow {
+  animation: rift-spin 24s linear infinite;
+}
+
+/* Sheen sweep across buttons / chips on hover */
+@keyframes rift-sheen {
+  0% {
+    transform: translateX(-120%);
+  }
+  100% {
+    transform: translateX(220%);
+  }
+}
+.sheen {
+  position: relative;
+  overflow: hidden;
+  isolation: isolate;
+}
+.sheen::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 40%;
+  height: 100%;
+  background: linear-gradient(
+    100deg,
+    transparent,
+    rgba(255, 255, 255, 0.25),
+    transparent
+  );
+  transform: translateX(-120%);
+  pointer-events: none;
+}
+.sheen:hover::after {
+  animation: rift-sheen 0.9s ease;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .animate-float,
+  .animate-spin-slow {
+    animation: none !important;
+  }
+  .lift:hover {
+    transform: none;
   }
 }
 
@@ -241,15 +455,23 @@
   opacity: 0;
 }
 
-/* Display heading emphasis: terminal glitch highlight (RIFT). Mono, cyan,
-   tracked + faint signal glow — replaces the old serif-italic zauth treatment. */
+/* Display heading emphasis: modern gradient display face. The accent word in a
+   headline glows with an electric-cyan → aurora gradient (Glass Command). */
 .display-emphasis {
-  font-family: var(--font-mono), ui-monospace, monospace;
+  font-family: var(--font-display), ui-sans-serif, sans-serif;
   font-style: normal;
   font-weight: 600;
-  color: var(--primary);
-  letter-spacing: -0.01em;
-  text-shadow: 0 0 18px rgba(0, 255, 102, 0.35);
+  letter-spacing: -0.02em;
+  background: linear-gradient(
+    120deg,
+    var(--color-rift-hot) 0%,
+    var(--color-rift) 45%,
+    var(--color-rift-violet) 100%
+  );
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  filter: drop-shadow(0 0 22px rgba(46, 230, 255, 0.28));
 }
 
 /* Glitch effect for hover */
@@ -614,7 +836,10 @@
 .hud {
   position: relative;
   border: 1px solid var(--border);
-  background: color-mix(in oklab, var(--surface) 92%, transparent);
+  border-radius: calc(var(--radius) - 0.5rem);
+  background: var(--glass-bg);
+  backdrop-filter: blur(12px) saturate(150%);
+  -webkit-backdrop-filter: blur(12px) saturate(150%);
 }
 .hud::before,
 .hud::after {

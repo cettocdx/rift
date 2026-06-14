@@ -44,56 +44,47 @@ export default function AuthForm({ flow }: { flow: "signIn" | "signUp" }) {
   return (
     <div className="w-full max-w-sm">
       <div className="mb-10 flex items-center gap-2.5">
-        <RiftLogo size={28} className="text-terminal-green" />
+        <RiftLogo size={28} className="text-primary text-rift-glow" />
         <DottedWordmark
           word="RIFT"
           animate={false}
-          fill="#f4f4f5"
+          fill="#e8f2fb"
           className="h-[18px] w-auto"
         />
       </div>
 
-      <h1 className="text-3xl font-normal tracking-tight text-[#f4f4f5]">
+      <h1 className="font-display text-4xl font-semibold tracking-tight text-foreground">
         {isSignUp ? (
           <>
-            Create your{" "}
-            <span className="display-emphasis text-[#6df4ff]">account</span>.
+            Create your <span className="text-gradient">account</span>.
           </>
         ) : (
           <>
-            Welcome{" "}
-            <span className="display-emphasis text-[#6df4ff]">back</span>.
+            Welcome <span className="text-gradient">back</span>.
           </>
         )}
       </h1>
-      <p className="mt-3 text-sm leading-relaxed text-[#a1a1aa]">
+      <p className="mt-3 text-sm leading-relaxed text-muted-foreground">
         {isSignUp
           ? "Start mapping breaches before they open."
           : "Sign in to continue to your operations."}
       </p>
 
-      <form
-        onSubmit={handleSubmit}
-        className="mt-8 rounded-[14px] border border-white/10 bg-white/[0.03] p-6 backdrop-blur-sm"
-      >
+      <form onSubmit={handleSubmit} className="glass-panel mt-8 p-6 glow-soft">
         <label className="block">
-          <span className="text-xs font-medium uppercase tracking-wider text-[#a1a1aa]">
-            Email
-          </span>
+          <span className="hud-label">Email</span>
           <input
             name="email"
             type="email"
             autoComplete="email"
             required
             placeholder="operator@rift.sh"
-            className="mt-1.5 w-full rounded-[10px] border border-white/10 bg-black/30 px-3 py-2.5 text-[#f4f4f5] outline-none transition-colors placeholder:text-[#52525b] focus:border-terminal-green/60"
+            className="mt-2 w-full rounded-xl border border-white/10 bg-white/[0.04] px-3.5 py-2.5 text-foreground outline-none transition-all placeholder:text-muted-foreground/60 hover:bg-white/[0.06] focus:border-primary/60 focus:bg-white/[0.07] focus:ring-2 focus:ring-primary/20"
           />
         </label>
 
         <label className="mt-4 block">
-          <span className="text-xs font-medium uppercase tracking-wider text-[#a1a1aa]">
-            Password
-          </span>
+          <span className="hud-label">Password</span>
           <input
             name="password"
             type="password"
@@ -101,12 +92,12 @@ export default function AuthForm({ flow }: { flow: "signIn" | "signUp" }) {
             required
             minLength={8}
             placeholder="••••••••"
-            className="mt-1.5 w-full rounded-[10px] border border-white/10 bg-black/30 px-3 py-2.5 text-[#f4f4f5] outline-none transition-colors placeholder:text-[#52525b] focus:border-terminal-green/60"
+            className="mt-2 w-full rounded-xl border border-white/10 bg-white/[0.04] px-3.5 py-2.5 text-foreground outline-none transition-all placeholder:text-muted-foreground/60 hover:bg-white/[0.06] focus:border-primary/60 focus:bg-white/[0.07] focus:ring-2 focus:ring-primary/20"
           />
         </label>
 
         {error && (
-          <p className="mt-4 text-sm text-[#f87171]" role="alert">
+          <p className="mt-4 text-sm text-destructive" role="alert">
             {error}
           </p>
         )}
@@ -114,7 +105,8 @@ export default function AuthForm({ flow }: { flow: "signIn" | "signUp" }) {
         <Button
           type="submit"
           disabled={submitting}
-          className="mt-6 h-11 w-full rounded-[10px] bg-terminal-green text-black hover:bg-terminal-green/90"
+          size="lg"
+          className="mt-6 w-full"
         >
           {submitting
             ? "Please wait…"
@@ -124,13 +116,13 @@ export default function AuthForm({ flow }: { flow: "signIn" | "signUp" }) {
         </Button>
       </form>
 
-      <p className="mt-6 text-center text-sm text-[#a1a1aa]">
+      <p className="mt-6 text-center text-sm text-muted-foreground">
         {isSignUp ? (
           <>
             Already have an account?{" "}
             <Link
               href="/login"
-              className="text-[#f4f4f5] underline underline-offset-4"
+              className="text-link underline underline-offset-4 hover:text-primary"
             >
               Sign in
             </Link>
@@ -140,7 +132,7 @@ export default function AuthForm({ flow }: { flow: "signIn" | "signUp" }) {
             New to RIFT?{" "}
             <Link
               href="/signup"
-              className="text-[#f4f4f5] underline underline-offset-4"
+              className="text-link underline underline-offset-4 hover:text-primary"
             >
               Create an account
             </Link>
