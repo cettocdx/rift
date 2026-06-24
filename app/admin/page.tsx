@@ -1,6 +1,11 @@
 "use client";
 
-import { useQuery } from "convex/react";
+import {
+  useQuery,
+  Authenticated,
+  Unauthenticated,
+  AuthLoading,
+} from "convex/react";
 import { api } from "@/convex/_generated/api";
 import { formatTokens } from "@/lib/billing/token-display";
 import { RiftWordmark } from "@/components/icons/rift-wordmark";
@@ -25,26 +30,55 @@ function StatCard({ label, value }: { label: string; value: string }) {
   );
 }
 
+function LoadingScreen() {
+  return (
+    <div className="flex min-h-screen items-center justify-center bg-background text-muted-foreground">
+      Loading…
+    </div>
+  );
+}
+
+function NotAuthorized() {
+  return (
+    <div className="flex min-h-screen flex-col items-center justify-center gap-3 bg-background text-center">
+      <RiftWordmark height={16} className="text-foreground" />
+      <p className="text-sm text-muted-foreground">
+        Not authorized. This page is for admins only.
+      </p>
+    </div>
+  );
+}
+
+/**
+ * Gate the dashboard on auth state — mirrors the rest of the app — so the
+ * stats query only runs once the user is authenticated. Running it before auth
+ * resolves makes it return null (not authorized) on the first paint.
+ */
 export default function AdminPage() {
+  return (
+    <>
+      <AuthLoading>
+        <LoadingScreen />
+      </AuthLoading>
+      <Unauthenticated>
+        <NotAuthorized />
+      </Unauthenticated>
+      <Authenticated>
+        <AdminDashboard />
+      </Authenticated>
+    </>
+  );
+}
+
+function AdminDashboard() {
   const stats = useQuery(api.admin.getAdminStats);
 
   if (stats === undefined) {
-    return (
-      <div className="flex min-h-screen items-center justify-center bg-background text-muted-foreground">
-        Loading…
-      </div>
-    );
+    return <LoadingScreen />;
   }
 
   if (stats === null) {
-    return (
-      <div className="flex min-h-screen flex-col items-center justify-center gap-3 bg-background text-center">
-        <RiftWordmark height={16} className="text-foreground" />
-        <p className="text-sm text-muted-foreground">
-          Not authorized. This page is for admins only.
-        </p>
-      </div>
-    );
+    return <NotAuthorized />;
   }
 
   return (

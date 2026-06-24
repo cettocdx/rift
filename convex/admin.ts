@@ -16,9 +16,20 @@ export async function isAdminUser(ctx: QueryCtx): Promise<boolean> {
 }
 
 /**
+ * Upper bound on how many documents we pull from any single table. A Convex
+ * query that reads too many documents (or too many bytes) throws and the whole
+ * dashboard fails to load. Capping each read keeps the page resilient as the
+ * tables grow; the headline numbers stay exact until a table exceeds the cap,
+ * at which point they read as "at least this many" rather than crashing.
+ */
+const MAX_ROWS_PER_TABLE = 4000;
+const MAX_CHAT_ROWS = 3000;
+
+/**
  * Admin dashboard stats. Returns null for non-admins (the UI treats null as
- * "not authorized"). Reads full tables — fine at current scale; revisit with
- * aggregates if the user base grows large.
+ * "not authorized"). Reads are capped (see MAX_ROWS_PER_TABLE) so the query
+ * can't exceed Convex's per-query limits; revisit with aggregates if the user
+ * base grows beyond those caps.
  */
 export const getAdminStats = query({
   args: {},
@@ -48,10 +59,13 @@ export const getAdminStats = query({
     }
 
     const [users, revenueEvents, balances, chats] = await Promise.all([
-      ctx.db.query("users").collect(),
-      ctx.db.query("revenue_events").collect(),
-      ctx.db.query("extra_usage").collect(),
-      ctx.db.query("chats").collect(),
+      // Most recent users first — matches the table's sort and keeps the cap
+      // meaningful (we show newest signups when truncated).
+      ctx.db.query("users").order("desc").take(MAX_ROWS_PER_TABLE),
+      ctx.db.query("revenue_events").take(MAX_ROWS_PER_TABLE),
+      ctx.db.query("extra_usage").take(MAX_ROWS_PER_TABLE),
+      // Newest chats first so "last active" stays accurate for active users.
+      ctx.db.query("chats").order("desc").take(MAX_CHAT_ROWS),
     ]);
 
     const revenueByUser = new Map<string, number>();
