@@ -1,14 +1,18 @@
 "use client";
 
-import { useEffect, useRef } from "react";
+import { HomeCommandCenter } from "@/app/components/pro/HomeCommandCenter";
+import { useWorkingFile } from "@/lib/composer/working-file-store";
+
+import { useCallback, useEffect, useRef, type ReactNode } from "react";
 import { useGlobalState } from "@/app/contexts/GlobalState";
-import { useInputValue, useInputApi } from "@/app/contexts/InputContext";
+import { useInputApi } from "@/app/contexts/InputContext";
 import { TodoPanel } from "../TodoPanel";
 import type { ChatStatus } from "@/types";
 import { FileUploadPreview } from "../FileUploadPreview";
 import { QueuedMessagesPanel } from "../QueuedMessagesPanel";
 import { ScrollToBottomButton } from "../ScrollToBottomButton";
 import { useFileUpload } from "@/app/hooks/useFileUpload";
+import { newChatDraftId } from "@/lib/composer/draft-id";
 import { removeDraft } from "@/lib/utils/client-storage";
 import {
   RateLimitWarning,
@@ -17,15 +21,35 @@ import {
 import { isAgentMode } from "@/lib/utils/mode-helpers";
 import { toast } from "sonner";
 import { NULL_THREAD_DRAFT_ID } from "@/lib/utils/client-storage";
-import { SandboxSelector } from "../SandboxSelector";
 import { ChatInputTextarea } from "./ChatInputTextarea";
 import { ChatInputToolbar } from "./ChatInputToolbar";
+import { RiftTuiChrome, useTuiSkin } from "@/app/components/tui/RiftTuiChrome";
 import { type ContextUsageData } from "../ContextUsageIndicator";
 import { useIsMobile } from "@/hooks/use-mobile";
-import { useAppShell } from "@/app/contexts/AppShellContext";
+import type { ChatMode, ChatPurpose, SelectedModel } from "@/types/chat";
+import { useProShell } from "@/app/components/pro/ProShellContext";
+import { ComposerSurface } from "./ComposerSurface";
+import { ActiveGoalStatus } from "./ActiveGoalStatus";
+import { useSlashCommandRuntime } from "./useSlashCommandRuntime";
+
+/** Placeholder copy for the composer, per chat purpose (mode). */
+function purposePlaceholder(
+  purpose: ChatPurpose,
+  _selectedModel: SelectedModel,
+): string {
+  if (purpose === "app") {
+    return "Plan, Build, / for commands, @ for context";
+  }
+  if (purpose === "image") return "Describe an image or video to create";
+  return "Ask, / for commands, @ for context";
+}
 
 interface ChatInputProps {
-  onSubmit: (e: React.FormEvent) => void;
+  accessory?: ReactNode;
+  onSubmit: (
+    e: React.FormEvent,
+    options?: { input?: string; mode?: ChatMode },
+  ) => void | boolean | Promise<void | boolean>;
   onStop: () => void;
   onSendNow: (messageId: string) => void;
   status: ChatStatus;
@@ -62,12 +86,19 @@ export const ChatInput = ({
   contextUsage,
   placeholder,
   autoFocus,
+  accessory,
 }: ChatInputProps) => {
-  const input = useInputValue();
-  const { setInput } = useInputApi();
+  /*
+   * Deliberately not `useInputValue()`. This component renders the toolbar and
+   * its six selectors; subscribing here put all of them on the keystroke path.
+   * The handlers below read `inputRef.current` — always current, never
+   * reactive — and the send button subscribes to its own boolean.
+   */
+  const { setInput, inputRef } = useInputApi();
   const {
     chatMode,
     setChatMode,
+    chatPurpose,
     uploadedFiles,
     isUploadingFiles,
     messageQueue,
@@ -82,9 +113,11 @@ export const ChatInput = ({
     temporaryChatsEnabled,
     hasLocalSandbox,
     defaultLocalSandboxPreference,
+    desktopBridgeActive,
   } = useGlobalState();
-  const { composerClass } = useAppShell();
   const isMobile = useIsMobile();
+  const isTuiSkin = useTuiSkin();
+  const { enabled: proShell } = useProShell();
   const {
     fileInputRef,
     handleFileUploadEvent,
@@ -95,9 +128,45 @@ export const ChatInput = ({
   const isGenerating = status === "submitted" || status === "streaming";
   const showContextIndicator =
     (subscription !== "free" || isAgentMode(chatMode)) && !!contextUsage;
-  const isAgent = isAgentMode(chatMode);
+  const draftId = isNewChat
+    ? newChatDraftId(chatPurpose)
+    : chatId || NULL_THREAD_DRAFT_ID;
+  const goalTaskId = chatId || draftId;
+  const workingFile = useWorkingFile(chatId);
+  const dispatchPendingRef = useRef(false);
+  const workingFilePending =
+    chatPurpose === "app" && !!workingFile && !desktopBridgeActive;
 
-  const draftId = isNewChat ? "new" : chatId || NULL_THREAD_DRAFT_ID;
+  const clearComposer = useCallback(() => {
+    removeDraft(draftId);
+    setInput("");
+  }, [draftId, setInput]);
+
+  const submitCommandPrompt = useCallback(
+    (prompt: string, mode: ChatMode) => {
+      setInput(prompt);
+      const submit = () =>
+        onSubmit({ preventDefault() {} } as React.FormEvent, {
+          input: prompt,
+          mode,
+        });
+      if (typeof requestAnimationFrame === "function") {
+        requestAnimationFrame(submit);
+      } else {
+        window.setTimeout(submit, 0);
+      }
+    },
+    [onSubmit, setInput],
+  );
+
+  const slashCommands = useSlashCommandRuntime({
+    taskId: goalTaskId,
+    status,
+    onStop,
+    onClearComposer: clearComposer,
+    onSetComposer: setInput,
+    onSubmitPrompt: submitCommandPrompt,
+  });
 
   // Free agent mode constraints:
   // 1. Requires local sandbox — fall back to ask mode if disconnected
@@ -152,25 +221,73 @@ export const ChatInput = ({
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
+    if (workingFilePending) return;
+    const input = inputRef.current;
+    if (input.trimStart().startsWith("/")) {
+      void slashCommands.execute(input).then((handled) => {
+        if (!handled) submitRegularInput(e);
+      });
+      return;
+    }
+
+    submitRegularInput(e);
+  };
+
+  const submitRegularInput = (e: React.FormEvent) => {
+    if (dispatchPendingRef.current) return;
     const canSubmit =
       (status === "ready" || status === "streaming") &&
       !isUploadingFiles &&
-      (input.trim() || uploadedFiles.length > 0);
+      (inputRef.current.trim() || uploadedFiles.length > 0);
 
     if (canSubmit) {
-      onSubmit(e);
-      if (clearDraftOnSubmit) {
+      const submittedInput = inputRef.current;
+      const clearAcceptedDraft = (accepted: void | boolean) => {
+        if (accepted === false || !clearDraftOnSubmit) return;
+        // Never erase text entered while native access was being checked.
+        if (inputRef.current && inputRef.current !== submittedInput) return;
         removeDraft(draftId);
-        setTimeout(() => setInput(""), 0);
+        setInput("");
+      };
+      dispatchPendingRef.current = true;
+      try {
+        const result = onSubmit(e);
+        if (result && typeof result === "object" && "then" in result) {
+          void result
+            .then(clearAcceptedDraft)
+            .catch(() => {
+              toast.error(
+                "Your message was not sent. Your draft is still here.",
+              );
+            })
+            .finally(() => {
+              dispatchPendingRef.current = false;
+            });
+        } else {
+          clearAcceptedDraft(result);
+          dispatchPendingRef.current = false;
+        }
+      } catch {
+        dispatchPendingRef.current = false;
+        toast.error("Your message was not sent. Your draft is still here.");
       }
     }
   };
 
   return (
     <div
-      className={`relative min-w-0 px-4 ${isCentered ? "" : "pb-4 bg-gradient-to-b from-transparent via-background/80 to-background"}`}
+      data-ui="composer-region"
+      data-centered={isCentered ? "true" : "false"}
+      className={`relative min-w-0 px-3 sm:px-4 ${
+        isCentered ? "" : "pb-[max(12px,env(safe-area-inset-bottom))]"
+      }`}
     >
-      <div className="mx-auto w-full max-w-full min-w-0 sm:max-w-[768px] sm:min-w-[390px] flex flex-col flex-1">
+      <div
+        data-ui="composer-column"
+        className={`mx-auto flex w-full min-w-0 flex-1 flex-col ${
+          isCentered ? "max-w-[640px]" : "max-w-[760px]"
+        }`}
+      >
         {rateLimitWarning && onDismissRateLimitWarning && (
           <RateLimitWarning
             data={rateLimitWarning}
@@ -178,6 +295,7 @@ export const ChatInput = ({
           />
         )}
 
+        {accessory}
         <TodoPanel status={status} />
 
         {messageQueue.length > 0 && (
@@ -191,81 +309,78 @@ export const ChatInput = ({
           />
         )}
 
-        {/* Sandbox selector for new chats on mobile: shown above input & file upload.
-            Once the first message is sent, switches to below-input placement immediately
-            (isNewChat doesn't flip until the stream finishes, so we also check hasMessages).
-            On desktop, it's shown below the input (order-3). */}
-        {isMobile && isNewChat && !hasMessages && isAgentMode(chatMode) && (
-          <div className="flex px-1 pb-2 min-h-9">
-            <SandboxSelector
-              value={sandboxPreference}
-              onChange={setSandboxPreference}
-            />
-          </div>
-        )}
-
         {uploadedFiles && uploadedFiles.length > 0 && (
           <FileUploadPreview
             uploadedFiles={uploadedFiles}
             onRemoveFile={handleRemoveFile}
+            mediaKind={
+              chatPurpose === "image"
+                ? selectedModel.startsWith("video-")
+                  ? "video"
+                  : "image"
+                : undefined
+            }
           />
         )}
 
         <input
           ref={fileInputRef}
           type="file"
-          accept="*"
           multiple
           className="hidden"
           aria-label="Upload files"
           onChange={handleFileUploadEvent}
         />
 
-        <div
-          className={`order-2 sm:order-1 flex max-h-[300px] min-w-0 flex-col overflow-hidden ${composerClass} ${uploadedFiles && uploadedFiles.length > 0 ? "rounded-t-none border-t-0" : ""}`}
-        >
-          <div className="flex flex-col gap-2 px-3 py-2.5 pb-2">
-            <ChatInputTextarea
-              draftId={draftId}
-              chatMode={chatMode}
-              onEnterSubmit={handleSubmit}
-              minRows={isCentered ? 3 : 1}
-              placeholder={placeholder}
-              autoFocus={autoFocus}
-            />
-            <ChatInputToolbar
-              onAttachClick={handleAttachClick}
-              isGenerating={isGenerating}
-              hideStop={hideStop}
-              onStop={onStop}
-              onSubmit={handleSubmit}
-              status={status}
-              isUploadingFiles={isUploadingFiles}
-              input={input}
-              uploadedFiles={uploadedFiles}
-              chatMode={chatMode}
-              contextUsage={contextUsage}
-              showContextIndicator={showContextIndicator}
-              contextUsageVariant={isMobile ? "compact-popover" : "tooltip"}
-            />
-          </div>
-        </div>
+        {proShell && chatPurpose === "app" && !isTuiSkin && !isMobile ? (
+          <HomeCommandCenter chatId={chatId} isGenerating={isGenerating} />
+        ) : null}
 
-        {/* Sandbox selector below input.
-            Desktop centered new chats (no messages yet): absolutely positioned to avoid
-            shifting the centered layout.
-            Existing chats / after first message sent (all screens): normal flow.
-            Mobile new chats with no messages: hidden (uses above-input placement). */}
-        {isAgent && (!isMobile || !isNewChat || hasMessages) && (
-          <div
-            className={`order-3 flex items-center px-1 pt-2 md:hidden ${isNewChat && !hasMessages ? "absolute left-4 right-4 top-full" : ""}`}
-          >
-            <SandboxSelector
-              value={sandboxPreference}
-              onChange={setSandboxPreference}
-            />
-          </div>
-        )}
+        <ComposerSurface
+          isCentered={isCentered}
+          proShell={proShell}
+          hasAttachments={!!uploadedFiles?.length}
+        >
+          <ActiveGoalStatus key={goalTaskId} taskId={goalTaskId} />
+          <ChatInputTextarea
+            draftId={draftId}
+            conversationId={chatId ?? undefined}
+            chatMode={chatMode}
+            isCentered={isCentered}
+            onEnterSubmit={handleSubmit}
+            minRows={isMobile ? 1 : 2}
+            placeholder={
+              placeholder ??
+              (isMobile && chatPurpose !== "image"
+                ? "Message RIFT"
+                : purposePlaceholder(chatPurpose, selectedModel))
+            }
+            autoFocus={autoFocus ?? isMobile === false}
+          />
+          <ChatInputToolbar
+            chatId={chatId}
+            onAttachClick={handleAttachClick}
+            isCentered={isCentered}
+            isGenerating={isGenerating}
+            hideStop={hideStop}
+            onStop={onStop}
+            onSubmit={handleSubmit}
+            status={status}
+            isUploadingFiles={isUploadingFiles}
+            disabledReason={
+              workingFilePending ? "Connecting to your working file" : undefined
+            }
+            uploadedFiles={uploadedFiles}
+            chatMode={chatMode}
+            contextUsage={contextUsage}
+            showContextIndicator={showContextIndicator}
+            contextUsageVariant={isMobile ? "compact-popover" : "tooltip"}
+          />
+        </ComposerSurface>
+
+        {isTuiSkin ? (
+          <RiftTuiChrome contextUsed={contextUsage?.usedTokens ?? 0} />
+        ) : null}
 
         {onScrollToBottom && (
           <div className="absolute -top-16 left-1/2 -translate-x-1/2 z-40">

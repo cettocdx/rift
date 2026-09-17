@@ -13,8 +13,24 @@ end
 return 0
 `;
 
+// Extend the lock's TTL, but only while we still own it (token matches). Lets a
+// long run hold the lock with a SHORT base TTL: it stays alive via periodic
+// refresh, and self-heals within one TTL if the run dies without releasing.
+const REFRESH_FREE_RUN_LOCK_SCRIPT = `
+local key = KEYS[1]
+local token = ARGV[1]
+local ttl = tonumber(ARGV[2])
+
+if redis.call("GET", key) == token then
+  return redis.call("EXPIRE", key, ttl)
+end
+
+return 0
+`;
+
 export type FreeRunConcurrencyLock = {
   release: () => Promise<void>;
+  refresh: (ttlSeconds?: number) => Promise<void>;
   rateLimitSkipped?: boolean;
 };
 
@@ -31,6 +47,7 @@ export async function acquireFreeRunConcurrencyLock(
       return {
         rateLimitSkipped: true,
         release: async () => {},
+        refresh: async () => {},
       };
     }
     throw new ChatSDKError(
@@ -59,6 +76,14 @@ export async function acquireFreeRunConcurrencyLock(
       if (released) return;
       await redis.eval(RELEASE_FREE_RUN_LOCK_SCRIPT, [lockKey], [lockToken]);
       released = true;
+    },
+    refresh: async (refreshTtlSeconds = ttlSeconds) => {
+      if (released) return;
+      await redis.eval(
+        REFRESH_FREE_RUN_LOCK_SCRIPT,
+        [lockKey],
+        [lockToken, String(Math.max(1, Math.trunc(refreshTtlSeconds)))],
+      );
     },
   };
 }

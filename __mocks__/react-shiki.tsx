@@ -8,3 +8,7 @@ export const ShikiCode = ({ children }: { children?: React.ReactNode }) => {
 export const isInlineCode = () => false;
 
 export default ShikiCode;
+
+export const useShikiHighlighter = (code: string) => (
+  <code data-testid="shiki-code">{code}</code>
+);

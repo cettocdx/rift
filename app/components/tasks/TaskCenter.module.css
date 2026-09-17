@@ -1,0 +1,12 @@
+@media (pointer: coarse) {
+  .touchTarget,
+  .dialog :is(button, input:not([type="hidden"]), textarea) {
+    min-width: 44px;
+    min-height: 44px;
+    touch-action: manipulation;
+  }
+
+  .dialog :global([data-slot="dialog-header"]) {
+    padding-right: 40px;
+  }
+}

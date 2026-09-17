@@ -19,4 +19,23 @@ describe("writeAutoContinue", () => {
       data: { shouldContinue: true },
     });
   });
+
+  it("includes a stable continuation id and terminal reason when supplied", () => {
+    const mockWrite = jest.fn();
+    const writer = { write: mockWrite } as unknown as UIMessageStreamWriter;
+
+    writeAutoContinue(writer, {
+      continuationId: "assistant_run_1",
+      reason: "preemptive-timeout",
+    });
+
+    expect(mockWrite).toHaveBeenCalledWith({
+      type: "data-auto-continue",
+      data: {
+        shouldContinue: true,
+        continuationId: "assistant_run_1",
+        reason: "preemptive-timeout",
+      },
+    });
+  });
 });

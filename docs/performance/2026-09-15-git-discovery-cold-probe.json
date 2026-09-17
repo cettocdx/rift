@@ -1,0 +1,62 @@
+[
+  {
+    "trial": 1,
+    "ms": 3767,
+    "status": 48,
+    "timeout": true
+  },
+  {
+    "trial": 2,
+    "ms": 1733,
+    "status": 0,
+    "timeout": false
+  },
+  {
+    "trial": 3,
+    "ms": 142,
+    "status": 0,
+    "timeout": false
+  },
+  {
+    "trial": 4,
+    "ms": 141,
+    "status": 0,
+    "timeout": false
+  },
+  {
+    "trial": 5,
+    "ms": 168,
+    "status": 0,
+    "timeout": false
+  },
+  {
+    "trial": 6,
+    "ms": 142,
+    "status": 0,
+    "timeout": false
+  },
+  {
+    "trial": 7,
+    "ms": 139,
+    "status": 0,
+    "timeout": false
+  },
+  {
+    "trial": 8,
+    "ms": 193,
+    "status": 0,
+    "timeout": false
+  },
+  {
+    "trial": 9,
+    "ms": 202,
+    "status": 0,
+    "timeout": false
+  },
+  {
+    "trial": 10,
+    "ms": 157,
+    "status": 0,
+    "timeout": false
+  }
+]

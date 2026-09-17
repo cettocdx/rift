@@ -10,14 +10,19 @@ import {
 // Mock dependencies
 jest.mock("../_generated/server", () => ({
   mutation: jest.fn((config) => config),
+  internalMutation: jest.fn((config) => config),
 }));
 jest.mock("convex/values", () => ({
   v: {
     null: jest.fn(() => "null"),
+    string: jest.fn(() => "string"),
   },
 }));
 jest.mock("../_generated/api", () => ({
   internal: {
+    userDeletion: {
+      deleteTasksAndProjectsBatch: "deleteTasksAndProjectsBatch",
+    },
     s3Cleanup: {
       deleteS3ObjectsBatchAction: "deleteS3ObjectsBatchAction",
     },
@@ -106,6 +111,7 @@ describe("userDeletion", () => {
         withIndex: jest.fn().mockReturnThis(),
         eq: jest.fn().mockReturnThis(),
         collect: jest.fn(),
+        take: jest.fn().mockResolvedValue([]),
         first: jest.fn(),
       };
 
@@ -192,6 +198,7 @@ describe("userDeletion", () => {
         withIndex: jest.fn().mockReturnThis(),
         eq: jest.fn().mockReturnThis(),
         collect: jest.fn(),
+        take: jest.fn().mockResolvedValue([]),
         first: jest.fn(),
       };
 
@@ -264,6 +271,7 @@ describe("userDeletion", () => {
         withIndex: jest.fn().mockReturnThis(),
         eq: jest.fn().mockReturnThis(),
         collect: jest.fn(),
+        take: jest.fn().mockResolvedValue([]),
         first: jest.fn(),
       };
 
@@ -340,6 +348,7 @@ describe("userDeletion", () => {
         withIndex: jest.fn().mockReturnThis(),
         eq: jest.fn().mockReturnThis(),
         collect: jest.fn(),
+        take: jest.fn().mockResolvedValue([]),
         first: jest.fn(),
       };
 
@@ -417,6 +426,7 @@ describe("userDeletion", () => {
         withIndex: jest.fn().mockReturnThis(),
         eq: jest.fn().mockReturnThis(),
         collect: jest.fn(),
+        take: jest.fn().mockResolvedValue([]),
         first: jest.fn(),
       };
 
@@ -480,6 +490,7 @@ describe("userDeletion", () => {
         withIndex: jest.fn().mockReturnThis(),
         eq: jest.fn().mockReturnThis(),
         collect: jest.fn(),
+        take: jest.fn().mockResolvedValue([]),
         first: jest.fn(),
       };
 
@@ -508,6 +519,100 @@ describe("userDeletion", () => {
 
       // Verify storage delete was NOT called
       expect(mockStorage.delete).not.toHaveBeenCalled();
+    });
+
+    it("deletes task runs, tasks, and projects in dependency order", async () => {
+      const { deleteTasksAndProjectsBatch } = await import("../userDeletion");
+      const rowsByTable: Record<string, Array<{ _id: string }>> = {
+        task_runs: [{ _id: "run-1" }],
+        tasks: [{ _id: "task-1" }],
+        bot_meetings: [{ _id: "meeting-1" }],
+        project_bots: [{ _id: "bot-1" }],
+        projects: [{ _id: "project-1" }],
+      };
+      const queriedTables: string[] = [];
+      const deleteOrder: string[] = [];
+      const mockDb = {
+        query: jest.fn((table: string) => {
+          queriedTables.push(table);
+          const range: any = {};
+          range.eq = jest.fn(() => range);
+          return {
+            withIndex: jest.fn((_indexName: string, predicate: any) => {
+              predicate(range);
+              return {
+                take: jest
+                  .fn<any>()
+                  .mockResolvedValue(rowsByTable[table] ?? []),
+              };
+            }),
+          };
+        }),
+        delete: jest.fn(async (id: string) => {
+          deleteOrder.push(id);
+        }),
+      };
+      const mockCtx: any = {
+        db: mockDb,
+        scheduler: { runAfter: jest.fn() },
+      };
+
+      await expect(
+        (deleteTasksAndProjectsBatch as any).handler(mockCtx, {
+          userId: "user123",
+        }),
+      ).resolves.toBeNull();
+
+      expect(queriedTables).toEqual([
+        "task_runs",
+        "tasks",
+        "bot_meetings",
+        "project_bots",
+        "projects",
+      ]);
+      expect(deleteOrder).toEqual([
+        "run-1",
+        "task-1",
+        "meeting-1",
+        "bot-1",
+        "project-1",
+      ]);
+      expect(mockCtx.scheduler.runAfter).not.toHaveBeenCalled();
+    });
+
+    it("caps each owned-record cleanup pass and schedules the next batch", async () => {
+      const { deleteTasksAndProjectsBatch } = await import("../userDeletion");
+      const taskRuns = Array.from({ length: 100 }, (_, index) => ({
+        _id: `run-${index}`,
+      }));
+      const take = jest.fn<any>().mockResolvedValue(taskRuns);
+      const mockDb = {
+        query: jest.fn(() => ({
+          withIndex: jest.fn((_indexName: string, predicate: any) => {
+            const range: any = {};
+            range.eq = jest.fn(() => range);
+            predicate(range);
+            return { take };
+          }),
+        })),
+        delete: jest.fn<any>().mockResolvedValue(undefined),
+      };
+      const runAfter = jest.fn<any>().mockResolvedValue(undefined);
+      const mockCtx: any = {
+        db: mockDb,
+        scheduler: { runAfter },
+      };
+
+      await (deleteTasksAndProjectsBatch as any).handler(mockCtx, {
+        userId: "user123",
+      });
+
+      expect(take).toHaveBeenCalledWith(100);
+      expect(mockDb.delete).toHaveBeenCalledTimes(100);
+      expect(mockDb.query).toHaveBeenCalledTimes(1);
+      expect(runAfter).toHaveBeenCalledWith(0, "deleteTasksAndProjectsBatch", {
+        userId: "user123",
+      });
     });
 
     it("should throw error if user is not authenticated", async () => {

@@ -55,7 +55,7 @@ export const NotesToolHandler = memo(function NotesToolHandler({
       if (input?.category) filters.push(input.category);
       if (input?.tags?.length) filters.push(`tagged: ${input.tags.join(", ")}`);
       if (input?.search) filters.push(`"${input.search}"`);
-      return filters.length > 0 ? filters.join(" · ") : undefined;
+      return filters.length > 0 ? filters.join(", ") : undefined;
     }
     return undefined;
   };

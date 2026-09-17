@@ -6,8 +6,11 @@ import { Id } from "@/convex/_generated/dataModel";
 import type { AnySandbox } from "@/types";
 import { isE2BSandbox } from "./sandbox-types";
 import { buildSandboxCommandOptions } from "./sandbox-command-options";
-import { generateS3UploadUrl } from "@/convex/s3Utils";
-import { getConvexClient } from "@/lib/db/convex-client";
+import {
+  getConvexClient,
+  getConvexServiceKey,
+  getConvexUrl,
+} from "@/lib/db/convex-client";
 import { MAX_GENERATED_FILE_SIZE_BYTES } from "@/lib/constants/s3";
 import { logger } from "@/lib/logger";
 
@@ -242,19 +245,35 @@ function formatUploadFailure(
   );
 }
 
+/**
+ * Sends the file's bytes to an upload URL.
+ *
+ * S3 takes a presigned PUT and answers with an empty body. Convex storage takes
+ * a POST and answers with `{"storageId": "..."}`, which is the only handle to
+ * the stored blob -- so that body is parsed and returned. Returns the storage
+ * id for the Convex backend and `undefined` for S3.
+ */
 async function uploadGeneratedFileFromSandboxToUrl(args: {
   sandbox: AnySandbox;
   fullPath: string;
   uploadUrl: string;
   mediaType: string;
-}): Promise<void> {
-  const { sandbox, fullPath, uploadUrl, mediaType } = args;
+  backend: "s3" | "convex";
+}): Promise<string | undefined> {
+  const { sandbox, fullPath, uploadUrl, mediaType, backend } = args;
   const fileName = getFileNameFromPath(fullPath);
+  const method = backend === "convex" ? "POST" : "PUT";
 
-  if (!isE2BSandbox(sandbox) && sandbox.files?.uploadToUrl) {
+  // The sandbox's native helper does a PUT and discards the response body, so
+  // it cannot be used for Convex storage, whose response IS the result.
+  if (
+    backend === "s3" &&
+    !isE2BSandbox(sandbox) &&
+    sandbox.files?.uploadToUrl
+  ) {
     try {
       await sandbox.files.uploadToUrl(fullPath, uploadUrl, mediaType);
-      return;
+      return undefined;
     } catch (error) {
       logger.warn("sandbox_generated_file_native_upload_failed", {
         event: "sandbox_generated_file_native_upload_failed",
@@ -269,7 +288,7 @@ async function uploadGeneratedFileFromSandboxToUrl(args: {
   }
 
   let result: SandboxCommandResult;
-  const uploadCommand = `curl -fsSL -X PUT -H ${shellQuote(`Content-Type: ${mediaType}`)} --data-binary @${shellQuote(fullPath)} ${shellQuote(uploadUrl)}`;
+  const uploadCommand = `curl -fsSL -X ${method} -H ${shellQuote(`Content-Type: ${mediaType}`)} --data-binary @${shellQuote(fullPath)} ${shellQuote(uploadUrl)}`;
   try {
     result = await sandbox.commands.run(
       `${uploadCommand}; status=$?; printf '\\n${SANDBOX_UPLOAD_STATUS_MARKER}%s\\n' "$status"; exit 0`,
@@ -316,6 +335,33 @@ async function uploadGeneratedFileFromSandboxToUrl(args: {
     });
     throw formatUploadFailure(fullPath, result);
   }
+
+  if (backend !== "convex") return undefined;
+
+  // Convex answers a successful upload with the id of the stored blob. Without
+  // it the bytes are in storage but unreferenced, so a missing or unparseable
+  // body is a failure, not a warning.
+  try {
+    const parsed = JSON.parse(result.stdout.trim()) as { storageId?: string };
+    if (typeof parsed.storageId === "string" && parsed.storageId) {
+      return parsed.storageId;
+    }
+  } catch {
+    // Fall through to the shared error below.
+  }
+
+  logger.error("sandbox_generated_file_storage_id_missing", undefined, {
+    event: "sandbox_generated_file_storage_id_missing",
+    service: "chat-handler",
+    sandbox_type: getSandboxLogType(sandbox),
+    file_name: fileName,
+    file_path: fullPath,
+    media_type: mediaType,
+    response: result.stdout?.slice(0, 500),
+  });
+  throw new Error(
+    `Failed to upload file ${fullPath}: storage upload returned no storage id`,
+  );
 }
 
 export async function uploadSandboxFileToConvex(args: {
@@ -325,18 +371,26 @@ export async function uploadSandboxFileToConvex(args: {
   mediaType?: string;
   name?: string;
 }): Promise<UploadedFileInfo> {
-  if (!process.env.NEXT_PUBLIC_CONVEX_URL) {
+  try {
+    getConvexUrl();
+  } catch {
     throw new Error(
       "NEXT_PUBLIC_CONVEX_URL is required for sandbox file uploads",
     );
   }
 
-  if (!process.env.CONVEX_SERVICE_ROLE_KEY) {
+  const serviceKey = getConvexServiceKey();
+  if (!serviceKey) {
     throw new Error(
       "CONVEX_SERVICE_ROLE_KEY is required for sandbox file uploads. " +
         "This is a server-only secret and must never be exposed to the client.",
     );
   }
+
+  // Retain one authority across file preflight, byte transfer and metadata
+  // save, including HTTP callers that do not have an ambient worker scope.
+  // Constructing this client is local; no request occurs before size checks.
+  const convex = getConvexClient();
 
   const { sandbox, userId, fullPath } = args;
   const mediaType = args.mediaType || DEFAULT_MEDIA_TYPE;
@@ -355,19 +409,29 @@ export async function uploadSandboxFileToConvex(args: {
     });
   }
   assertSandboxFileSizeAllowed(name, fileSize);
-  const convex = getConvexClient();
 
   let uploadUrl: string;
-  let s3Key: string;
+  let s3Key: string | undefined;
+  let backend: "s3" | "convex";
   try {
-    const generatedUrl = await generateS3UploadUrl(
-      name,
-      mediaType,
-      userId,
-      fileSize,
+    // Goes through the action rather than the raw S3 helper so this path gets
+    // the same fallback every other upload does: without AWS credentials the
+    // bytes land in Convex storage instead of failing outright. Calling the
+    // helper directly is what made `file` view previews fail on deployments
+    // that never configured S3 -- which the product explicitly supports.
+    const generatedUrl = await convex.action(
+      api.s3Actions.generateSandboxUploadUrlAction,
+      {
+        serviceKey,
+        userId,
+        fileName: name,
+        contentType: mediaType,
+        size: fileSize,
+      },
     );
+    backend = generatedUrl.backend;
     uploadUrl = generatedUrl.uploadUrl;
-    s3Key = generatedUrl.s3Key;
+    s3Key = generatedUrl.backend === "s3" ? generatedUrl.s3Key : undefined;
   } catch (error) {
     logger.error(
       "sandbox_generated_file_upload_url_failed",
@@ -387,13 +451,16 @@ export async function uploadSandboxFileToConvex(args: {
     throw error;
   }
 
+  let storageId: Id<"_storage"> | undefined;
   try {
-    await uploadGeneratedFileFromSandboxToUrl({
+    const uploadedStorageId = await uploadGeneratedFileFromSandboxToUrl({
       sandbox,
       fullPath,
       uploadUrl,
       mediaType,
+      backend,
     });
+    storageId = uploadedStorageId as Id<"_storage"> | undefined;
   } catch (error) {
     logger.error(
       "sandbox_generated_file_upload_to_url_failed",
@@ -418,11 +485,11 @@ export async function uploadSandboxFileToConvex(args: {
     const saved = await convex.action(
       api.fileActions.saveSandboxGeneratedFile,
       {
-        s3Key,
+        ...(s3Key ? { s3Key } : { storageId }),
         name,
         mediaType,
         size: fileSize,
-        serviceKey: process.env.CONVEX_SERVICE_ROLE_KEY!,
+        serviceKey,
         userId,
       },
     );
@@ -432,6 +499,7 @@ export async function uploadSandboxFileToConvex(args: {
       name,
       mediaType,
       s3Key,
+      storageId,
     } as UploadedFileInfo;
   } catch (error) {
     logger.error(

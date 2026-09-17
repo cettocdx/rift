@@ -1,0 +1,217 @@
+/* Phone chat has its own density; desktop workbench measurements stay intact. */
+@media (max-width: 767px) {
+  .pro-shell {
+    --pro-main-bg: #fff;
+    --pro-composer-bg: #f4f4f4;
+  }
+  .dark .pro-shell {
+    --pro-main-bg: #000;
+    --pro-composer-bg: #202020;
+  }
+  .pro-shell [data-pro-mobile-app-bar] {
+    border-bottom: 0;
+  }
+  .pro-shell [data-testid="pro-mobile-page-title"] {
+    font-size: 18px;
+    font-weight: 600;
+  }
+  .pro-shell [data-pro-mobile-app-bar] button {
+    border-radius: 50%;
+  }
+
+  .pro-shell .pro-main [data-ui="composer-shell"] {
+    border: 1px solid transparent;
+    border-radius: 24px;
+    background: var(--pro-composer-bg);
+    box-shadow: none;
+    min-height: 0;
+  }
+  .pro-shell .pro-main [data-ui="composer-shell"]:focus-within {
+    border-color: var(--border);
+    box-shadow: none;
+  }
+  .pro-shell .pro-main [data-ui="composer-region"] textarea {
+    padding: 14px 16px 4px;
+    font-size: var(--rift-type-body, 16px);
+    line-height: 24px;
+    letter-spacing: 0;
+    min-height: 42px;
+  }
+  .pro-shell [data-rift-chat-surface] [data-ui="composer-textarea"] {
+    min-height: 42px;
+  }
+  .pro-shell [data-ui="composer-toolbar"] {
+    flex-wrap: nowrap;
+    gap: 2px;
+    padding: 2px 8px 8px;
+  }
+  .pro-shell [data-ui="composer-model-controls"] {
+    order: 0;
+    flex: 1 1 0%;
+    margin-left: 0;
+    max-width: 100%;
+    overflow: hidden;
+  }
+  .pro-shell [data-ui="composer-submit-controls"] {
+    margin-left: 0;
+  }
+  .pro-shell [data-ui="composer-toolbar"] button {
+    min-height: 44px;
+    height: 44px;
+    min-width: 44px;
+    font-size: 14px;
+  }
+  .pro-shell [data-ui="composer-toolbar"] [data-ui="model-selector-trigger"] {
+    min-width: 0;
+    padding-inline: 4px;
+    gap: 4px;
+    color: var(--foreground);
+  }
+  .pro-shell [data-ui="composer-toolbar"] > div:first-child button svg,
+  .pro-shell [data-ui="composer-toolbar"] [data-testid="send-button"] svg {
+    width: 20px;
+    height: 20px;
+  }
+  .pro-shell [data-ui="model-effort-label"] {
+    display: none;
+  }
+  .pro-shell [data-ui="composer-toolbar"] > div:first-child button,
+  .pro-shell [data-ui="composer-toolbar"] > button {
+    width: 44px;
+    border: 0;
+    border-radius: 50%;
+    background: transparent;
+    box-shadow: none;
+    color: var(--foreground);
+  }
+  .pro-shell [data-ui="composer-toolbar"] [data-testid="send-button"],
+  .pro-shell [data-ui="composer-toolbar"] [aria-label="Stop generation"] {
+    width: 44px;
+    height: 44px;
+    border: 0;
+    border-radius: 50%;
+    background: var(--foreground);
+    color: var(--background);
+    box-shadow: none;
+  }
+  .dark
+    .pro-shell
+    [data-ui="composer-toolbar"]
+    [data-testid="send-button"]:enabled {
+    background: var(--foreground);
+    color: var(--background);
+  }
+  .pro-shell [data-ui="composer-toolbar"] [data-testid="send-button"]:disabled {
+    background: var(--muted);
+    color: var(--muted-foreground);
+    opacity: 1;
+    box-shadow: none;
+  }
+  .pro-shell [data-rift-empty-stage] .rift-welcome-title {
+    font-size: 26px;
+    font-weight: 500;
+    letter-spacing: -0.02em;
+    line-height: 1.3;
+  }
+}
+
+@media (max-width: 767px) {
+  html.dark[data-rift-appearance] :is(.pro-shell, body[data-rift-shell-pro]),
+  html.dark body,
+  html.dark .pro-shell {
+    --background: #000;
+    --rift-appearance-background: #000;
+    --foreground: #f3f3f3;
+    --popover: #171717;
+    --popover-foreground: #f3f3f3;
+    --muted: #262626;
+    --muted-foreground: #a1a1a1;
+    --sidebar: #101010;
+    --sidebar-background: #101010;
+  }
+  .dark .pro-shell,
+  .dark .pro-shell .pro-main,
+  .dark .pro-shell [data-pro-mobile-app-bar] {
+    background: #000;
+  }
+  .dark .pro-shell [data-mobile-navigation-drawer] {
+    background: #101010;
+  }
+  [data-mobile-navigation-overlay] {
+    animation: mobile-scrim-in 180ms ease-out both;
+  }
+  [data-mobile-navigation-overlay] [data-mobile-navigation-drawer] {
+    animation: mobile-drawer-in 200ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
+    border-right: 0;
+  }
+  [data-mobile-navigation-overlay][data-state="closed"] {
+    animation: mobile-scrim-out 180ms ease-in both;
+    pointer-events: none;
+  }
+  [data-mobile-navigation-overlay][data-state="closed"]
+    [data-mobile-navigation-drawer] {
+    animation: mobile-drawer-out 180ms ease-in both;
+  }
+}
+@keyframes mobile-scrim-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+@keyframes mobile-scrim-out {
+  from {
+    opacity: 1;
+  }
+  to {
+    opacity: 0;
+  }
+}
+@keyframes mobile-drawer-in {
+  from {
+    transform: translateX(-100%);
+  }
+  to {
+    transform: translateX(0);
+  }
+}
+@keyframes mobile-drawer-out {
+  from {
+    transform: translateX(0);
+  }
+  to {
+    transform: translateX(-100%);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  [data-mobile-navigation-overlay],
+  [data-mobile-navigation-overlay] [data-mobile-navigation-drawer] {
+    animation-duration: 1ms !important;
+  }
+}
+
+@media (max-width: 767px) {
+  html
+    body[data-rift-shell-pro]
+    [data-ui="model-selector-menu"][data-slot="popover-content"] {
+    --rift-composer-type: 15px;
+    --rift-composer-detail: 12px;
+    font-size: 15px;
+    line-height: 1.4;
+    border-radius: 24px;
+  }
+}
+
+@media (max-width: 767px) {
+  html body .pro-shell [data-mobile-navigation-drawer] {
+    width: min(86vw, 320px);
+    --rift-type-nav: 15px;
+    --rift-type-label: 14px;
+    --rift-sidebar-row-height: 44px;
+  }
+  html body .pro-shell [data-mobile-navigation-drawer] button {
+    min-height: 44px;
+  }
+}

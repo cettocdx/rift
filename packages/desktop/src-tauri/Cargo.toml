@@ -1,6 +1,6 @@
 [package]
 name = "rift-desktop"
-version = "0.0.0"
+version = "0.1.0"
 description = "RIFT Desktop Application"
 authors = ["RIFT"]
 edition = "2021"
@@ -18,11 +18,10 @@ path = "src/main.rs"
 tauri-build = { version = "2", features = [] }
 
 [dependencies]
-tauri = { version = "2", features = [] }
+tauri = { version = "2", features = ["macos-private-api", "unstable"] }
 tauri-plugin-os = "2"
 tauri-plugin-process = "2"
 tauri-plugin-shell = "2"
-tauri-plugin-updater = "2"
 tauri-plugin-deep-link = "2"
 tauri-plugin-opener = "2"
 tauri-plugin-dialog = "2"
@@ -30,6 +29,7 @@ tauri-plugin-single-instance = "2"
 url = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+sha2 = "0.10"
 log = "0.4"
 env_logger = "0.11"
 tokio = { version = "1", features = ["time", "net", "io-util", "process", "sync", "macros"] }
@@ -43,7 +43,10 @@ libc = "0.2"
 
 [target.'cfg(target_os = "macos")'.dependencies]
 objc2 = "0.5"
+objc2-app-kit = { version = "0.2", features = ["NSResponder", "NSView", "NSWindow", "NSButton", "NSControl"] }
+objc2-foundation = { version = "0.2", features = ["NSString"] }
 objc2-web-kit = { version = "0.2", features = ["WKWebView", "WKNavigation", "objc2-app-kit"] }
+window-vibrancy = "0.5"
 
 [profile.release]
 panic = "abort"
@@ -51,3 +54,7 @@ codegen-units = 1
 lto = true
 opt-level = "s"
 strip = "none"
+
+# Keep full native resource verification fast in debug desktop previews.
+[profile.dev.package.sha2]
+opt-level = 3

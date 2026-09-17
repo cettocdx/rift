@@ -1,4 +1,9 @@
-import { Centrifuge, type Subscription } from "centrifuge";
+import {
+  Centrifuge,
+  disconnectedCodes,
+  State,
+  type Subscription,
+} from "centrifuge";
 import posthog from "posthog-js";
 import {
   sandboxConnectionChannel,
@@ -9,11 +14,13 @@ import {
   type PtyInputMessage,
   type PtyResizeMessage,
   type PtyKillMessage,
+  type DesktopLocalAccessRequestMessage,
+  type DesktopLocalAccessResultMessage,
 } from "@/lib/centrifugo/types";
 import {
   DEFAULT_PTY_COLS,
   DEFAULT_PTY_ROWS,
-} from "@/lib/ai/tools/utils/pty-session-manager";
+} from "@/lib/ai/tools/utils/pty-constants";
 
 type RefreshTokenResult =
   | { ok: true; centrifugoToken: string }
@@ -52,7 +59,8 @@ type TargetedIncomingMessage =
   | PtyCreateMessage
   | PtyInputMessage
   | PtyResizeMessage
-  | PtyKillMessage;
+  | PtyKillMessage
+  | DesktopLocalAccessRequestMessage;
 
 function isTargetedIncomingMessage(
   message: unknown,
@@ -71,7 +79,8 @@ function isTargetedIncomingMessage(
       type === "pty_create" ||
       type === "pty_input" ||
       type === "pty_resize" ||
-      type === "pty_kill")
+      type === "pty_kill" ||
+      type === "desktop_local_access_request")
   );
 }
 
@@ -86,6 +95,8 @@ function isUnauthenticatedError(error: unknown): boolean {
 }
 
 interface DesktopBridgeConfig {
+  /** A channel subscription acknowledgement, not merely a registered session. */
+  onConnectionStateChange?: (ready: boolean) => void;
   connectDesktop: (args: {
     connectionName: string;
     osInfo?: {
@@ -112,7 +123,25 @@ export class DesktopSandboxBridge {
   private subscription: Subscription | null = null;
   private connectionId: string | null = null;
   private activeCommands = new Set<string>();
+  private ready = false;
+  private lifecycleVersion = 0;
+  private reconnectAllowed = true;
+  private messageSizeDisconnected = false;
   private config: DesktopBridgeConfig;
+  // A native write may finish while its socket is offline. Keep its outcome
+  // through reconnect so duplicate deliveries only replay the acknowledgement.
+  // Requests time out after at most 120 seconds; retain dedup state for 5 min.
+  private localOperations = new Map<
+    string,
+    {
+      completedAt?: number;
+      result: Promise<DesktopLocalAccessResultMessage>;
+    }
+  >();
+  private pendingLocalResults = new Map<
+    string,
+    DesktopLocalAccessResultMessage
+  >();
 
   constructor(config: DesktopBridgeConfig) {
     this.config = config;
@@ -122,32 +151,97 @@ export class DesktopSandboxBridge {
     return this.connectionId;
   }
 
-  private terminateClient(): void {
+  isReady(): boolean {
+    return this.ready;
+  }
+
+  canReconnect(): boolean {
+    return this.reconnectAllowed;
+  }
+
+  /** Resume only WS1009/code3, which Centrifuge excludes from its retry loop. */
+  reconnectTransport(): boolean {
+    if (
+      !this.reconnectAllowed ||
+      !this.messageSizeDisconnected ||
+      this.ready ||
+      !this.connectionId ||
+      !this.subscription ||
+      this.client?.state !== State.Disconnected
+    )
+      return false;
+    // Keep the session, subscription and operation outcomes: retrying a native
+    // action to recover its acknowledgement can duplicate writes or clicks.
+    this.messageSizeDisconnected = false;
+    this.client.connect();
+    return true;
+  }
+
+  private setReady(ready: boolean): void {
+    if (this.ready === ready) return;
+    this.ready = ready;
+    // Readiness observers must not interrupt transport cleanup.
+    try {
+      this.config.onConnectionStateChange?.(ready);
+    } catch {
+      // Consumer state is separate from connection ownership.
+    }
+  }
+
+  private terminateClient(recoverable = false): void {
+    this.lifecycleVersion += 1;
+    this.reconnectAllowed = recoverable;
+    this.messageSizeDisconnected = false;
+    this.setReady(false);
     const client = this.client;
+    const subscription = this.subscription;
     this.client = null;
+    this.subscription = null;
     this.connectionId = null;
+    this.localOperations.clear();
+    this.pendingLocalResults.clear();
+    try {
+      subscription?.unsubscribe();
+      subscription?.removeAllListeners();
+    } catch {
+      // A subscription cleanup failure must not keep the socket alive.
+    }
     try {
       client?.disconnect();
     } catch {
-      // already in a terminal state
+      // Already in a terminal state.
     }
   }
 
   async start(): Promise<string> {
+    const version = ++this.lifecycleVersion;
+    this.reconnectAllowed = true;
+    this.messageSizeDisconnected = false;
+    this.setReady(false);
     const osInfo = await this.getOsInfo();
+    if (version !== this.lifecycleVersion)
+      throw new Error("Desktop relay startup was stopped.");
 
     const { connectionId, centrifugoToken, centrifugoWsUrl } =
       await this.config.connectDesktop({
         connectionName: osInfo?.hostname || "Desktop",
         osInfo,
       });
-
+    if (version !== this.lifecycleVersion) {
+      // stop() may run before registration resolves. Revoke the late server
+      // connection instead of creating a socket after the last grant was lost.
+      try {
+        await this.config.disconnectDesktop({ connectionId });
+      } finally {
+        throw new Error("Desktop relay startup was stopped.");
+      }
+    }
     this.connectionId = connectionId;
 
     this.client = new Centrifuge(centrifugoWsUrl, {
       token: centrifugoToken,
       getToken: async () => {
-        if (!this.connectionId) {
+        if (version !== this.lifecycleVersion || !this.connectionId) {
           throw new Error(
             "[DesktopSandboxBridge] Cannot refresh token: connectionId is null",
           );
@@ -158,6 +252,7 @@ export class DesktopSandboxBridge {
             connectionId: this.connectionId,
           });
         } catch (error) {
+          if (version !== this.lifecycleVersion) throw error;
           if (isUnauthenticatedError(error)) {
             const eventProps = {
               connectionId: this.connectionId,
@@ -182,6 +277,8 @@ export class DesktopSandboxBridge {
           }
           throw error;
         }
+        if (version !== this.lifecycleVersion)
+          throw new Error("Desktop relay token refresh was stopped.");
         if (result.ok) return result.centrifugoToken;
 
         const eventProps = {
@@ -205,7 +302,10 @@ export class DesktopSandboxBridge {
         } catch {
           // posthog not initialized for this user
         }
-        this.terminateClient();
+        this.terminateClient(
+          result.reason === "connection_not_found" ||
+            result.disconnectReason === "presence_sweep",
+        );
         throw new Error(`Centrifugo refresh aborted: ${result.reason}`);
       },
     });
@@ -213,6 +313,31 @@ export class DesktopSandboxBridge {
     const userId = this.extractUserIdFromToken(centrifugoToken);
     const channel = sandboxConnectionChannel(userId, connectionId);
     this.subscription = this.client.newSubscription(channel);
+    const subscription = this.subscription;
+    const client = this.client;
+    const updateReady = (ready: boolean) => {
+      if (this.subscription === subscription && this.client === client)
+        this.setReady(ready);
+    };
+    subscription.on("subscribed", () => {
+      updateReady(true);
+      for (const result of this.pendingLocalResults.values()) {
+        void this.publishLocalOutcome(result, version, subscription);
+      }
+    });
+    subscription.on("subscribing", () => updateReady(false));
+    subscription.on("unsubscribed", () => updateReady(false));
+    client.on("connecting", () => {
+      if (this.client !== client || this.subscription !== subscription) return;
+      this.messageSizeDisconnected = false;
+      updateReady(false);
+    });
+    client.on("disconnected", ({ code }) => {
+      if (this.client !== client || this.subscription !== subscription) return;
+      this.messageSizeDisconnected =
+        code === disconnectedCodes.messageSizeLimit;
+      updateReady(false);
+    });
 
     this.subscription.on("publication", (ctx) => {
       const message = ctx.data;
@@ -266,6 +391,17 @@ export class DesktopSandboxBridge {
           this.handlePtyKill(message as PtyKillMessage).catch(() => {});
           break;
 
+        case "desktop_local_access_request":
+          this.handleDesktopLocalAccess(
+            message as DesktopLocalAccessRequestMessage,
+          ).catch((err) => {
+            console.error(
+              "[DesktopSandboxBridge] Scoped local access failed:",
+              err,
+            );
+          });
+          break;
+
         default:
           break;
       }
@@ -295,63 +431,12 @@ export class DesktopSandboxBridge {
   > {
     try {
       const { invoke } = await import("@tauri-apps/api/core");
-      const result = await invoke<{
-        stdout: string;
-        stderr: string;
-        exit_code: number;
-      }>("execute_command", {
-        command: "uname -srm && hostname",
-        timeoutMs: 5000,
-      });
-      if (result.exit_code === 0) {
-        const lines = result.stdout.trim().split("\n");
-        const [uname, hostname] = [lines[0] || "", lines[1] || "Desktop"];
-        const parts = uname.split(" ");
-        return {
-          platform:
-            parts[0]?.toLowerCase() === "darwin"
-              ? "darwin"
-              : parts[0]?.toLowerCase() || "unknown",
-          release: parts[1] || "unknown",
-          arch: parts[2] || "unknown",
-          hostname: hostname.trim(),
-        };
-      }
-
-      // uname failed — try Windows-specific detection
-      const winResult = await invoke<{
-        stdout: string;
-        stderr: string;
-        exit_code: number;
-      }>("execute_command", {
-        command: "ver && hostname",
-        timeoutMs: 5000,
-      });
-      if (winResult.exit_code === 0) {
-        const lines = winResult.stdout.trim().split("\n").filter(Boolean);
-        // `ver` outputs e.g. "Microsoft Windows [Version 10.0.22631.4890]"
-        const verLine = lines[0] || "";
-        const hostname = lines[1]?.trim() || "Desktop";
-        const versionMatch = verLine.match(/\[Version\s+([\d.]+)\]/i);
-        const archResult = await invoke<{
-          stdout: string;
-          stderr: string;
-          exit_code: number;
-        }>("execute_command", {
-          command: "echo %PROCESSOR_ARCHITECTURE%",
-          timeoutMs: 5000,
-        });
-        const arch =
-          archResult.exit_code === 0
-            ? archResult.stdout.trim().toLowerCase()
-            : "unknown";
-        return {
-          platform: "win32",
-          release: versionMatch?.[1] || "unknown",
-          arch: arch === "amd64" ? "x64" : arch,
-          hostname,
-        };
-      }
+      return await invoke<{
+        platform: string;
+        arch: string;
+        release: string;
+        hostname: string;
+      }>("get_desktop_platform_info");
     } catch (error) {
       console.warn("[DesktopSandboxBridge] Failed to get OS info:", error);
     }
@@ -479,6 +564,200 @@ export class DesktopSandboxBridge {
     } catch (error) {
       console.error("[DesktopSandboxBridge] Failed to publish result:", error);
       throw error;
+    }
+  }
+
+  private async publishLocalOutcome(
+    result: DesktopLocalAccessResultMessage,
+    version: number,
+    subscription: Subscription,
+  ): Promise<void> {
+    if (version !== this.lifecycleVersion || subscription !== this.subscription)
+      return;
+    try {
+      await subscription.publish(result);
+      if (
+        version === this.lifecycleVersion &&
+        this.pendingLocalResults.get(result.requestId) === result
+      )
+        this.pendingLocalResults.delete(result.requestId);
+    } catch {
+      // Delivery failure is not operation failure. The buffered mutation
+      // outcome is retried on subscribe; never rerun the native operation.
+    }
+  }
+
+  private async handleDesktopLocalAccess(
+    message: DesktopLocalAccessRequestMessage,
+  ): Promise<void> {
+    const version = this.lifecycleVersion;
+    const subscription = this.subscription;
+    if (
+      !subscription ||
+      typeof message.requestId !== "string" ||
+      !message.requestId ||
+      message.requestId.length > 128
+    )
+      return;
+    const mutates =
+      message.operation === "write_file" ||
+      message.operation === "open_visible_url" ||
+      (message.operation === "computer_action" &&
+        message.payload?.action !== "screenshot");
+    const now = Date.now();
+    for (const [id, record] of this.localOperations) {
+      if (
+        record.completedAt !== undefined &&
+        now - record.completedAt > 300_000
+      ) {
+        this.localOperations.delete(id);
+        this.pendingLocalResults.delete(id);
+      }
+    }
+    let result: DesktopLocalAccessResultMessage;
+    const existing = this.localOperations.get(message.requestId);
+    if (existing) {
+      result = await existing.result;
+    } else if (mutates && this.localOperations.size >= 256) {
+      result = {
+        type: "desktop_local_access_result",
+        requestId: message.requestId,
+        ok: false,
+        error:
+          "Too many recent desktop changes are awaiting confirmation. Wait before requesting another change.",
+      };
+    } else {
+      const operation = this.executeDesktopLocalAccess(message, version);
+      if (mutates) {
+        const record: {
+          completedAt?: number;
+          result: Promise<DesktopLocalAccessResultMessage>;
+        } = { result: operation };
+        this.localOperations.set(message.requestId, record);
+        void operation.then(() => {
+          record.completedAt = Date.now();
+        });
+      }
+      result = await operation;
+    }
+    if (version !== this.lifecycleVersion || subscription !== this.subscription)
+      return;
+    if (mutates && this.localOperations.has(message.requestId))
+      this.pendingLocalResults.set(message.requestId, result);
+    await this.publishLocalOutcome(result, version, subscription);
+  }
+
+  private async executeDesktopLocalAccess(
+    message: DesktopLocalAccessRequestMessage,
+    version: number,
+  ): Promise<DesktopLocalAccessResultMessage> {
+    const payload = message.payload ?? {};
+    const requiredString = (key: string): string => {
+      const value = payload[key];
+      if (typeof value !== "string" || !value) {
+        throw new Error(`Desktop local access requires ${key}.`);
+      }
+      return value;
+    };
+
+    try {
+      const { invoke } = await import("@tauri-apps/api/core");
+      if (version !== this.lifecycleVersion)
+        throw new Error("Desktop local access was stopped.");
+      let result: unknown;
+      switch (message.operation) {
+        case "list_grants":
+          result = await invoke("list_workspace_grants");
+          break;
+        case "list_entries":
+          result = await invoke("list_workspace_entries", {
+            grantId: requiredString("grantId"),
+            relativePath:
+              typeof payload.relativePath === "string"
+                ? payload.relativePath
+                : "",
+          });
+          break;
+        case "read_file":
+          result = await invoke("read_workspace_file", {
+            grantId: requiredString("grantId"),
+            relativePath: requiredString("relativePath"),
+          });
+          break;
+        case "write_file": {
+          const content = payload.content;
+          if (typeof content !== "string")
+            throw new Error("Desktop local access requires string content.");
+          if (new TextEncoder().encode(content).byteLength > 512 * 1024) {
+            throw new Error(
+              "Build relay writes are limited to 512 KiB per operation.",
+            );
+          }
+          if (
+            payload.expectedVersion !== undefined &&
+            typeof payload.expectedVersion !== "string"
+          )
+            throw new Error(
+              "Desktop local access requires a string expectedVersion.",
+            );
+          result = await invoke("write_workspace_file", {
+            grantId: requiredString("grantId"),
+            relativePath: requiredString("relativePath"),
+            content,
+            encoding: payload.encoding === "base64" ? "base64" : "utf8",
+            ...(typeof payload.expectedVersion === "string"
+              ? { expectedVersion: payload.expectedVersion }
+              : {}),
+          });
+          break;
+        }
+        case "access_status":
+          result = await invoke("desktop_access_status");
+          break;
+        case "computer_action":
+          result = await invoke("desktop_computer_action", {
+            request: payload,
+          });
+          break;
+        case "fetch_loopback":
+          result = await invoke("fetch_loopback_url", {
+            url: requiredString("url"),
+            method: payload.method === "HEAD" ? "HEAD" : "GET",
+          });
+          break;
+        case "open_visible_url":
+          result = {
+            opened: await invoke<boolean>("open_visible_url_with_consent", {
+              url: requiredString("url"),
+            }),
+          };
+          break;
+        default:
+          throw new Error("Unsupported desktop local access operation.");
+      }
+
+      const serialized = JSON.stringify(result);
+      if (new TextEncoder().encode(serialized).byteLength > 768 * 1024) {
+        throw new Error(
+          "Desktop local access result is too large for the secure relay.",
+        );
+      }
+      return {
+        type: "desktop_local_access_result",
+        requestId: message.requestId,
+        ok: true,
+        result,
+      };
+    } catch (error) {
+      return {
+        type: "desktop_local_access_result",
+        requestId: message.requestId,
+        ok: false,
+        error: (error instanceof Error
+          ? error.message
+          : String(error) || "Desktop local access failed."
+        ).slice(0, 2048),
+      };
     }
   }
 
@@ -663,38 +942,16 @@ export class DesktopSandboxBridge {
   }
 
   async stop(): Promise<void> {
-    if (this.connectionId) {
+    const connectionId = this.connectionId;
+    // Clear identity/listeners synchronously, before a potentially slow server
+    // disconnect, so neither ready events nor late startup can revive access.
+    this.terminateClient();
+    if (connectionId) {
       try {
-        await this.config.disconnectDesktop({
-          connectionId: this.connectionId,
-        });
+        await this.config.disconnectDesktop({ connectionId });
       } catch (error) {
         console.warn("[DesktopSandboxBridge] Failed to disconnect:", error);
       }
     }
-
-    if (this.subscription) {
-      try {
-        this.subscription.unsubscribe();
-        this.subscription.removeAllListeners();
-      } catch (error) {
-        console.warn("[DesktopSandboxBridge] Failed to unsubscribe:", error);
-      }
-      this.subscription = null;
-    }
-
-    if (this.client) {
-      try {
-        this.client.disconnect();
-      } catch (error) {
-        console.warn(
-          "[DesktopSandboxBridge] Failed to disconnect client:",
-          error,
-        );
-      }
-      this.client = null;
-    }
-
-    this.connectionId = null;
   }
 }

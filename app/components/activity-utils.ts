@@ -32,8 +32,8 @@ export const PHASE_META: Record<
 > = {
   recon: {
     label: "Recon",
-    color: "text-sky-400",
-    dot: "bg-sky-400",
+    color: "text-primary",
+    dot: "bg-primary",
   },
   scanning: {
     label: "Scanning",
@@ -192,6 +192,8 @@ export function getActivityStatus(
   isLastWhileStreaming: boolean,
 ): ActivityStatus {
   if (isSidebarFile(content) && content.error) return "error";
+  if (isSidebarTerminal(content) && content.toolOutcome === "failed")
+    return "error";
 
   const executing =
     (isSidebarWebSearch(content) && content.isSearching) ||

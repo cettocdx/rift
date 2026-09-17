@@ -1,0 +1,32 @@
+{
+  "status": "COMPLETED",
+  "admissionMs": 1653,
+  "firstEventMs": 3997,
+  "firstTextMs": 15530,
+  "progressTiming": {
+    "firstToolInputMs": 9392,
+    "firstToolReadyMs": 10151,
+    "firstTextMs": 15530
+  },
+  "progressTimingInterpretation": "Monotonic milliseconds from request start to observer receipt. Reasoning text, partial tool input and executable tool input are distinct; none proves native paint or tool completion. Replayed arrivals include detachment time.",
+  "workerModelRequestedMs": 2020,
+  "workerFirstChunkMs": 6760,
+  "workerFirstTextMs": 12910,
+  "duplicateEvents": 0,
+  "scenarioVerified": true,
+  "workerVersion": "20260912.37",
+  "startupTiming": {
+    "providerCreatedAt": 1789257284112,
+    "providerStartedAt": 1789257284156,
+    "handlerEnteredAt": 1789257284877,
+    "attemptStartedAt": 1789257284159,
+    "providerAttemptCount": 1,
+    "providerRegion": "cmpwyuc0y020mog0jppwqw7xa",
+    "environmentType": "DEVELOPMENT",
+    "processUptimeMs": 411,
+    "providerPreStartMs": 44,
+    "providerStartToAttemptMs": 3,
+    "attemptToHandlerWallClockDeltaMs": 718,
+    "interpretation": "Provider intervals use provider timestamps, not queue or cold-start measurements. Attempt-to-handler is a signed cross-runtime wall-clock delta and may include clock skew. Process uptime is process age, not initialization duration."
+  }
+}

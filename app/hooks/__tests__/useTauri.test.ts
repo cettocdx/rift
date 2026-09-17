@@ -64,6 +64,36 @@ describe("navigateToAuth", () => {
     expect(mockToastError).not.toHaveBeenCalled();
   });
 
+  it("includes the loopback callback port for desktop development", async () => {
+    const desktopAuthState = "b".repeat(64);
+    mockInvoke.mockImplementation(async (command: string) => {
+      if (command === "prepare_desktop_auth_state") {
+        return desktopAuthState;
+      }
+      if (command === "get_dev_auth_port") {
+        return 43127;
+      }
+      throw new Error(`Unexpected command: ${command}`);
+    });
+
+    await navigateToAuth("/login?returnTo=%2Fstudio");
+
+    expect(mockOpenUrl).toHaveBeenCalledWith(
+      `http://localhost/desktop-login?returnTo=%2Fstudio&desktop_state=${desktopAuthState}&dev_callback_port=43127`,
+    );
+  });
+
+  it("does not open a browser for an invalid native auth state", async () => {
+    mockInvoke.mockImplementation(async (command: string) => {
+      if (command === "prepare_desktop_auth_state") return "invalid";
+      throw new Error(`Unexpected command: ${command}`);
+    });
+
+    await navigateToAuth("/login");
+
+    expect(mockOpenUrl).not.toHaveBeenCalled();
+  });
+
   it("falls back to in-webview sign-in when the desktop auth bridge is missing", async () => {
     mockInvoke.mockRejectedValue(new Error("unknown command"));
 

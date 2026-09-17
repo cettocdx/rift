@@ -6,6 +6,8 @@ export const mockSet = jest.fn().mockResolvedValue("OK");
 export const mockDel = jest.fn().mockResolvedValue(1);
 export const mockIncr = jest.fn().mockResolvedValue(1);
 export const mockDecr = jest.fn().mockResolvedValue(0);
+export const mockHgetall = jest.fn().mockResolvedValue(null);
+export const mockExpire = jest.fn().mockResolvedValue(1);
 
 export class Redis {
   hincrby = mockHincrby;
@@ -16,6 +18,8 @@ export class Redis {
   del = mockDel;
   incr = mockIncr;
   decr = mockDecr;
+  hgetall = mockHgetall;
+  expire = mockExpire;
 }
 
 const redisExports = {
@@ -28,5 +32,7 @@ const redisExports = {
   mockDel,
   mockIncr,
   mockDecr,
+  mockHgetall,
+  mockExpire,
 };
 export default redisExports;

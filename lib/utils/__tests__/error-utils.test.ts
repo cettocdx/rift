@@ -293,3 +293,10 @@ describe("provider error classification", () => {
     expect(getProviderErrorCategory(extractErrorDetails(err))).toBe("timeout");
   });
 });
+
+ it("classifies in-flight credit reservations as temporary capacity, not empty balance", () => {
+  expect(getProviderErrorCategory({ statusCode: 402, errorMessage: "This request would exceed your available credits given your current in-flight requests. Retry after in-flight requests settle, or add credits." })).toBe("rate_limited");
+});
+it("keeps genuine exhausted credits distinct", () => {
+  expect(getProviderErrorCategory({statusCode: 402, errorMessage: "Insufficient credits"})).toBe("provider_credits_exhausted");
+});

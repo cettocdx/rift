@@ -95,6 +95,18 @@ export const findSummarizationInsertIndex = (
 // Unified rate limit warning data types
 export type RateLimitWarningData =
   | {
+      // Per-run cost ceiling: this single run's spend against its cap. Not a
+      // bucket and not a balance; it exists so one runaway run cannot drain
+      // either. 80/95 warn, 100 cuts off (cutOff: true).
+      warningType: "run-budget";
+      usedPercent: number;
+      usedDollars: number;
+      ceilingDollars: number;
+      subscription: SubscriptionTier;
+      midStream: true;
+      cutOff?: boolean;
+    }
+  | {
       // Free users: sliding window (remaining request units)
       warningType: "sliding-window";
       remaining: number;
@@ -139,9 +151,12 @@ export const writeRateLimitWarning = (
   });
 };
 
-export const writeAutoContinue = (writer: UIMessageStreamWriter): void => {
+export const writeAutoContinue = (
+  writer: UIMessageStreamWriter,
+  signal?: { continuationId: string; reason: string },
+): void => {
   writer.write({
     type: "data-auto-continue",
-    data: { shouldContinue: true },
+    data: { shouldContinue: true, ...signal },
   });
 };

@@ -5,16 +5,26 @@ import { TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import * as TooltipPrimitive from "@radix-ui/react-tooltip";
 import { ArrowUp, Square } from "lucide-react";
 import { useHotkeys } from "react-hotkeys-hook";
+import { useInputHasText } from "@/app/contexts/InputContext";
 import type { ChatStatus } from "@/types";
 import type { ChatMode } from "@/types/chat";
 import type { UploadedFileState } from "@/types/file";
 
-const BASE_BUTTON_CLASSES = "rounded-md p-0 w-6 h-6 min-w-0";
+/*
+ * `transition-colors` is deliberately absent.
+ *
+ * It was here, and it overrode the base button's property list — which
+ * transitions `transform` at `--duration-press` on `--ease-out` — leaving
+ * `active:scale-[0.97]` to snap with no easing at all. The most-pressed
+ * control in the app was the one with the worst press feedback. Inheriting
+ * the button's own transition is the fix; nothing here needs its own.
+ */
+const BASE_BUTTON_CLASSES =
+  "h-11 w-11 min-w-11 cursor-pointer rounded-[8px] p-0 md:h-7 md:w-7 md:min-w-0 md:rounded-[7px]";
 
 const STOP_BUTTON_VARIANT_CLASSES: Record<ChatMode, string> = {
-  agent:
-    "bg-red-500/10 hover:bg-red-500/20 text-red-700 dark:bg-red-400/10 dark:hover:bg-red-400/20 dark:text-red-400 focus-visible:ring-red-500",
-  ask: "bg-muted hover:bg-muted/70 text-foreground",
+  agent: "bg-foreground text-background hover:bg-foreground/90",
+  ask: "bg-foreground text-background hover:bg-foreground/90",
 };
 
 function getStopButtonVariantClasses(mode: ChatMode): string {
@@ -22,7 +32,7 @@ function getStopButtonVariantClasses(mode: ChatMode): string {
 }
 
 function getSubmitButtonVariantClasses(_mode: ChatMode): string {
-  return "bg-foreground text-background hover:bg-foreground/90 disabled:bg-muted disabled:text-muted-foreground";
+  return "bg-foreground text-background hover:bg-foreground/90 disabled:bg-muted disabled:text-muted-foreground disabled:opacity-100";
 }
 
 function getSendButtonTooltip(
@@ -41,9 +51,9 @@ export interface SubmitStopButtonProps {
   onSubmit: (e: React.FormEvent) => void;
   status: ChatStatus;
   isUploadingFiles: boolean;
-  input: string;
   uploadedFiles: UploadedFileState[];
   chatMode: ChatMode;
+  disabledReason?: string;
 }
 
 export function SubmitStopButton({
@@ -53,10 +63,20 @@ export function SubmitStopButton({
   onSubmit,
   status,
   isUploadingFiles,
-  input,
   uploadedFiles,
   chatMode,
+  disabledReason,
 }: SubmitStopButtonProps) {
+  /*
+   * Read the composer state here rather than take it as a prop.
+   *
+   * The string used to arrive from `ChatInput`, which meant the top of the
+   * composer tree subscribed to every keystroke to hand it down — re-rendering
+   * the toolbar and its six selectors per character. This context carries the
+   * boolean instead, so the only render a keystroke can cause here is the one
+   * that actually changes the button: empty ↔ sendable.
+   */
+  const hasText = useInputHasText();
   useHotkeys(
     "ctrl+c",
     (e) => {
@@ -73,7 +93,7 @@ export function SubmitStopButton({
     [isGenerating, onStop],
   );
 
-  const containerClass = "flex gap-2 shrink-0 items-center ml-auto";
+  const containerClass = "ml-auto flex shrink-0 items-center";
 
   if (isGenerating && !hideStop) {
     return (
@@ -87,7 +107,12 @@ export function SubmitStopButton({
               className={`${BASE_BUTTON_CLASSES} ${getStopButtonVariantClasses(chatMode)}`}
               aria-label="Stop generation"
             >
-              <Square className="w-[15px] h-[15px]" fill="currentColor" />
+              <Square
+                aria-hidden="true"
+                className="size-3"
+                fill="currentColor"
+                strokeWidth={1.5}
+              />
             </Button>
           </TooltipTrigger>
           <TooltipContent>
@@ -109,23 +134,25 @@ export function SubmitStopButton({
                 disabled={
                   status !== "ready" ||
                   isUploadingFiles ||
-                  (!input.trim() && uploadedFiles.length === 0)
+                  !!disabledReason ||
+                  (!hasText && uploadedFiles.length === 0)
                 }
                 variant="default"
                 className={`${BASE_BUTTON_CLASSES} ${getSubmitButtonVariantClasses(chatMode)}`}
                 aria-label="Send message"
                 data-testid="send-button"
               >
-                <ArrowUp size={15} strokeWidth={3} />
+                <ArrowUp aria-hidden="true" size={14} strokeWidth={2.2} />
               </Button>
             </div>
           </TooltipTrigger>
           <TooltipContent>
             <p>
-              {getSendButtonTooltip(
-                uploadedFiles.some((f) => f.error),
-                isUploadingFiles,
-              )}
+              {disabledReason ||
+                getSendButtonTooltip(
+                  uploadedFiles.some((f) => f.error),
+                  isUploadingFiles,
+                )}
             </p>
           </TooltipContent>
         </TooltipPrimitive.Root>

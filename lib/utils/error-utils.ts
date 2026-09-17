@@ -202,7 +202,8 @@ export type ProviderErrorCategory =
   | "provider_4xx"
   | "stream_terminated"
   | "timeout"
-  | "unknown";
+  | "unknown"
+  | "provider_credits_exhausted";
 
 export const getProviderStatusCode = (
   details: Record<string, unknown>,
@@ -226,14 +227,38 @@ export const getProviderStatusCode = (
     : undefined;
 };
 
+/**
+ * True when an error's text is the provider account running out of money.
+ * Shared with the client so the error box can stop offering a Retry that
+ * cannot succeed. Kept as text matching because the client only ever sees
+ * the message, never the status code.
+ */
+export const PROVIDER_CREDITS_EXHAUSTED_PATTERN =
+  /insufficient credits|exceed your available credits|add credits|insufficient_quota|payment required/i;
+
+// OpenRouter also returns 402 for temporary reservations, even with funds.
+export const isProviderInFlightCapacityMessage = (text: unknown): boolean =>
+  typeof text === "string" &&
+  /in_flight_budget_exhausted|in-flight (?:requests|budget)/i.test(text);
+
+/** RIFT account messages can cross the SDK boundary as plain Error objects.
+ * Their origin must survive losing the ChatSDKError prototype. */
+export const isAccountCreditsExhaustedMessage = (text: unknown): boolean =>
+  typeof text === "string" &&
+  /your included credits are used up|your add-on balance cannot cover|auto-reload couldn't add credits|your extra usage balance is empty|completed request exceeded the available credits|add credits in settings/i.test(
+    text,
+  );
+
+export const isProviderCreditsExhaustedMessage = (text: unknown): boolean =>
+  typeof text === "string" &&
+  !isProviderInFlightCapacityMessage(text) &&
+  !isAccountCreditsExhaustedMessage(text) &&
+  PROVIDER_CREDITS_EXHAUSTED_PATTERN.test(text);
+
 export const getProviderErrorCategory = (
   details: Record<string, unknown>,
 ): ProviderErrorCategory => {
   const statusCode = getProviderStatusCode(details);
-  if (statusCode === 429) return "rate_limited";
-  if (statusCode != null && statusCode >= 500) return "provider_5xx";
-  if (statusCode != null && statusCode >= 400) return "provider_4xx";
-
   const message = [
     details.errorMessage,
     details.providerErrorMessage,
@@ -242,6 +267,22 @@ export const getProviderErrorCategory = (
   ]
     .filter((value): value is string => typeof value === "string")
     .join(" ");
+
+  // Temporary reservations must precede generic 402/credit matching.
+  if (isProviderInFlightCapacityMessage(message)) return "rate_limited";
+
+  // The provider account itself is out of money. This is not the user's
+  // fault and not transient: retrying cannot help until the operator tops up,
+  // so it must not be lumped in with ordinary 4xx (where the UI offers Retry
+  // and nobody is paged). Temporary in-flight reservations were handled above.
+  if (statusCode === 402 || PROVIDER_CREDITS_EXHAUSTED_PATTERN.test(message)) {
+    return "provider_credits_exhausted";
+  }
+  if (statusCode === 429) return "rate_limited";
+  if (statusCode != null && statusCode >= 500) return "provider_5xx";
+  if (statusCode != null && statusCode >= 400) return "provider_4xx";
+
+  const messageForShape = message;
   if (
     /terminated|aborted|abort|network connection lost|connection (?:reset|closed|lost)|socket hang up|unexpected eof/i.test(
       message,

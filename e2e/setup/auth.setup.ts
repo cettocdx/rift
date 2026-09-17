@@ -6,14 +6,17 @@ import { resolve } from "path";
 // Load .env.e2e
 config({ path: resolve(process.cwd(), ".env.e2e") });
 
-setup("authenticate free tier", async ({ page }) => {
-  await authenticateUser(page, TEST_USERS.free);
+// Login artifacts can contain credentials and session state.
+setup.use({ trace: "off", screenshot: "off", video: "off" });
+
+setup("authenticate free tier", async ({ browser, baseURL }) => {
+  await authenticateUser(browser, TEST_USERS.free, { baseURL: baseURL! });
 });
 
-setup("authenticate pro tier", async ({ page }) => {
-  await authenticateUser(page, TEST_USERS.pro);
+setup("authenticate pro tier", async ({ browser, baseURL }) => {
+  await authenticateUser(browser, TEST_USERS.pro, { baseURL: baseURL! });
 });
 
-setup("authenticate ultra tier", async ({ page }) => {
-  await authenticateUser(page, TEST_USERS.ultra);
+setup("authenticate ultra tier", async ({ browser, baseURL }) => {
+  await authenticateUser(browser, TEST_USERS.ultra, { baseURL: baseURL! });
 });

@@ -20,10 +20,17 @@ const TRAILING_METADATA_PART_TYPES = new Set([
 
 export type WorkedForParts = {
   fileParts: FilePart[];
+  /** Completed media is a user-facing deliverable, never hidden as work log. */
+  deliverableParts: MessagePart[];
   nonFileParts: MessagePart[];
+  /** Display order, including generated media at its original position. */
+  contentParts: MessagePart[];
   workParts: MessagePart[];
   trailingTextParts: MessagePart[];
 };
+
+const isMediaDeliverablePart = (part: MessagePart) =>
+  part.type === "tool-generate_image" || part.type === "tool-generate_video";
 
 const isTrailingMetadataPart = (part: MessagePart) => {
   const type = (part as { type?: string }).type;
@@ -34,7 +41,10 @@ export function splitWorkedForParts(
   parts: ChatMessage["parts"],
 ): WorkedForParts {
   const fileParts = parts.filter((part) => part.type === "file") as FilePart[];
-  const nonFileParts = parts.filter((part) => part.type !== "file");
+  const deliverableParts = parts.filter(isMediaDeliverablePart);
+  const nonFileParts = parts.filter(
+    (part) => part.type !== "file" && !isMediaDeliverablePart(part),
+  );
 
   let trailingEnd = nonFileParts.length;
   while (
@@ -55,6 +65,8 @@ export function splitWorkedForParts(
 
   return {
     fileParts,
+    deliverableParts,
+    contentParts: parts.filter((part) => part.type !== "file"),
     nonFileParts,
     workParts: nonFileParts.slice(0, trailingStart),
     trailingTextParts: nonFileParts.slice(trailingStart, trailingEnd),

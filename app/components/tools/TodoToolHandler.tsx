@@ -22,6 +22,7 @@ function areTodoPropsEqual(
   if (prev.part.toolCallId !== next.part.toolCallId) return false;
   if (prev.part.output !== next.part.output) return false;
   if (prev.part.input !== next.part.input) return false;
+  if (prev.part.errorText !== next.part.errorText) return false;
   return true;
 }
 
@@ -39,6 +40,41 @@ export const TodoToolHandler = memo(function TodoToolHandler({
   const failedTodoAction = todoInput?.merge
     ? "Todo update failed"
     : "Todo creation failed";
+
+  const failure =
+    state === "output-error"
+      ? errorText
+      : state === "output-available" && typeof output?.error === "string"
+        ? output.error
+        : undefined;
+  if (state === "output-error" || failure) {
+    const row = (
+      <ToolBlock
+        icon={<ListTodo />}
+        action={isStoppedByUser ? stoppedTodoAction : failedTodoAction}
+        target={
+          todoInput?.todos?.length
+            ? `${todoInput.todos.length} items`
+            : undefined
+        }
+      />
+    );
+    return typeof failure === "string" && failure.trim() && !isStoppedByUser ? (
+      <details className="min-w-0" data-ui="todo-error">
+        <summary className="cursor-pointer list-none rounded-sm focus-visible:outline focus-visible:outline-2">
+          {row}
+          <span className="text-xs text-muted-foreground">
+            Show error details
+          </span>
+        </summary>
+        <p className="mt-2 whitespace-pre-wrap break-words text-xs text-muted-foreground [overflow-wrap:anywhere]">
+          {failure}
+        </p>
+      </details>
+    ) : (
+      row
+    );
+  }
 
   switch (state) {
     case "input-streaming":
@@ -83,20 +119,6 @@ export const TodoToolHandler = memo(function TodoToolHandler({
         />
       );
     }
-
-    case "output-error":
-      return (
-        <ToolBlock
-          key={toolCallId}
-          icon={<ListTodo />}
-          action={isStoppedByUser ? stoppedTodoAction : failedTodoAction}
-          target={
-            todoInput?.todos?.length
-              ? `${todoInput.todos.length} items`
-              : undefined
-          }
-        />
-      );
 
     default:
       return null;

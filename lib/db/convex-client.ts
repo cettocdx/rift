@@ -1,32 +1,45 @@
 import { ConvexHttpClient } from "convex/browser";
 
-// Shared singleton so Trigger.dev's setConvexUrl() override reaches every
-// caller. Lazy-init the client so this module is safe to import from code
-// paths that Convex's deploy bundler analyzes (e.g.
-// convex/rateLimitStatus → lib/rate-limit/token-bucket → lib/extra-usage);
-// constructing ConvexHttpClient eagerly with the empty URL the analyzer
-// sees would fail validation and break `convex deploy`.
+// Keep this entry point free of Node imports: Convex's deploy analyzer also
+// reaches it through rate-limit/usage helpers. The worker-only scope module
+// installs an accessor backed by AsyncLocalStorage, never a mutable URL.
+export type ConvexClientScope = {
+  url: string | undefined;
+  serviceKey?: string;
+  client: ConvexHttpClient | null;
+};
+let readScope: (() => ConvexClientScope | undefined) | undefined;
+let defaultClient: ConvexClientScope | undefined;
 
-let client: ConvexHttpClient | null = null;
-let overrideUrl: string | undefined;
-
-export function getConvexClient(): ConvexHttpClient {
-  if (!client) {
-    const url = overrideUrl ?? process.env.NEXT_PUBLIC_CONVEX_URL;
-    if (!url) {
-      throw new Error("NEXT_PUBLIC_CONVEX_URL is not set");
-    }
-    client = new ConvexHttpClient(url);
-  }
-  return client;
+export function installConvexClientScopeReader(
+  reader: () => ConvexClientScope | undefined,
+) {
+  readScope = reader;
 }
 
-// Called by Trigger.dev tasks to point at the correct per-branch preview
-// deployment. The Trigger.dev process's NEXT_PUBLIC_CONVEX_URL only reflects
-// what the dashboard has configured, so the route forwards the right URL via
-// the task payload and the task calls this. Each Trigger.dev run is an
-// isolated worker process so mutation is safe.
-export function setConvexUrl(url: string) {
-  overrideUrl = url;
-  client = new ConvexHttpClient(url);
+export function getConvexUrl(): string {
+  const scope = readScope?.();
+  const url = scope ? scope.url : process.env.NEXT_PUBLIC_CONVEX_URL;
+  if (!url) throw new Error("NEXT_PUBLIC_CONVEX_URL is not set");
+  return url;
+}
+
+/** A missing key in an active run must never borrow a later run's authority. */
+export function getConvexServiceKey(): string | undefined {
+  const scope = readScope?.();
+  return scope ? scope.serviceKey : process.env.CONVEX_SERVICE_ROLE_KEY;
+}
+
+export function getConvexClient(): ConvexHttpClient {
+  const scoped = readScope?.();
+  const url = getConvexUrl();
+  if (scoped) {
+    return (scoped.client ??= new ConvexHttpClient(url));
+  }
+  // Server callers without a worker scope retain lazy initialization. An env
+  // change must not keep the previous deployment's cached client alive here.
+  if (!defaultClient || defaultClient.url !== url) {
+    defaultClient = { url, client: new ConvexHttpClient(url) };
+  }
+  return defaultClient.client!;
 }

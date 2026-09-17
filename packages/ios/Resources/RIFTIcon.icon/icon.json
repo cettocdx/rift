@@ -1,0 +1,30 @@
+{
+  "fill": {
+    "solid": "srgb:0.01500,0.01500,0.02000,1.00000"
+  },
+  "groups": [
+    {
+      "blur-material": 0,
+      "layers": [
+        {
+          "glass": true,
+          "image-name": "RIFT-Symbol.svg",
+          "name": "RIFT Symbol"
+        }
+      ],
+      "name": "RIFT",
+      "shadow": {
+        "kind": "neutral",
+        "opacity": 0.25
+      },
+      "specular": true,
+      "translucency": {
+        "enabled": false,
+        "value": 0
+      }
+    }
+  ],
+  "supported-platforms": {
+    "squares": "shared"
+  }
+}

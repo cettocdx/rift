@@ -1,17 +1,28 @@
+mod browser;
+mod file_access;
+mod local_access;
+mod computer_access;
+mod consent;
 mod platform;
 mod pty;
+mod native_codex;
+mod native_codex_relay;
+mod native_codex_process;
+mod window_chrome;
 
-use serde::{Deserialize, Serialize};
+#[cfg(debug_assertions)]
+use serde::Deserialize;
+use serde::Serialize;
 use std::collections::HashMap;
 use std::fs;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicU16, Ordering};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
-use tauri::Manager;
-use tauri_plugin_updater::UpdaterExt;
-use tokio::io::{AsyncReadExt, AsyncWriteExt};
+use tauri::{Emitter, Manager};
+use tokio::io::AsyncReadExt;
+#[cfg(debug_assertions)]
+use tokio::io::AsyncWriteExt;
 
-const UPDATE_CHECK_INTERVAL: Duration = Duration::from_secs(24 * 60 * 60); // 24 hours
 const DESKTOP_AUTH_STATE_TTL: Duration = Duration::from_secs(5 * 60);
 const MAX_PENDING_DESKTOP_AUTH_STATES: usize = 16;
 
@@ -23,6 +34,36 @@ static CMD_SERVER_PORT: AtomicU16 = AtomicU16::new(0);
 
 /// Session token for authenticating command server requests
 static CMD_SERVER_TOKEN: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+
+#[derive(Clone, Copy, serde::Deserialize)]
+#[serde(rename_all = "lowercase")]
+enum DesktopTheme {
+    Light,
+    Dark,
+    System,
+}
+
+fn desktop_theme_for_caller(label: &str, theme: DesktopTheme) -> Result<Option<tauri::Theme>, String> {
+    if label != "main" {
+        return Err("Only the RIFT interface can change window appearance.".into());
+    }
+    Ok(match theme {
+        DesktopTheme::Light => Some(tauri::Theme::Light),
+        DesktopTheme::Dark => Some(tauri::Theme::Dark),
+        DesktopTheme::System => None,
+    })
+}
+
+#[tauri::command]
+fn set_desktop_theme(webview: tauri::Webview, theme: DesktopTheme) -> Result<(), String> {
+    let theme = desktop_theme_for_caller(webview.label(), theme)?;
+    webview.window().set_theme(theme).map_err(|_| "Could not change window appearance.".into())
+}
+
+#[derive(Clone, Serialize)]
+struct DesktopMenuAction {
+    action: &'static str,
+}
 
 struct PendingDesktopAuthStates(std::sync::Mutex<HashMap<String, SystemTime>>);
 
@@ -107,11 +148,13 @@ struct LocalFileData {
     base64: String,
 }
 
+#[cfg(debug_assertions)]
 fn json_error_body(message: &str) -> String {
     serde_json::to_string(&serde_json::json!({ "error": message }))
         .unwrap_or_else(|_| r#"{"error":"serialization failed"}"#.to_string())
 }
 
+#[cfg(debug_assertions)]
 fn json_stream_error_line(message: &str) -> String {
     serde_json::to_string(&serde_json::json!({
         "type": "error",
@@ -198,6 +241,7 @@ fn read_local_file(path: String) -> Result<LocalFileData, String> {
 
 // ── Command Execution Server ──────────────────────────────────────────
 
+#[cfg(debug_assertions)]
 #[derive(Deserialize)]
 struct ExecRequest {
     command: String,
@@ -207,6 +251,7 @@ struct ExecRequest {
     timeout_ms: u64,
 }
 
+#[cfg(debug_assertions)]
 fn default_timeout() -> u64 {
     30000
 }
@@ -301,11 +346,13 @@ async fn wait_with_output_or_kill_on_timeout(
     })
 }
 
+#[cfg(debug_assertions)]
 #[derive(Deserialize)]
 struct FileReadRequest {
     path: String,
 }
 
+#[cfg(debug_assertions)]
 #[derive(Deserialize)]
 struct FileWriteRequest {
     path: String,
@@ -314,11 +361,13 @@ struct FileWriteRequest {
     is_base64: bool,
 }
 
+#[cfg(debug_assertions)]
 #[derive(Deserialize)]
 struct FileRemoveRequest {
     path: String,
 }
 
+#[cfg(debug_assertions)]
 #[derive(Deserialize)]
 struct FileListRequest {
     path: String,
@@ -326,6 +375,7 @@ struct FileListRequest {
 
 /// Start the local command execution HTTP server.
 /// Binds to 127.0.0.1 only and requires a session token for all requests.
+#[cfg(debug_assertions)]
 async fn start_cmd_server() {
     // Generate a random session token
     let token = uuid::Uuid::new_v4().to_string();
@@ -374,12 +424,15 @@ async fn start_cmd_server() {
 }
 
 /// Maximum allowed header size (256KB). Requests with headers exceeding this are rejected.
+#[cfg(debug_assertions)]
 const MAX_HEADER_SIZE: usize = 256 * 1024;
 
 /// Maximum allowed body size (10MB). Requests with bodies exceeding this are rejected.
+#[cfg(debug_assertions)]
 const MAX_BODY_SIZE: usize = 10 * 1024 * 1024;
 
 /// Parse an HTTP request from the stream, returning (method, path, headers, body)
+#[cfg(debug_assertions)]
 async fn parse_http_request(
     stream: &mut tokio::net::TcpStream,
 ) -> Result<(String, String, HashMap<String, String>, String), String> {
@@ -479,6 +532,7 @@ async fn parse_http_request(
     Ok((method, path, headers, body))
 }
 
+#[cfg(debug_assertions)]
 async fn handle_cmd_request(
     mut stream: tokio::net::TcpStream,
     expected_token: &str,
@@ -549,6 +603,7 @@ async fn handle_cmd_request(
     Ok(())
 }
 
+#[cfg(debug_assertions)]
 async fn handle_execute(body: &str) -> Result<String, String> {
     let req: ExecRequest =
         serde_json::from_str(body).map_err(|e| format!("Invalid JSON: {}", e))?;
@@ -598,6 +653,7 @@ async fn handle_execute(body: &str) -> Result<String, String> {
 ///   {"type":"stderr","data":"..."}
 ///   {"type":"exit","exit_code":0}
 ///   {"type":"error","message":"..."}
+#[cfg(debug_assertions)]
 async fn handle_execute_stream(
     body: &str,
     stream: &mut tokio::net::TcpStream,
@@ -702,6 +758,7 @@ async fn handle_execute_stream(
 }
 
 /// Write a single HTTP chunked-transfer chunk
+#[cfg(debug_assertions)]
 async fn write_chunk(stream: &mut tokio::net::TcpStream, data: &str) {
     let payload = if data.is_empty() {
         "0\r\n\r\n".to_string()
@@ -713,6 +770,7 @@ async fn write_chunk(stream: &mut tokio::net::TcpStream, data: &str) {
     let _ = stream.flush().await;
 }
 
+#[cfg(debug_assertions)]
 async fn handle_file_read(body: &str) -> Result<String, String> {
     let req: FileReadRequest =
         serde_json::from_str(body).map_err(|e| format!("Invalid JSON: {}", e))?;
@@ -722,6 +780,7 @@ async fn handle_file_read(body: &str) -> Result<String, String> {
     serde_json::to_string(&serde_json::json!({ "content": content })).map_err(|e| e.to_string())
 }
 
+#[cfg(debug_assertions)]
 async fn handle_file_write(body: &str) -> Result<String, String> {
     let req: FileWriteRequest =
         serde_json::from_str(body).map_err(|e| format!("Invalid JSON: {}", e))?;
@@ -750,6 +809,7 @@ async fn handle_file_write(body: &str) -> Result<String, String> {
     Ok(r#"{"ok":true}"#.to_string())
 }
 
+#[cfg(debug_assertions)]
 async fn handle_file_remove(body: &str) -> Result<String, String> {
     let req: FileRemoveRequest =
         serde_json::from_str(body).map_err(|e| format!("Invalid JSON: {}", e))?;
@@ -768,6 +828,7 @@ async fn handle_file_remove(body: &str) -> Result<String, String> {
     Ok(r#"{"ok":true}"#.to_string())
 }
 
+#[cfg(debug_assertions)]
 async fn handle_file_list(body: &str) -> Result<String, String> {
     let req: FileListRequest =
         serde_json::from_str(body).map_err(|e| format!("Invalid JSON: {}", e))?;
@@ -1062,13 +1123,10 @@ async fn start_dev_auth_server(app_handle: tauri::AppHandle) {
                         origin, encoded_token, encoded_state
                     );
 
-                    log::info!(
-                        "Dev auth: navigating to callback (token: {}...)",
-                        &t[..8.min(t.len())]
-                    );
+                    log::info!("Dev auth: navigating to the state-bound callback");
 
-                    if let Some(window) = handle.get_webview_window("main") {
-                        let _ = window.set_focus();
+                    if let Some(window) = handle.get_webview("main") {
+                        let _ = window.window().set_focus();
                         if let Ok(parsed_url) = callback_url.parse() {
                             let _ = window.navigate(parsed_url);
                         }
@@ -1093,73 +1151,39 @@ async fn start_dev_auth_server(app_handle: tauri::AppHandle) {
     }
 }
 
-fn get_last_update_check_file(app: &tauri::AppHandle) -> Option<PathBuf> {
-    app.path()
-        .app_data_dir()
-        .ok()
-        .map(|dir| dir.join("last_update_check"))
-}
-
-fn should_check_for_updates(app: &tauri::AppHandle) -> bool {
-    let Some(file_path) = get_last_update_check_file(app) else {
-        return true;
-    };
-
-    match fs::read_to_string(&file_path) {
-        Ok(content) => {
-            let last_check: u64 = content.trim().parse().unwrap_or(0);
-            let now = SystemTime::now()
-                .duration_since(UNIX_EPOCH)
-                .unwrap_or_default()
-                .as_secs();
-            now.saturating_sub(last_check) >= UPDATE_CHECK_INTERVAL.as_secs()
-        }
-        Err(_) => true,
-    }
-}
-
-fn save_update_check_timestamp(app: &tauri::AppHandle) {
-    let Some(file_path) = get_last_update_check_file(app) else {
-        return;
-    };
-
-    if let Some(parent) = file_path.parent() {
-        let _ = fs::create_dir_all(parent);
-    }
-
-    let now = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_secs();
-
-    if let Err(e) = fs::write(&file_path, now.to_string()) {
-        log::warn!("Failed to save update check timestamp: {}", e);
-    }
-}
-
-fn get_allowed_hosts() -> Vec<String> {
-    match std::env::var("RIFT_ALLOWED_HOSTS") {
-        Ok(hosts) => hosts.split(',').map(|s| s.trim().to_string()).collect(),
-        Err(_) => vec!["rift.co".to_string(), "localhost".to_string()],
-    }
-}
-
 fn is_valid_token_format(token: &str) -> bool {
     token.len() == 64 && token.chars().all(|c| c.is_ascii_hexdigit())
 }
 
-fn validate_origin(origin: &str) -> bool {
-    match url::Url::parse(origin) {
-        Ok(parsed) => {
-            let host = parsed.host_str().unwrap_or("");
-            let scheme = parsed.scheme();
-            let allowed_hosts = get_allowed_hosts();
-            let is_allowed_host = allowed_hosts.iter().any(|allowed| host == allowed);
-            let is_valid_scheme = scheme == "https" || (host == "localhost" && scheme == "http");
-            is_allowed_host && is_valid_scheme
-        }
-        Err(_) => false,
+fn validate_origin_for_mode(origin: &str, allow_loopback: bool) -> bool {
+    let Ok(parsed) = url::Url::parse(origin) else {
+        return false;
+    };
+    if !parsed.username().is_empty()
+        || parsed.password().is_some()
+        || parsed.path() != "/"
+        || parsed.query().is_some()
+        || parsed.fragment().is_some()
+    {
+        return false;
     }
+
+    if parsed.origin().ascii_serialization() == "https://riftsys.app" {
+        return true;
+    }
+    if !allow_loopback || (parsed.scheme() != "http" && parsed.scheme() != "https") {
+        return false;
+    }
+    match parsed.host() {
+        Some(url::Host::Domain(host)) => host.eq_ignore_ascii_case("localhost"),
+        Some(url::Host::Ipv4(address)) => address.is_loopback(),
+        Some(url::Host::Ipv6(address)) => address.is_loopback(),
+        None => false,
+    }
+}
+
+fn validate_origin(origin: &str) -> bool {
+    validate_origin_for_mode(origin, cfg!(debug_assertions))
 }
 
 fn consume_pending_desktop_auth_state(app: &tauri::AppHandle, desktop_state: &str) -> bool {
@@ -1188,8 +1212,38 @@ fn consume_pending_desktop_auth_state(app: &tauri::AppHandle, desktop_state: &st
         .unwrap_or(false)
 }
 
+#[tauri::command]
+fn github_desktop_callback_scheme(app: tauri::AppHandle) -> String {
+    if app.config().identifier == "app.riftsys.ui-preview" { "rift-preview".into() } else { "rift".into() }
+}
+
 fn handle_auth_deep_link(app: &tauri::AppHandle, url: &url::Url) {
-    if url.scheme() != "rift" {
+    if url.scheme() != github_desktop_callback_scheme(app.clone()) {
+        return;
+    }
+
+    // GitHub authorization occurs in the system browser. Only a pending,
+    // one-use native nonce can return it to this window; no access token crosses.
+    if url.host_str() == Some("github") {
+        let state = url.query_pairs().find(|(k, _)| k == "desktop_state").map(|(_, v)| v.to_string());
+        if !state.as_deref().map(|s| consume_pending_desktop_auth_state(app, s)).unwrap_or(false) {
+            return;
+        }
+        if let Some(window) = app.get_webview_window("main") {
+            if let Ok(current) = window.url() {
+                let path = url.query_pairs().find(|(k, _)| k == "return_to").map(|(_, v)| v.to_string()).unwrap_or_else(|| "/".into());
+                if let Ok(mut target) = current.join(&path) {
+                    if path.starts_with('/') && !path.starts_with("//") && !path.contains('\\') && target.origin() == current.origin() {
+                        let status = if url.query_pairs().any(|(k, v)| k == "github" && v == "connected") { "connected" } else { "error" };
+                        target.query_pairs_mut().append_pair("github", status);
+                        let _ = window.navigate(target);
+                        let _ = window.show();
+                        let _ = window.unminimize();
+                        let _ = window.set_focus();
+                    }
+                }
+            }
+        }
         return;
     }
 
@@ -1217,7 +1271,7 @@ fn handle_auth_deep_link(app: &tauri::AppHandle, url: &url::Url) {
                     }
                 };
 
-                if let Some(window) = app.get_webview_window("main") {
+                if let Some(window) = app.get_webview("main") {
                     // Get and validate origin from deep link query params
                     let origin = url
                         .query_pairs()
@@ -1226,7 +1280,7 @@ fn handle_auth_deep_link(app: &tauri::AppHandle, url: &url::Url) {
                         .filter(|o| validate_origin(o))
                         .unwrap_or_else(|| {
                             log::warn!("Deep link has missing or invalid origin, using production");
-                            "https://rift.co".to_string()
+                            "https://riftsys.app".to_string()
                         });
 
                     let encoded_token: String =
@@ -1237,10 +1291,7 @@ fn handle_auth_deep_link(app: &tauri::AppHandle, url: &url::Url) {
                         "{}/desktop-callback?token={}&desktop_state={}",
                         origin, encoded_token, encoded_state
                     );
-                    log::info!(
-                        "Navigating to desktop callback (token: {}...)",
-                        &token[..8.min(token.len())]
-                    );
+                    log::info!("Navigating to the state-bound desktop callback");
 
                     match callback_url.parse() {
                         Ok(parsed_url) => {
@@ -1261,104 +1312,11 @@ fn handle_auth_deep_link(app: &tauri::AppHandle, url: &url::Url) {
             }
             None => {
                 if let Some((_, error)) = url.query_pairs().find(|(k, _)| k == "error") {
-                    log::error!("Auth deep link received with error: {}", error);
+                    let _ = error;
+                    log::error!("Desktop authentication returned an error");
                 } else {
-                    log::warn!("Auth deep link received without token: {:?}", url);
+                    log::warn!("Auth deep link received without a token");
                 }
-            }
-        }
-    }
-}
-
-async fn check_for_updates(app: tauri::AppHandle, silent: bool) {
-    use tauri_plugin_dialog::{DialogExt, MessageDialogButtons, MessageDialogKind};
-
-    let updater = match app.updater() {
-        Ok(updater) => updater,
-        Err(e) => {
-            if silent {
-                log::warn!("Auto-update check failed to get updater: {}", e);
-            } else {
-                log::error!("Failed to get updater: {}", e);
-                let _ = app
-                    .dialog()
-                    .message(format!("Failed to check for updates: {}", e))
-                    .kind(MessageDialogKind::Error)
-                    .title("Update Error")
-                    .blocking_show();
-            }
-            return;
-        }
-    };
-
-    match updater.check().await {
-        Ok(Some(update)) => {
-            let version = update.version.clone();
-            log::info!("Update available: {}", version);
-
-            let should_update = app
-                .dialog()
-                .message(format!(
-                    "A new version ({}) is available. Would you like to update now?",
-                    version
-                ))
-                .title("Update Available")
-                .kind(MessageDialogKind::Info)
-                .buttons(MessageDialogButtons::OkCancel)
-                .blocking_show();
-
-            if should_update {
-                log::info!("User accepted update to version {}", version);
-                if let Err(e) = update.download_and_install(|_, _| {}, || {}).await {
-                    log::error!("Failed to install update: {}", e);
-                    let _ = app
-                        .dialog()
-                        .message(format!("Failed to install update: {}", e))
-                        .kind(MessageDialogKind::Error)
-                        .title("Update Error")
-                        .blocking_show();
-                } else {
-                    log::info!("Update installed successfully");
-                    let restart_now = app
-                        .dialog()
-                        .message("Update installed successfully. Restart now to apply changes?")
-                        .kind(MessageDialogKind::Info)
-                        .title("Update Complete")
-                        .buttons(MessageDialogButtons::OkCancelCustom(
-                            "Restart Now".into(),
-                            "Later".into(),
-                        ))
-                        .blocking_show();
-                    if restart_now {
-                        app.restart();
-                    }
-                }
-            }
-        }
-        Ok(None) => {
-            if silent {
-                log::info!("No updates available (auto-check)");
-            } else {
-                log::info!("No updates available");
-                let _ = app
-                    .dialog()
-                    .message("You're running the latest version.")
-                    .kind(MessageDialogKind::Info)
-                    .title("No Updates")
-                    .blocking_show();
-            }
-        }
-        Err(e) => {
-            if silent {
-                log::warn!("Auto-update check failed: {}", e);
-            } else {
-                log::error!("Failed to check for updates: {}", e);
-                let _ = app
-                    .dialog()
-                    .message(format!("Failed to check for updates: {}", e))
-                    .kind(MessageDialogKind::Error)
-                    .title("Update Error")
-                    .blocking_show();
             }
         }
     }
@@ -1367,6 +1325,261 @@ async fn check_for_updates(app: tauri::AppHandle, silent: bool) {
 // ── PTY Commands ─────────────────────────────────────────────────────
 
 type PtyState = std::sync::Arc<std::sync::Mutex<pty::PtyManager>>;
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct DesktopTerminalProfileCapabilities {
+    backend: &'static str,
+    profiles: Vec<pty::DesktopTerminalProfileCapability>,
+}
+
+#[tauri::command]
+fn list_desktop_terminal_profiles() -> DesktopTerminalProfileCapabilities {
+    DesktopTerminalProfileCapabilities {
+        backend: "local",
+        profiles: pty::desktop_terminal_profile_capabilities(),
+    }
+}
+
+#[tauri::command]
+fn synchronize_desktop_terminal_owner(
+    native_state: tauri::State<'_, native_codex::NativeCodexState>,
+    terminal_state: tauri::State<'_, pty::DesktopProfilePtyState>,
+    access_state: tauri::State<'_, local_access::LocalAccessState>,
+    computer_state: tauri::State<'_, computer_access::ComputerAccessState>,
+    owner_id: String,
+) -> Result<u64, String> {
+    if owner_id.is_empty() || owner_id.len() > 256 {
+        return Err("Invalid terminal owner.".into());
+    }
+    let mut manager = terminal_state
+        .lock()
+        .map_err(|_| "Terminal state unavailable.")?;
+    if manager.owner_changes(&owner_id) {
+        native_codex::revoke_all(&native_state);
+        local_access::revoke_all_grants(&access_state)?;
+        computer_access::revoke_permissions(&computer_state);
+    }
+    let generation = manager.synchronize_owner(owner_id);
+    computer_state.enable_for_signed_in_owner();
+    Ok(generation)
+}
+
+#[tauri::command]
+fn create_desktop_profile_pty(
+) -> Result<(), String> {
+    Err("Reload RIFT to update the desktop terminal interface.".into())
+}
+
+#[tauri::command]
+fn create_desktop_profile_pty_v2(
+    app: tauri::AppHandle,
+    terminal_state: tauri::State<'_, pty::DesktopProfilePtyState>,
+    access_state: tauri::State<'_, local_access::LocalAccessState>,
+    owner_id: Option<String>,
+    owner_generation: Option<u64>,
+    client_terminal_id: Option<String>,
+    session_id: String,
+    attachment_id: Option<String>,
+    restart: Option<bool>,
+    profile: String,
+    grant_id: Option<String>,
+    relative_cwd: String,
+    cols: u16,
+    rows: u16,
+    on_data: tauri::ipc::Channel<pty::DesktopTerminalEvent>,
+) -> Result<pty::DesktopProfilePtyCreateResult, String> {
+    let (owner_id, owner_generation, client_terminal_id, attachment_id) = match (
+        owner_id,
+        owner_generation,
+        client_terminal_id,
+        attachment_id,
+    ) {
+        (Some(owner), Some(generation), Some(client), Some(attachment)) => {
+            (owner, generation, client, attachment)
+        }
+        _ => return Err("Reload RIFT to update the desktop terminal interface.".into()),
+    };
+    let restart = restart.unwrap_or(false);
+    if !pty::valid_profile_session_id(&session_id)
+        || !pty::valid_profile_session_id(&client_terminal_id)
+        || !pty::valid_profile_session_id(&attachment_id)
+    {
+        return Err("Desktop terminal identity is invalid.".into());
+    }
+    if !pty::valid_pty_geometry(cols, rows) {
+        return Err("Desktop terminal size is outside the supported range.".into());
+    }
+    // The terminal lock covers authorization, grant validation and spawn. A
+    // concurrent revoke either wins first or kills the completed spawn afterward.
+    let mut manager = terminal_state
+        .lock()
+        .map_err(|_| "Desktop terminal state is unavailable.")?;
+    manager.authorize(&owner_id, owner_generation)?;
+    let original_grant = if restart {
+        manager.grant_for_client(&client_terminal_id)
+    } else {
+        None
+    };
+    if let Some(existing) = manager.existing(
+        &client_terminal_id,
+        &profile,
+        restart,
+        attachment_id.clone(),
+        on_data.clone(),
+    )? {
+        return Ok(existing);
+    }
+    let launch = pty::resolve_desktop_terminal_profile(&profile)
+        .ok_or("The requested desktop terminal profile is unavailable or not allowed.")?;
+    let grant_id = match original_grant {
+        Some(id) if id == "standalone-shell" => None,
+        Some(id) => Some(id),
+        None => grant_id,
+    };
+    let (cwd, grant_id) = match grant_id {
+        Some(id) => (
+            local_access::resolve_terminal_workspace_cwd(&access_state, &id, &relative_cwd)?,
+            id,
+        ),
+        None if profile == "shell" && relative_cwd.is_empty() => (
+            app.path()
+                .home_dir()
+                .map_err(|_| "The user home directory is unavailable.")?,
+            "standalone-shell".into(),
+        ),
+        None => return Err("Choose a writable folder for this CLI profile.".into()),
+    };
+    manager.create(
+        // The native process issues the incarnation. A caller reusing an old
+        // proposed ID cannot make stale reads/ACKs refer to a replacement PTY.
+        format!("native_{}", uuid::Uuid::new_v4().simple()),
+        client_terminal_id,
+        grant_id,
+        launch,
+        cols,
+        rows,
+        &cwd,
+        attachment_id,
+        on_data,
+    )
+}
+
+#[tauri::command]
+fn read_desktop_profile_pty_output(
+    terminal_state: tauri::State<'_, pty::DesktopProfilePtyState>,
+    owner_id: String,
+    owner_generation: u64,
+    session_id: String,
+    attachment_id: String,
+    cursor: u64,
+) -> Result<pty::DesktopTerminalRead, String> {
+    let mut manager = terminal_state.lock().map_err(|_| "Desktop terminal state is unavailable.")?;
+    manager.authorize(&owner_id, owner_generation)?;
+    manager.read_output(&session_id, &attachment_id, cursor)
+}
+
+#[tauri::command]
+fn acknowledge_desktop_profile_pty_output(
+    terminal_state: tauri::State<'_, pty::DesktopProfilePtyState>,
+    owner_id: String,
+    owner_generation: u64,
+    session_id: String,
+    attachment_id: String,
+    cursor: u64,
+) -> Result<(), String> {
+    let mut manager = terminal_state.lock().map_err(|_| "Desktop terminal state is unavailable.")?;
+    manager.authorize(&owner_id, owner_generation)?;
+    manager.acknowledge(&session_id, &attachment_id, cursor)
+}
+
+#[tauri::command]
+fn detach_desktop_profile_pty(
+    terminal_state: tauri::State<'_, pty::DesktopProfilePtyState>,
+    owner_id: String,
+    owner_generation: u64,
+    session_id: String,
+    attachment_id: String,
+) -> Result<(), String> {
+    let mut manager = terminal_state
+        .lock()
+        .map_err(|_| "Desktop terminal state is unavailable.")?;
+    manager.authorize(&owner_id, owner_generation)?;
+    manager.detach(&session_id, &attachment_id)
+}
+
+#[tauri::command]
+fn close_desktop_profile_terminal(
+    terminal_state: tauri::State<'_, pty::DesktopProfilePtyState>,
+    owner_id: String,
+    owner_generation: u64,
+    client_terminal_id: String,
+) -> Result<(), String> {
+    if !pty::valid_profile_session_id(&client_terminal_id) {
+        return Err("Invalid terminal tab.".into());
+    }
+    let mut manager = terminal_state
+        .lock()
+        .map_err(|_| "Desktop terminal state is unavailable.")?;
+    manager.authorize(&owner_id, owner_generation)?;
+    manager.close_client(client_terminal_id)
+}
+
+#[tauri::command]
+async fn send_desktop_profile_pty_input(
+    terminal_state: tauri::State<'_, pty::DesktopProfilePtyState>,
+    owner_id: String,
+    owner_generation: u64,
+    session_id: String,
+    data: String,
+) -> Result<(), String> {
+    if !pty::valid_profile_session_id(&session_id)
+        || data.len() > pty::MAX_DESKTOP_PROFILE_PTY_INPUT_BYTES
+    {
+        return Err("Desktop terminal input is invalid or too large.".into());
+    }
+    let completion = {
+        let manager = terminal_state.lock().map_err(|_| "Desktop terminal state is unavailable.")?;
+        manager.authorize(&owner_id, owner_generation)?;
+        manager.queue_input(&session_id, &data)?
+    };
+    tauri::async_runtime::spawn_blocking(move || {
+        completion.recv().unwrap_or_else(|_| Err("Desktop terminal input closed.".into()))
+    }).await.map_err(|_| "Desktop terminal input task failed.".to_string())?
+}
+
+#[tauri::command]
+fn resize_desktop_profile_pty(
+    terminal_state: tauri::State<'_, pty::DesktopProfilePtyState>,
+    owner_id: String,
+    owner_generation: u64,
+    session_id: String,
+    cols: u16,
+    rows: u16,
+) -> Result<(), String> {
+    if !pty::valid_profile_session_id(&session_id) || !pty::valid_pty_geometry(cols, rows) {
+        return Err("Desktop terminal session or size is invalid.".into());
+    }
+    let mut manager = terminal_state
+        .lock()
+        .map_err(|_| "Desktop terminal state is unavailable.")?;
+    manager.authorize(&owner_id, owner_generation)?;
+    manager.resize(&session_id, cols, rows)
+}
+
+#[tauri::command]
+fn kill_desktop_profile_pty(
+    terminal_state: tauri::State<'_, pty::DesktopProfilePtyState>,
+    owner_id: String,
+    owner_generation: u64,
+    session_id: String,
+) -> Result<(), String> {
+    let mut manager = terminal_state
+        .lock()
+        .map_err(|_| "Desktop terminal state is unavailable.")?;
+    manager.authorize(&owner_id, owner_generation)?;
+    manager.kill(&session_id)
+}
 
 #[tauri::command]
 async fn execute_pty_create(
@@ -1416,12 +1629,67 @@ async fn execute_pty_kill(
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
+        .on_window_event(|window, event| {
+            // Closing the workspace on macOS hides the window. Its grants,
+            // browser views, and local terminals remain alive until explicit
+            // Quit; closing the last window is not a request to stop work.
+            #[cfg(target_os = "macos")]
+            if window.label() == "main" {
+                if let tauri::WindowEvent::CloseRequested { api, .. } = event {
+                    api.prevent_close();
+                    let _ = window.hide();
+                }
+            }
+            #[cfg(not(target_os = "macos"))]
+            let _ = (window, event);
+        })
+        .on_page_load(browser::on_page_load)
         .invoke_handler(tauri::generate_handler![
+            browser::browser_tab_create,
+            browser::browser_tab_navigate,
+            browser::browser_tab_action,
+            browser::browser_tab_layout,
+            browser::browser_tab_snapshot,
+            browser::browser_tab_close,
+            browser::browser_tabs_hide_all,
+            set_desktop_theme,
             get_dev_auth_port,
             prepare_desktop_auth_state,
+            github_desktop_callback_scheme,
             get_cmd_server_info,
             get_local_file_metadata,
             read_local_file,
+            local_access::get_desktop_platform_info,
+            local_access::save_file_to_downloads,
+            local_access::request_workspace_access,
+            local_access::request_file_access,
+            local_access::list_workspace_grants,
+            local_access::revoke_workspace_access,
+            local_access::list_workspace_entries,
+            local_access::read_workspace_file,
+            local_access::write_workspace_file,
+            computer_access::desktop_access_status,
+            computer_access::open_desktop_permission_settings,
+            computer_access::set_desktop_access,
+            computer_access::revoke_all_desktop_access,
+            computer_access::desktop_computer_action,
+            local_access::fetch_loopback_url,
+            local_access::open_visible_url_with_consent,
+            list_desktop_terminal_profiles,
+            synchronize_desktop_terminal_owner,
+            native_codex::native_codex_open,
+            native_codex::native_codex_send,
+            native_codex::native_codex_poll,
+            native_codex::native_codex_close,
+            create_desktop_profile_pty,
+            create_desktop_profile_pty_v2,
+            read_desktop_profile_pty_output,
+            acknowledge_desktop_profile_pty_output,
+            detach_desktop_profile_pty,
+            close_desktop_profile_terminal,
+            send_desktop_profile_pty_input,
+            resize_desktop_profile_pty,
+            kill_desktop_profile_pty,
             execute_command,
             execute_stream_command,
             cancel_stream_command,
@@ -1433,23 +1701,22 @@ pub fn run() {
         .plugin(tauri_plugin_os::init())
         .plugin(tauri_plugin_process::init())
         .plugin(tauri_plugin_shell::init())
-        .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_deep_link::init())
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_single_instance::init(|app, args, _cwd| {
             // Handle deep links passed as CLI args (Linux/Windows)
-            log::info!("Single instance callback with args: {:?}", args);
+            log::info!("Single instance callback received");
             for arg in args.iter().skip(1) {
                 if let Ok(url) = url::Url::parse(arg) {
-                    if url.scheme() == "rift" {
-                        log::info!("Processing deep link from CLI arg: {}", arg);
+                    if url.scheme() == github_desktop_callback_scheme(app.clone()) {
+                        log::info!("Processing a desktop deep link");
                         handle_auth_deep_link(app, &url);
                     }
                 }
             }
             // Focus the main window
-            if let Some(window) = app.get_webview_window("main") {
+            if let Some(window) = app.get_window("main") {
                 let _ = window.set_focus();
             }
         }))
@@ -1461,6 +1728,11 @@ pub fn run() {
         .manage(PendingDesktopAuthStates(std::sync::Mutex::new(
             HashMap::new(),
         )))
+        .manage(local_access::new_local_access_state())
+        .manage(computer_access::ComputerAccessState::default())
+        .manage(browser::BrowserState::default())
+        .manage(pty::new_desktop_profile_pty_state())
+        .manage(native_codex::NativeCodexState::default())
         .setup(|app| {
             #[cfg(desktop)]
             {
@@ -1480,13 +1752,157 @@ pub fn run() {
                 let handle = app.handle().clone();
                 app.deep_link().on_open_url(move |event| {
                     let urls = event.urls();
-                    log::info!("Deep link received: {:?}", urls);
+                    log::info!("Desktop deep link event received");
 
                     for url in urls {
                         handle_auth_deep_link(&handle, &url);
                     }
                 });
             }
+
+            // A window that loads a remote app needs a way to fetch it again.
+            // Tauri's default macOS menu has no Reload, so the webview kept
+            // whatever it loaded at launch: a deploy could not reach the user
+            // without quitting the app, and quitting is what drops the session.
+            #[cfg(desktop)]
+            {
+                use tauri::menu::{
+                    AboutMetadata, Menu, MenuItem, PredefinedMenuItem, Submenu,
+                };
+
+                let handle = app.handle();
+                let reload =
+                    MenuItem::with_id(handle, "reload", "Reload", true, Some("CmdOrCtrl+R"))?;
+                let reload_rift =
+                    MenuItem::with_id(handle, "reload-rift", "Reload RIFT", true, None::<&str>)?;
+                let new_chat = MenuItem::with_id(
+                    handle,
+                    "new-chat",
+                    "New Chat",
+                    true,
+                    Some("CmdOrCtrl+N"),
+                )?;
+                let search = MenuItem::with_id(handle, "search", "Search", true, Some("CmdOrCtrl+K"))?;
+                let settings = MenuItem::with_id(handle, "settings", "Settings…", true, Some("CmdOrCtrl+,"))?;
+
+                let app_menu = Submenu::with_items(
+                    handle,
+                    "RIFT",
+                    true,
+                    &[
+                        &PredefinedMenuItem::about(handle, None, Some(AboutMetadata::default()))?,
+                        &PredefinedMenuItem::separator(handle)?,
+                        &settings,
+                        &PredefinedMenuItem::separator(handle)?,
+                        &PredefinedMenuItem::hide(handle, None)?,
+                        &PredefinedMenuItem::hide_others(handle, None)?,
+                        &PredefinedMenuItem::show_all(handle, None)?,
+                        &PredefinedMenuItem::separator(handle)?,
+                        &PredefinedMenuItem::quit(handle, None)?,
+                    ],
+                )?;
+
+                let file_menu = Submenu::with_items(handle, "File", true, &[&new_chat])?;
+
+                // The webview owns a text field on every screen, so the edit
+                // menu carries the system shortcuts the field expects.
+                let edit_menu = Submenu::with_items(
+                    handle,
+                    "Edit",
+                    true,
+                    &[
+                        &PredefinedMenuItem::undo(handle, None)?,
+                        &PredefinedMenuItem::redo(handle, None)?,
+                        &PredefinedMenuItem::separator(handle)?,
+                        &PredefinedMenuItem::cut(handle, None)?,
+                        &PredefinedMenuItem::copy(handle, None)?,
+                        &PredefinedMenuItem::paste(handle, None)?,
+                        &PredefinedMenuItem::select_all(handle, None)?,
+                        &PredefinedMenuItem::separator(handle)?,
+                        &search,
+                    ],
+                )?;
+
+                let view_menu =
+                    Submenu::with_items(handle, "View", true, &[&reload, &reload_rift])?;
+
+                let window_menu = Submenu::with_items(
+                    handle,
+                    "Window",
+                    true,
+                    &[
+                        &PredefinedMenuItem::minimize(handle, None)?,
+                        &PredefinedMenuItem::maximize(handle, None)?,
+                        &PredefinedMenuItem::separator(handle)?,
+                        &PredefinedMenuItem::close_window(handle, None)?,
+                    ],
+                )?;
+
+                let menu = Menu::with_items(
+                    handle,
+                    &[&app_menu, &file_menu, &edit_menu, &view_menu, &window_menu],
+                )?;
+                app.set_menu(menu)?;
+
+                app.on_menu_event(|app, event| {
+                    match event.id().as_ref() {
+                        "reload" => {
+                            let handle = app.clone();
+                            tauri::async_runtime::spawn(async move {
+                                let _ = browser::reload_from_menu(handle).await;
+                            });
+                        }
+                        "reload-rift" => {
+                            if let Some(main) = app.get_webview("main") {
+                                let _ = main.reload();
+                            }
+                        }
+                        "new-chat" | "search" | "settings" => {
+                            let action = match event.id().as_ref() {
+                                "new-chat" => "new-chat",
+                                "search" => "search",
+                                _ => "settings",
+                            };
+                            if let Some(main) = app.get_webview("main") {
+                                let _ = main.set_focus();
+                            }
+                            let _ = app.emit_to(
+                                tauri::EventTarget::webview("main"),
+                                "rift:desktop-menu-action",
+                                DesktopMenuAction { action },
+                            );
+                        }
+                        _ => {}
+                    }
+                });
+            }
+
+            // The main window is created from tauri.conf.json before setup.
+            // Keep it transparent and apply native macOS sidebar vibrancy so
+            // the web app's translucent shell reveals real desktop material.
+            #[cfg(target_os = "macos")]
+            {
+                use window_vibrancy::{
+                    apply_vibrancy, NSVisualEffectMaterial, NSVisualEffectState,
+                };
+
+                if let Some(window) = app.get_webview_window("main") {
+                    window_chrome::configure(&window)?;
+                    if let Err(error) = apply_vibrancy(
+                        &window,
+                        NSVisualEffectMaterial::Sidebar,
+                        // Keep the material stable when focus moves to another app.
+                        // Cursor Agents also uses an always-active sidebar material.
+                        Some(NSVisualEffectState::Active),
+                        None,
+                    ) {
+                        log::warn!("Failed to apply macOS window vibrancy: {}", error);
+                    }
+                } else {
+                    log::warn!("Main window unavailable for macOS vibrancy");
+                }
+            }
+
             // Start dev auth callback server when running in debug mode
             // (deep links don't work with `tauri dev` on macOS)
             #[cfg(debug_assertions)]
@@ -1495,26 +1911,11 @@ pub fn run() {
                 tauri::async_runtime::spawn(start_dev_auth_server(dev_handle));
             }
 
-            // Start command execution server (always, for local terminal commands)
+            // The legacy arbitrary command server is a development aid only.
+            // Production uses consented, operation-specific IPC from
+            // `local_access`; it never exposes a bearer token for a host shell.
+            #[cfg(debug_assertions)]
             tauri::async_runtime::spawn(start_cmd_server());
-
-            // Check for updates on every launch
-            let handle = app.handle().clone();
-            tauri::async_runtime::spawn(async move {
-                log::info!("Running update check on launch");
-                save_update_check_timestamp(&handle);
-                check_for_updates(handle.clone(), true).await;
-
-                // Then check every hour if 24h has passed (for long-running sessions)
-                loop {
-                    tokio::time::sleep(Duration::from_secs(60 * 60)).await;
-                    if should_check_for_updates(&handle) {
-                        log::info!("Running scheduled update check (24h interval)");
-                        save_update_check_timestamp(&handle);
-                        check_for_updates(handle.clone(), true).await;
-                    }
-                }
-            });
 
             log::info!("RIFT Desktop initialized");
             Ok(())
@@ -1522,12 +1923,72 @@ pub fn run() {
         .build(tauri::generate_context!())
         .expect("error while building tauri application")
         .run(|app, event| {
+            #[cfg(target_os = "macos")]
+            if let tauri::RunEvent::Reopen { .. } = event {
+                if let Some(window) = app.get_webview_window("main") {
+                    let _ = window.unminimize();
+                    let _ = window.show();
+                    let _ = window.set_focus();
+                }
+            }
             if let tauri::RunEvent::Exit = event {
+                if let Some(native_state) = app.try_state::<native_codex::NativeCodexState>() {
+                    native_codex::revoke_all(&native_state);
+                }
                 if let Some(pty_state) = app.try_state::<PtyState>() {
                     if let Ok(mut manager) = pty_state.lock() {
                         manager.stop_all();
                     }
                 }
+                if let Some(terminal_state) = app.try_state::<pty::DesktopProfilePtyState>() {
+                    if let Ok(mut manager) = terminal_state.lock() {
+                        manager.stop_all();
+                    }
+                }
             }
         });
+}
+
+#[cfg(test)]
+mod desktop_auth_tests {
+    use super::*;
+
+    #[test]
+    fn native_appearance_is_main_only_and_supports_system_following() {
+        for label in ["browser-test", "", "Main", "main-child"] {
+            assert!(desktop_theme_for_caller(label, DesktopTheme::Dark).is_err());
+        }
+        assert_eq!(desktop_theme_for_caller("main", DesktopTheme::Light).unwrap(), Some(tauri::Theme::Light));
+        assert_eq!(desktop_theme_for_caller("main", DesktopTheme::Dark).unwrap(), Some(tauri::Theme::Dark));
+        assert_eq!(desktop_theme_for_caller("main", DesktopTheme::System).unwrap(), None);
+        assert!(serde_json::from_str::<DesktopTheme>("\"arbitrary\"").is_err());
+    }
+
+    #[test]
+    fn production_origin_policy_is_exact() {
+        assert!(validate_origin_for_mode("https://riftsys.app", false));
+        assert!(!validate_origin_for_mode("https://riftsys.app:8443", false));
+        assert!(!validate_origin_for_mode("https://riftsys.app/path", false));
+        assert!(!validate_origin_for_mode(
+            "https://user:riftsys.app@attacker.test",
+            false
+        ));
+        assert!(!validate_origin_for_mode("http://localhost:3010", false));
+    }
+
+    #[test]
+    fn development_origin_policy_accepts_only_loopback_exceptions() {
+        assert!(validate_origin_for_mode("http://localhost:3010", true));
+        assert!(validate_origin_for_mode("http://127.0.0.1:3010", true));
+        assert!(validate_origin_for_mode("http://[::1]:3010", true));
+        assert!(!validate_origin_for_mode(
+            "http://localhost.attacker.test",
+            true
+        ));
+    }
+
+    #[test]
+    fn old_terminal_web_contract_requires_reload_without_spawning() {
+        assert!(super::create_desktop_profile_pty().unwrap_err().contains("Reload RIFT"));
+    }
 }

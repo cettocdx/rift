@@ -1,3 +1,4 @@
+/** @jest-environment node */
 /**
  * Tests for the E2B PTY adapter.
  *
@@ -12,7 +13,12 @@
  */
 
 import type { Sandbox } from "@e2b/code-interpreter";
-import { createE2BPtyHandle, type CreatePtyOptions } from "../e2b-pty-adapter";
+import {
+  connectE2BPtyHandle,
+  createE2BPtyHandle,
+  isExpectedPtyTerminationError,
+  type CreatePtyOptions,
+} from "../e2b-pty-adapter";
 import { DEFAULT_PTY_COLS, DEFAULT_PTY_ROWS } from "../pty-session-manager";
 
 // ── Mock helpers ─────────────────────────────────────────────────────
@@ -24,6 +30,7 @@ interface CapturedCreateCall {
   rows: number;
   cwd?: string;
   envs?: Record<string, string>;
+  user?: string;
   onData: OnDataCb;
 }
 
@@ -38,6 +45,7 @@ interface MockPtyCalls {
   resize: jest.Mock;
   kill: jest.Mock;
   create: jest.Mock;
+  connect: jest.Mock;
 }
 
 interface MockSandboxResult {
@@ -55,6 +63,7 @@ function buildMockSandbox(pid = 4242): MockSandboxResult {
     resize: jest.fn().mockResolvedValue(undefined),
     kill: jest.fn().mockResolvedValue(true),
     create: jest.fn(),
+    connect: jest.fn(),
   };
 
   let resolveWait!: (result: { exitCode: number }) => void;
@@ -73,10 +82,21 @@ function buildMockSandbox(pid = 4242): MockSandboxResult {
     mock.capturedCreate = opts;
     return handle;
   });
+  mock.connect.mockImplementation(
+    async (_pid: number, opts: Pick<CapturedCreateCall, "onData">) => {
+      mock.capturedCreate = {
+        cols: 0,
+        rows: 0,
+        onData: opts.onData,
+      };
+      return handle;
+    },
+  );
 
   const sandboxLike = {
     pty: {
       create: mock.create,
+      connect: mock.connect,
       sendInput: mock.sendInput,
       resize: mock.resize,
       kill: mock.kill,
@@ -114,6 +134,7 @@ describe("createE2BPtyHandle", () => {
       rows: 24,
       cwd: "/workspace",
       envs: { FOO: "bar" },
+      user: "user",
     };
 
     const handle = await createE2BPtyHandle(sandbox, opts);
@@ -126,7 +147,37 @@ describe("createE2BPtyHandle", () => {
     expect(created!.rows).toBe(24);
     expect(created!.cwd).toBe("/workspace");
     expect(created!.envs).toEqual({ FOO: "bar" });
+    expect(created!.user).toBe("user");
     expect(typeof created!.onData).toBe("function");
+  });
+
+  it("replays prompt bytes emitted before the manager subscribes", async () => {
+    const { sandbox, emitData } = buildMockSandbox();
+    const handle = await createE2BPtyHandle(sandbox, defaultOpts);
+    const prompt = new Uint8Array([0x72, 0x69, 0x66, 0x74]);
+
+    await emitData(prompt);
+    const listener = jest.fn();
+    handle.onData(listener);
+
+    expect(listener).toHaveBeenCalledTimes(1);
+    expect(Array.from(listener.mock.calls[0][0])).toEqual(Array.from(prompt));
+  });
+
+  it("connects to an existing PTY by pid and returns the same handle contract", async () => {
+    const { sandbox, mock, emitData } = buildMockSandbox(31337);
+    const handle = await connectE2BPtyHandle(sandbox, 31337);
+    const listener = jest.fn();
+    handle.onData(listener);
+    await emitData(new Uint8Array([0x41]));
+    await handle.sendInput(new Uint8Array([0x42]));
+
+    expect(mock.connect).toHaveBeenCalledTimes(1);
+    expect(mock.connect.mock.calls[0][0]).toBe(31337);
+    expect(typeof mock.connect.mock.calls[0][1].onData).toBe("function");
+    expect(handle.pid).toBe(31337);
+    expect(listener).toHaveBeenCalledTimes(1);
+    expect(mock.sendInput).toHaveBeenCalledWith(31337, new Uint8Array([0x42]));
   });
 
   it("fans out onData chunks from E2B to every registered listener", async () => {
@@ -259,6 +310,79 @@ describe("createE2BPtyHandle", () => {
     }
   });
 
+  it("treats normal kill and expired sandbox rejections as expected terminal states", () => {
+    const killed = Object.assign(new Error("signal: killed"), {
+      name: "CommandExitError",
+    });
+    const alarmClock = Object.assign(new Error("signal: alarm clock"), {
+      name: "CommandExitError",
+    });
+    const expired = Object.assign(
+      new Error("The sandbox was not found because it timed out"),
+      { name: "TimeoutError" },
+    );
+    const alreadyClosedKill = new Error("Failed to kill PTY process: pid=7721");
+    const grpcTeardown = new Error("2: [unknown] terminated");
+
+    expect(isExpectedPtyTerminationError(killed)).toBe(true);
+    expect(isExpectedPtyTerminationError(alarmClock)).toBe(true);
+    expect(isExpectedPtyTerminationError(expired)).toBe(true);
+    expect(isExpectedPtyTerminationError(alreadyClosedKill)).toBe(true);
+    expect(isExpectedPtyTerminationError(grpcTeardown)).toBe(true);
+    expect(isExpectedPtyTerminationError(new Error("network reset"))).toBe(
+      false,
+    );
+    expect(
+      isExpectedPtyTerminationError(
+        Object.assign(new Error("Command exited with code 1"), {
+          name: "CommandExitError",
+          exitCode: 1,
+        }),
+      ),
+    ).toBe(false);
+    expect(
+      isExpectedPtyTerminationError(
+        new Error("Connection terminated unexpectedly"),
+      ),
+    ).toBe(false);
+  });
+
+  it("does not log expected wait rejection noise", async () => {
+    const errorSpy = jest.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      const { sandbox, rejectWait } = buildMockSandbox();
+      const handle = await createE2BPtyHandle(sandbox, defaultOpts);
+      rejectWait(
+        Object.assign(new Error("signal: killed"), {
+          name: "CommandExitError",
+        }),
+      );
+
+      await expect(handle.exited).resolves.toEqual({ exitCode: null });
+      expect(errorSpy).not.toHaveBeenCalled();
+    } finally {
+      errorSpy.mockRestore();
+    }
+  });
+
+  it("does not log the Workbench launcher alarm as an application failure", async () => {
+    const errorSpy = jest.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      const { sandbox, rejectWait } = buildMockSandbox();
+      const handle = await createE2BPtyHandle(sandbox, defaultOpts);
+      rejectWait(
+        Object.assign(new Error("signal: alarm clock"), {
+          name: "CommandExitError",
+        }),
+      );
+
+      await expect(handle.exited).resolves.toEqual({ exitCode: null });
+      expect(errorSpy).not.toHaveBeenCalled();
+    } finally {
+      errorSpy.mockRestore();
+    }
+  });
+
   it("exited is memoized — every await returns the same resolution", async () => {
     const { sandbox, resolveWait } = buildMockSandbox();
     const handle = await createE2BPtyHandle(sandbox, defaultOpts);
@@ -290,4 +414,112 @@ describe("createE2BPtyHandle", () => {
     const mockHandle = handleReturn as MockHandle;
     expect(mockHandle.wait).toHaveBeenCalledTimes(1);
   });
+});
+
+it("holds SDK output until every reader releases credit without blocking input or resize", async () => {
+  const { sandbox, emitData, mock } = buildMockSandbox();
+  const handle = await createE2BPtyHandle(sandbox, defaultOpts);
+  expect(handle.acquireOutputFlowControl).toBeDefined();
+  const slow = handle.acquireOutputFlowControl!();
+  const fast = handle.acquireOutputFlowControl!();
+  const got: Buffer[] = [];
+  handle.onData((b) => got.push(Buffer.from(b)));
+  slow.pause();
+  fast.pause();
+  let settled = false;
+  const output = emitData(Buffer.from("π terminal")).then(() => {
+    settled = true;
+  });
+  await Promise.resolve();
+  expect(settled).toBe(false);
+  expect(got).toHaveLength(0);
+  fast.resume();
+  await handle.sendInput(Buffer.from("x"));
+  await handle.resize(100, 30);
+  expect(mock.sendInput).toHaveBeenCalled();
+  expect(mock.resize).toHaveBeenCalled();
+  expect(got).toHaveLength(0);
+  slow.dispose();
+  await output;
+  expect(Buffer.concat(got).toString()).toBe("π terminal");
+  fast.dispose();
+});
+
+it("kill releases an SDK callback blocked by a disconnected reader", async () => {
+  const { sandbox, emitData } = buildMockSandbox();
+  const handle = await createE2BPtyHandle(sandbox, defaultOpts);
+  expect(handle.acquireOutputFlowControl).toBeDefined();
+  const flow = handle.acquireOutputFlowControl!();
+  flow.pause();
+  const output = emitData(Buffer.from("queued"));
+  await handle.kill();
+  await output;
+  flow.dispose();
+});
+
+it("keeps strict termination proof separate from a normalized wait failure", async () => {
+  const spy = jest.spyOn(console, "error").mockImplementation(() => {});
+  try {
+    const { sandbox, rejectWait } = buildMockSandbox();
+    const handle = await createE2BPtyHandle(sandbox, { cols: 80, rows: 24 });
+    const failure = new Error("transport receipt unavailable");
+    rejectWait(failure);
+    await expect(handle.exited).resolves.toEqual({ exitCode: null });
+    expect(handle.confirmedExited).toBeDefined();
+    await expect(handle.confirmedExited).rejects.toBe(failure);
+  } finally {
+    spy.mockRestore();
+  }
+});
+it("confirms actual E2B wait completion including nonzero process exit", async () => {
+  const { sandbox, resolveWait } = buildMockSandbox();
+  const handle = await createE2BPtyHandle(sandbox, { cols: 80, rows: 24 });
+  resolveWait({ exitCode: 137 });
+  expect(handle.confirmedExited).toBeDefined();
+  await expect(handle.confirmedExited).resolves.toEqual({ exitCode: 137 });
+});
+it.each([null, undefined])(
+  "does not confirm an E2B wait result with unknown exit code %s",
+  async (exitCode) => {
+    const { sandbox, resolveWait } = buildMockSandbox();
+    const handle = await createE2BPtyHandle(sandbox, { cols: 80, rows: 24 });
+    resolveWait({ exitCode } as any);
+    await expect(handle.exited).resolves.toEqual({ exitCode: null });
+    await expect(handle.confirmedExited).rejects.toThrow("exit");
+  },
+);
+it("confirms SDK CommandExitError termination but refuses error-shaped transport objects", async () => {
+  const { CommandExitError } = jest.requireActual<
+    typeof import("@e2b/code-interpreter")
+  >("@e2b/code-interpreter");
+  const spy = jest.spyOn(console, "error").mockImplementation(() => {});
+  try {
+    const actual = buildMockSandbox();
+    const handle = await createE2BPtyHandle(actual.sandbox, {
+      cols: 80,
+      rows: 24,
+    });
+    actual.rejectWait(
+      new CommandExitError({
+        exitCode: 137,
+        stdout: "",
+        stderr: "",
+        error: "killed",
+      }),
+    );
+    await expect(handle.confirmedExited).resolves.toEqual({ exitCode: 137 });
+    const uncertain = buildMockSandbox();
+    const second = await createE2BPtyHandle(uncertain.sandbox, {
+      cols: 80,
+      rows: 24,
+    });
+    const forged = Object.assign(new Error("transport failed"), {
+      name: "CommandExitError",
+      exitCode: 137,
+    });
+    uncertain.rejectWait(forged);
+    await expect(second.confirmedExited).rejects.toBe(forged);
+  } finally {
+    spy.mockRestore();
+  }
 });

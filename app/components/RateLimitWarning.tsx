@@ -1,6 +1,7 @@
 import { X } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { openSettingsDialog } from "@/lib/utils/settings-dialog";
+import Link from "next/link";
+import { useSettingsNavigation } from "@/app/components/settings/useSettingsNavigation";
 import type { ChatMode, SubscriptionTier } from "@/types";
 
 // Discriminated union for warning data
@@ -30,6 +31,17 @@ export type RateLimitWarningData =
       resetTime: Date;
       subscription: SubscriptionTier;
       midStream?: boolean;
+    }
+  | {
+      // One run's spend against its own ceiling. No reset time: it is not a
+      // bucket, and the next run starts from zero.
+      warningType: "run-budget";
+      usedPercent: number;
+      usedDollars: number;
+      ceilingDollars: number;
+      subscription: SubscriptionTier;
+      midStream?: boolean;
+      cutOff?: boolean;
     };
 
 interface RateLimitWarningProps {
@@ -70,6 +82,14 @@ const formatTimeUntil = (resetTime: Date): string => {
 };
 
 const getMessage = (data: RateLimitWarningData, timeString: string): string => {
+  if (data.warningType === "run-budget") {
+    const used = `$${data.usedDollars.toFixed(2)} of this run's $${data.ceilingDollars.toFixed(2)} limit`;
+    if (data.cutOff) {
+      return `This run reached its $${data.ceilingDollars.toFixed(2)} spending limit and was stopped. Your work so far is saved; start a new message to continue.`;
+    }
+    return `This run has used ${used} (${data.usedPercent}%).`;
+  }
+
   if (data.warningType === "sliding-window") {
     return data.remaining === 0
       ? `You've used all your daily requests. Daily requests reset at midnight UTC.`
@@ -84,7 +104,7 @@ const getMessage = (data: RateLimitWarningData, timeString: string): string => {
   if (data.remainingPercent === 0) {
     if (data.cutOff) {
       if (data.subscription === "free") {
-        return `You've used your daily free allowance and this response was cut off. Buy tokens to keep going, or wait — it resets ${timeString}.`;
+        return `You've used your daily free allowance and this response was cut off. Buy tokens to keep going, or wait; it resets ${timeString}.`;
       }
       return `You've reached your monthly limit and this response was cut off. Buy tokens to continue. Resets ${timeString}.`;
     }
@@ -105,36 +125,42 @@ export const RateLimitWarning = ({
   data,
   onDismiss,
 }: RateLimitWarningProps) => {
-  const timeString = formatTimeUntil(data.resetTime);
+  const { hrefFor } = useSettingsNavigation();
+  const timeString =
+    "resetTime" in data ? formatTimeUntil(data.resetTime) : "";
   const message = getMessage(data, timeString);
   // PAYG: non-team users top up by buying tokens (no plan upgrades).
   const showBuyTokens =
-    data.warningType !== "extra-usage-active" && data.subscription !== "team";
+    data.warningType !== "extra-usage-active" &&
+    data.warningType !== "run-budget" &&
+    data.subscription !== "team";
 
   return (
     <div
       data-testid="rate-limit-warning"
-      className={`mb-2 px-3 py-2.5 border rounded-xl flex items-center justify-between gap-2 ${WARNING_STYLES}`}
+      className={`mb-1.5 flex items-center justify-between gap-2 rounded-lg border px-2.5 py-1.5 ${WARNING_STYLES}`}
     >
-      <div className="flex-1 flex items-center gap-2 flex-wrap">
-        <span className="text-foreground text-sm">{message}</span>
+      <div className="flex flex-1 flex-wrap items-center gap-2">
+        <span className="text-[12px] leading-4 text-foreground/80">
+          {message}
+        </span>
         {showBuyTokens && (
           <Button
-            onClick={() => openSettingsDialog("Extra Usage")}
-            size="sm"
+            asChild
+            size="xs"
             variant="outline"
-            className="h-7 px-3 text-xs font-medium border-black/8 dark:border-border"
+            className="border-border px-2 text-[11px] font-medium"
           >
-            Buy tokens
+            <Link href={hrefFor("billing")}>Buy tokens</Link>
           </Button>
         )}
       </div>
       <button
         onClick={onDismiss}
-        className="flex-shrink-0 text-muted-foreground hover:text-foreground cursor-pointer transition-colors"
+        className="flex size-6 flex-shrink-0 cursor-pointer items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground focus-visible:outline-none"
         aria-label="Dismiss warning"
       >
-        <X className="h-5 w-5" />
+        <X className="size-3.5" />
       </button>
     </div>
   );

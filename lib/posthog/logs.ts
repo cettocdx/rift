@@ -1,3 +1,9 @@
+import { recordTelemetryLoss } from "./delivery-stats";
+import {
+  getTelemetryContext,
+  getScopedTelemetryContext,
+  type TelemetryContext,
+} from "./context";
 type LogLevel = "info" | "warn" | "error";
 type OtlpValue =
   | { stringValue: string }
@@ -30,52 +36,58 @@ const LOG_BATCH_SIZE = 50;
 const LOG_QUEUE_LIMIT = 1_000;
 const LOG_FLUSH_INTERVAL_MS = 2_000;
 const LOG_EXPORT_TIMEOUT_MS = 5_000;
-const DEFAULT_SERVICE_NAME = "rift-web";
+const LOG_ORIGIN_LIMIT = 32;
 const POSTHOG_CORRELATION_KEYS = new Set(["posthogDistinctId", "sessionId"]);
 
-let pendingLogs: QueuedLogRecord[] = [];
-let flushPromise: Promise<void> | null = null;
-let flushTimer: ReturnType<typeof setTimeout> | null = null;
-
-function getEnvironment(): string {
-  return (
-    process.env.VERCEL_ENV ??
-    process.env.NODE_ENV ??
-    process.env.ENVIRONMENT ??
-    "unknown"
-  );
-}
-
-function getServiceName(): string {
-  return process.env.POSTHOG_LOG_SERVICE_NAME ?? DEFAULT_SERVICE_NAME;
-}
+type PendingLog = { sequence: number; record: QueuedLogRecord };
+type LogQueue = {
+  context: TelemetryContext;
+  pending: PendingLog[];
+  flushing: Promise<void> | null;
+  timer: ReturnType<typeof setTimeout> | null;
+};
+const queues = new Map<TelemetryContext, LogQueue>();
+let pendingCount = 0;
+let sequence = 0;
 
 function truncate(value: string, maxLength = LOG_ATTRIBUTE_VALUE_MAX_LENGTH) {
   return value.length > maxLength ? `${value.slice(0, maxLength)}...` : value;
 }
 
-function getPostHogToken(): string | undefined {
-  return (
-    process.env.POSTHOG_PROJECT_TOKEN ??
-    process.env.NEXT_PUBLIC_POSTHOG_KEY ??
-    undefined
-  );
+function releaseEmptyQueue(queue: LogQueue) {
+  if (queue.pending.length || queue.flushing) return;
+  if (queue.timer) clearTimeout(queue.timer);
+  queue.timer = null;
+  queues.delete(queue.context);
 }
 
-function getPostHogIngestHost(): string {
-  const rawHost =
-    process.env.POSTHOG_LOG_HOST ??
-    process.env.NEXT_PUBLIC_POSTHOG_HOST ??
-    "https://us.i.posthog.com";
-  const host = rawHost.replace(/\/+$/, "");
+/** Retire only idle state; failed destinations cannot monopolize every slot. */
+function retireOldestIdleQueue(): boolean {
+  for (const queue of queues.values()) {
+    if (queue.flushing) continue;
+    pendingCount -= queue.pending.length;
+    recordTelemetryLoss("droppedLogRecords", queue.pending.length);
+    queue.pending = [];
+    releaseEmptyQueue(queue);
+    return true;
+  }
+  return false;
+}
 
-  if (host === "https://app.posthog.com" || host === "https://us.posthog.com") {
-    return "https://us.i.posthog.com";
+function trimOldestLog() {
+  let oldest: LogQueue | undefined;
+  for (const queue of queues.values()) {
+    if (
+      queue.pending.length &&
+      (!oldest || queue.pending[0].sequence < oldest.pending[0].sequence)
+    )
+      oldest = queue;
   }
-  if (host === "https://eu.posthog.com") {
-    return "https://eu.i.posthog.com";
-  }
-  return host;
+  if (!oldest) return;
+  oldest.pending.shift();
+  pendingCount--;
+  recordTelemetryLoss("droppedLogRecords");
+  releaseEmptyQueue(oldest);
 }
 
 function severityNumberFor(level: LogLevel): number {
@@ -123,11 +135,12 @@ function toOtlpValue(value: unknown): OtlpValue | undefined {
 }
 
 function toOtlpAttributes(
+  context: TelemetryContext,
   attributes: Record<string, unknown> = {},
 ): OtlpAttribute[] {
   const normalized: Record<string, unknown> = {
-    service: getServiceName(),
-    environment: getEnvironment(),
+    service: context.serviceName,
+    environment: context.environment,
     runtime: "node",
     ...attributes,
   };
@@ -149,28 +162,31 @@ function nowUnixNano(): string {
   return `${BigInt(Date.now()) * BigInt(1_000_000)}`;
 }
 
-function buildOtlpPayload(logs: QueuedLogRecord[]) {
+function buildOtlpPayload(logs: QueuedLogRecord[], context: TelemetryContext) {
   return {
     resourceLogs: [
       {
         resource: {
           attributes: [
-            { key: "service.name", value: { stringValue: getServiceName() } },
+            {
+              key: "service.name",
+              value: { stringValue: context.serviceName },
+            },
             {
               key: "deployment.environment",
-              value: { stringValue: getEnvironment() },
+              value: { stringValue: context.environment },
             },
             {
               key: "service.version",
               value: {
-                stringValue: process.env.VERCEL_GIT_COMMIT_SHA ?? "dev",
+                stringValue: context.version,
               },
             },
           ],
         },
         scopeLogs: [
           {
-            scope: { name: getServiceName() },
+            scope: { name: context.serviceName },
             logRecords: logs,
           },
         ],
@@ -179,19 +195,18 @@ function buildOtlpPayload(logs: QueuedLogRecord[]) {
   };
 }
 
-function scheduleFlush(delayMs: number): void {
-  if (flushTimer) {
+function scheduleFlush(queue: LogQueue, delayMs: number): void {
+  if (queue.timer) {
     if (delayMs > 0) return;
-    clearTimeout(flushTimer);
+    clearTimeout(queue.timer);
   }
-
-  flushTimer = setTimeout(() => {
-    flushTimer = null;
-    void flushPostHogLogs().catch(() => {
-      // best-effort telemetry
+  queue.timer = setTimeout(() => {
+    queue.timer = null;
+    void flushQueue(queue).catch(() => {
+      /* best-effort telemetry */
     });
   }, delayMs);
-  flushTimer.unref?.();
+  queue.timer.unref?.();
 }
 
 export function registerPostHogLogProvider() {
@@ -205,31 +220,49 @@ export function emitPostHogLog({
   body,
   attributes,
 }: EmitLogOptions): boolean {
-  if (!getPostHogToken()) return false;
-
-  pendingLogs.push({
-    timeUnixNano: nowUnixNano(),
-    severityNumber: severityNumberFor(level),
-    severityText: level.toUpperCase(),
-    body: { stringValue: truncate(body) },
-    attributes: toOtlpAttributes({
-      event,
-      ...attributes,
-    }),
+  const context = getTelemetryContext();
+  if (!context.logToken) return false;
+  let queue = queues.get(context);
+  if (!queue) {
+    // Bound the number of independent exporters as well as aggregate records.
+    if (queues.size >= LOG_ORIGIN_LIMIT && !retireOldestIdleQueue()) {
+      recordTelemetryLoss("rejectedLogRecords");
+      return false;
+    }
+    queue = { context, pending: [], flushing: null, timer: null };
+    queues.set(context, queue);
+  }
+  while (pendingCount >= LOG_QUEUE_LIMIT) trimOldestLog();
+  // Trimming may have released this queue if it held the oldest record.
+  queues.set(context, queue);
+  queue.pending.push({
+    sequence: sequence++,
+    record: {
+      timeUnixNano: nowUnixNano(),
+      severityNumber: severityNumberFor(level),
+      severityText: level.toUpperCase(),
+      body: { stringValue: truncate(body) },
+      attributes: toOtlpAttributes(context, {
+        event,
+        ...attributes,
+      }),
+    },
   });
 
-  if (pendingLogs.length > LOG_QUEUE_LIMIT) {
-    pendingLogs.splice(0, pendingLogs.length - LOG_QUEUE_LIMIT);
-  }
+  pendingCount++;
   scheduleFlush(
-    pendingLogs.length >= LOG_BATCH_SIZE ? 0 : LOG_FLUSH_INTERVAL_MS,
+    queue,
+    queue.pending.length >= LOG_BATCH_SIZE ? 0 : LOG_FLUSH_INTERVAL_MS,
   );
 
   return true;
 }
 
-async function flushBatch(logs: QueuedLogRecord[]): Promise<void> {
-  const token = getPostHogToken();
+async function flushBatch(
+  logs: QueuedLogRecord[],
+  context: TelemetryContext,
+): Promise<void> {
+  const token = context.logToken;
   if (!token || logs.length === 0) return;
 
   const controller = new AbortController();
@@ -237,14 +270,14 @@ async function flushBatch(logs: QueuedLogRecord[]): Promise<void> {
   timeout.unref?.();
 
   try {
-    const response = await fetch(`${getPostHogIngestHost()}/i/v1/logs`, {
+    const response = await fetch(`${context.logHost}/i/v1/logs`, {
       method: "POST",
       headers: {
         Authorization: `Bearer ${token}`,
         "Content-Type": "application/json",
       },
       signal: controller.signal,
-      body: JSON.stringify(buildOtlpPayload(logs)),
+      body: JSON.stringify(buildOtlpPayload(logs, context)),
     });
 
     if (!response.ok) {
@@ -255,37 +288,46 @@ async function flushBatch(logs: QueuedLogRecord[]): Promise<void> {
   }
 }
 
+function flushQueue(queue: LogQueue): Promise<void> {
+  if (queue.timer) clearTimeout(queue.timer);
+  queue.timer = null;
+  if (queue.flushing) return queue.flushing;
+  if (!queue.pending.length) {
+    releaseEmptyQueue(queue);
+    return Promise.resolve();
+  }
+  // Publish the shared promise before the first await so concurrent flushes
+  // cannot send the same batch twice. Every retry retains this queue's origin.
+  queue.flushing = Promise.resolve()
+    .then(async () => {
+      while (queue.pending.length) {
+        const batch = queue.pending.slice(0, LOG_BATCH_SIZE);
+        await flushBatch(
+          batch.map((item) => item.record),
+          queue.context,
+        );
+        const sent = new Set(batch);
+        const before = queue.pending.length;
+        queue.pending = queue.pending.filter((item) => !sent.has(item));
+        pendingCount -= before - queue.pending.length;
+      }
+    })
+    .finally(() => {
+      queue.flushing = null;
+      if (queue.pending.length) scheduleFlush(queue, LOG_FLUSH_INTERVAL_MS);
+      else releaseEmptyQueue(queue);
+    });
+  return queue.flushing;
+}
+
 export async function flushPostHogLogs(): Promise<void> {
-  if (flushTimer) {
-    clearTimeout(flushTimer);
-    flushTimer = null;
+  const context = getScopedTelemetryContext();
+  if (context) {
+    const queue = queues.get(context);
+    if (queue) await flushQueue(queue);
+    return;
   }
-
-  if (flushPromise) {
-    await flushPromise;
-  }
-
-  const logsToFlush = pendingLogs.slice(0, LOG_BATCH_SIZE);
-  if (logsToFlush.length === 0) return;
-
-  flushPromise = (async () => {
-    await flushBatch(logsToFlush);
-    const flushedLogs = new Set(logsToFlush);
-    pendingLogs = pendingLogs.filter((log) => !flushedLogs.has(log));
-  })().finally(() => {
-    flushPromise = null;
-  });
-
-  try {
-    await flushPromise;
-  } catch (error) {
-    if (pendingLogs.length > 0) {
-      scheduleFlush(LOG_FLUSH_INTERVAL_MS);
-    }
-    throw error;
-  }
-
-  if (pendingLogs.length > 0) {
-    await flushPostHogLogs();
-  }
+  // Unscoped process shutdown still drains all destinations, each with its
+  // captured credentials. A worker's scoped flush never waits for another run.
+  await Promise.all([...queues.values()].map(flushQueue));
 }

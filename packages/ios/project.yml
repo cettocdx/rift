@@ -1,0 +1,66 @@
+name: RIFT
+options:
+  bundleIdPrefix: app.riftsys
+  deploymentTarget:
+    iOS: '18.0'
+settings:
+  base:
+    SWIFT_VERSION: '5.0'
+    TARGETED_DEVICE_FAMILY: '1,2'
+    CODE_SIGN_STYLE: Automatic
+    GENERATE_INFOPLIST_FILE: YES
+  configs:
+    Debug:
+      RIFT_SERVER_URL: http://localhost:3046
+    Release:
+      RIFT_SERVER_URL: https://riftsys.app
+targets:
+  RIFT:
+    type: application
+    platform: iOS
+    sources:
+      - path: Sources
+      - path: Resources/Providers.xcassets
+      - path: Resources/RIFTIcon.icon
+        type: file
+        buildPhase: resources
+        fileType: folder.icon
+    settings:
+      base:
+        ASSETCATALOG_COMPILER_APPICON_NAME: RIFTIcon
+        PRODUCT_BUNDLE_IDENTIFIER: app.riftsys.ios
+        MARKETING_VERSION: '0.1.0'
+        CURRENT_PROJECT_VERSION: '6'
+    info:
+      path: Info.plist
+      properties:
+        CFBundleDisplayName: RIFT
+        ITSAppUsesNonExemptEncryption: false
+        RIFTServerURL: $(RIFT_SERVER_URL)
+        UILaunchScreen: {}
+        UIApplicationSceneManifest:
+          UIApplicationSupportsMultipleScenes: false
+        NSAppTransportSecurity:
+          NSAllowsLocalNetworking: true
+        NSLocalNetworkUsageDescription: Connect to your RIFT development server during local testing.
+        UISupportedInterfaceOrientations: [UIInterfaceOrientationPortrait, UIInterfaceOrientationLandscapeLeft, UIInterfaceOrientationLandscapeRight]
+        UISupportedInterfaceOrientations~ipad: [UIInterfaceOrientationPortrait, UIInterfaceOrientationPortraitUpsideDown, UIInterfaceOrientationLandscapeLeft, UIInterfaceOrientationLandscapeRight]
+  RIFTTests:
+    type: bundle.unit-test
+    platform: iOS
+    sources: [Tests]
+    dependencies:
+      - target: RIFT
+  RIFTUITests:
+    type: bundle.ui-testing
+    platform: iOS
+    sources: [UITests]
+    dependencies:
+      - target: RIFT
+schemes:
+  RIFT:
+    build:
+      targets:
+        RIFT: all
+    test:
+      targets: [RIFTTests, RIFTUITests]

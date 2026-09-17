@@ -1,10 +1,9 @@
 "use client";
 
 import { memo, useCallback } from "react";
-import { useRouter } from "next/navigation";
 import { useGlobalState } from "../contexts/GlobalState";
-import { chatRoute, useAppShell } from "../contexts/AppShellContext";
 import { useIsMobile } from "@/hooks/use-mobile";
+import { useChatNavigation } from "@/app/hooks/useChatNavigation";
 
 interface BranchIndicatorProps {
   branchedFromChatId: string;
@@ -17,10 +16,9 @@ export const BranchIndicator = memo(function BranchIndicator({
   branchedFromChatTitle,
   onNavigate,
 }: BranchIndicatorProps) {
-  const router = useRouter();
-  const { basePath } = useAppShell();
   const { initializeChat, closeSidebar, setChatSidebarOpen } = useGlobalState();
   const isMobile = useIsMobile();
+  const { goChat } = useChatNavigation();
 
   const handleClick = useCallback(() => {
     if (onNavigate) {
@@ -34,7 +32,7 @@ export const BranchIndicator = memo(function BranchIndicator({
     }
 
     initializeChat(branchedFromChatId);
-    router.push(chatRoute(basePath, branchedFromChatId));
+    goChat(branchedFromChatId);
   }, [
     onNavigate,
     branchedFromChatId,
@@ -42,8 +40,7 @@ export const BranchIndicator = memo(function BranchIndicator({
     isMobile,
     setChatSidebarOpen,
     initializeChat,
-    router,
-    basePath,
+    goChat,
   ]);
 
   return (

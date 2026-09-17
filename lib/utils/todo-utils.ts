@@ -154,6 +154,36 @@ export const getTodoStats = (todos: Todo[]) => {
   };
 };
 
+/** Keep a transcript plan live only while its originating plan is current.
+ * Task ids alone are not sufficient: later plans commonly reuse ids like "1".
+ */
+export const getLiveTodoBlockTodos = (
+  snapshot: Todo[],
+  live: Todo[],
+  messageId: string,
+): Todo[] => {
+  const liveById = new Map(live.map((todo) => [todo.id, todo]));
+  const activeSources = new Set<string>();
+  for (const todo of snapshot) {
+    const source = todo.sourceMessageId || messageId;
+    if (liveById.get(todo.id)?.sourceMessageId === source) {
+      activeSources.add(source);
+    }
+  }
+  if (!activeSources.size) return snapshot;
+
+  // Include additions/removals to this plan, preserving unrelated historical
+  // or manual items that happened to be present in the original tool output.
+  return [
+    ...live.filter((todo) =>
+      Boolean(todo.sourceMessageId && activeSources.has(todo.sourceMessageId)),
+    ),
+    ...snapshot.filter(
+      (todo) => !activeSources.has(todo.sourceMessageId || messageId),
+    ),
+  ];
+};
+
 /**
  * Remove all todos attributed to a given message id.
  */

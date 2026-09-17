@@ -1,0 +1,12 @@
+/* Reuse the existing identity area as its hit target; keep card geometry intact. */
+@media (pointer: coarse) {
+  .connectionIdentity {
+    min-height: 44px;
+  }
+
+  .connectionMore {
+    width: 44px;
+    min-width: 44px;
+    height: 44px;
+  }
+}

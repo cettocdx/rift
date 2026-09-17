@@ -147,7 +147,7 @@ export function AttackSurfaceCanvas() {
     let cy = 0;
     let maxR = 0;
 
-    const SIGNAL = "52, 210, 230";
+    const SIGNAL = "242, 106, 32";
     const BORDER = "120, 126, 138";
 
     const resize = () => {

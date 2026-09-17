@@ -13,6 +13,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
+import touchStyles from "./settings/SettingsTouchTargets.module.css";
 import { toast } from "sonner";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -99,7 +100,7 @@ export const DeleteAccountDialog = ({
     <Dialog open={open} onOpenChange={onOpenChange} modal={true}>
       <DialogContent
         data-testid="delete-account-dialog"
-        className="sm:max-w-md max-h-[90vh] overflow-y-auto"
+        className={`${touchStyles.content} ${touchStyles.dialog} sm:max-w-md max-h-[90vh] overflow-y-auto`}
       >
         <DialogHeader>
           <DialogTitle>Delete account - are you sure?</DialogTitle>

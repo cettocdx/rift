@@ -3,26 +3,29 @@ use tauri::{WebviewUrl, WebviewWindowBuilder};
 /// Resolve the URL the desktop window loads.
 ///
 /// Priority:
-///   1. `RIFT_DESKTOP_URL` env var (manual override — point at any host)
+///   1. debug-only `RIFT_DESKTOP_URL` env var (manual development override)
 ///   2. debug build  → local dev server (http://localhost:3010)
-///   3. release build → cloud (https://riftsys.app)
+///   3. release build → cloud sign-in (https://riftsys.app/login)
 fn resolve_app_url() -> String {
-  if let Ok(url) = std::env::var("RIFT_DESKTOP_URL") {
-    if !url.trim().is_empty() {
-      return url;
+    #[cfg(debug_assertions)]
+    {
+        if let Ok(url) = std::env::var("RIFT_DESKTOP_URL") {
+            if !url.trim().is_empty() {
+                return url;
+            }
+        }
     }
-  }
 
-  if cfg!(debug_assertions) {
-    "http://localhost:3010".to_string()
-  } else {
-    "https://riftsys.app".to_string()
-  }
+    if cfg!(debug_assertions) {
+        "http://localhost:3010".to_string()
+    } else {
+        "https://riftsys.app/login".to_string()
+    }
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-  tauri::Builder::default()
+    tauri::Builder::default()
     .setup(|app| {
       if cfg!(debug_assertions) {
         app.handle().plugin(
@@ -53,14 +56,50 @@ pub fn run() {
         "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36 RIFTWrapperLite/1.0"
       };
 
-      WebviewWindowBuilder::new(app, "main", WebviewUrl::External(url))
+      let window = WebviewWindowBuilder::new(app, "main", WebviewUrl::External(url))
         .title("RIFT")
         .inner_size(1280.0, 800.0)
         .min_inner_size(900.0, 600.0)
         .resizable(true)
+        .decorations(true)
+        .title_bar_style(tauri::TitleBarStyle::Overlay)
+        .hidden_title(true)
+        // MEASURED, then corrected against the measurement.
+        // Captured each window on its own with `screencapture -l<windowid>` and
+        // read the disc: with the inset at (13.25, 26.25) our lights centred on
+        // (20.0, 24.0), while the reference window centres its own on 22.5. tao
+        // moves the centre 1:1 with the inset -- it resizes the titlebar container
+        // to `closeButtonHeight + y` and leaves the button's offset inside it
+        // alone (tao/src/platform_impl/macos/view.rs, inset_traffic_lights) -- so
+        // the correction is arithmetic: x += 2.5, y -= 1.5.
+
+        // 22.5 is also the centre line of the 45px CSS strip, so the window
+        // controls and everything the web app puts in that strip sit on one line.
+
+        // Do not "fix" these from the reference app's own config. That app is
+        // Electron, where trafficLightPosition means the button's top-left; tao
+        // means a container inset. Reading 33/2 out of its bundle and using it
+        // here is what put this 8pt out to begin with. Measure the pixels.
+        .traffic_light_position(tauri::LogicalPosition::new(15.75, 24.75))
+        .transparent(true)
         .user_agent(user_agent)
         .initialization_script("window.__RIFT_DESKTOP_LITE__ = true;")
         .build()?;
+
+      // macOS "glass": frosted vibrancy behind the transparent webview, so the
+      // desktop shows through wherever the web content is translucent (the
+      // sidebar) — Codex-style. The web app tints the sidebar over this.
+      #[cfg(target_os = "macos")]
+      {
+        use window_vibrancy::{apply_vibrancy, NSVisualEffectMaterial, NSVisualEffectState};
+        let _ = apply_vibrancy(
+          &window,
+          NSVisualEffectMaterial::Sidebar,
+          Some(NSVisualEffectState::Active),
+          None,
+        );
+      }
+      let _ = &window;
 
       Ok(())
     })

@@ -423,6 +423,140 @@ RUN set -eux; \
 RUN pip3 install --break-system-packages --ignore-installed --no-compile \
       holehe maigret || echo "WARN: some pip OSINT tools skipped"
 
+# ============================================================================
+# MAXIMAL ARSENAL EXPANSION
+# "Give it every tool that fits." Each package is installed with a graceful
+# skip so a single renamed/missing/oversized package never fails the whole
+# build. Anything skipped here is still one `sudo apt-get install` / `pip` /
+# `go install` away at runtime (full Kali + NOPASSWD sudo).
+# ============================================================================
+
+# --- Extended apt arsenal (web, sqli, dns, snmp/smtp, passwords, RE, net, db)
+RUN set -eux; \
+    apt-get update; \
+    for pkg in \
+      skipfish xsser dotdotpwn davtest cadaver padbuster uniscan joomscan \
+      commix medusa ncrack crunch patator hash-identifier dmitry metagoofil \
+      dirb sslyze ssh-audit onesixtyone snmpcheck snmp smtp-user-enum swaks \
+      fierce dnstwist sublist3r fping \
+      radare2 gdb ltrace strace yara upx-ucl patchelf checksec \
+      default-mysql-client postgresql-client redis-tools \
+      steghide stegseek sshuttle chisel \
+      routersploit sslstrip mitmproxy bettercap \
+      impacket-scripts finger rusers rwho; do \
+      apt-get install -y --no-install-recommends "$pkg" || echo "WARN: skipped $pkg"; \
+    done; \
+    apt-get clean; rm -rf /var/lib/apt/lists/* /var/cache/apt/archives/*
+
+# --- Go recon suite (tomnomnom + ProjectDiscovery gaps). Installed straight to
+#     /usr/local/bin via GOBIN, then the whole Go cache is purged IN THE SAME
+#     layer so the module/build cache never bloats the final image.
+RUN set -eux; \
+    export GOBIN=/usr/local/bin GOFLAGS=-buildvcs=false; \
+    for mod in \
+      github.com/tomnomnom/assetfinder@latest \
+      github.com/tomnomnom/httprobe@latest \
+      github.com/tomnomnom/waybackurls@latest \
+      github.com/tomnomnom/gf@latest \
+      github.com/tomnomnom/anew@latest \
+      github.com/tomnomnom/unfurl@latest \
+      github.com/tomnomnom/qsreplace@latest \
+      github.com/tomnomnom/gron@latest \
+      github.com/lc/gau/v2/cmd/gau@latest \
+      github.com/hakluke/hakrawler@latest \
+      github.com/sensepost/gowitness@latest \
+      github.com/ropnop/kerbrute@latest \
+      github.com/projectdiscovery/tlsx/cmd/tlsx@latest \
+      github.com/projectdiscovery/asnmap/cmd/asnmap@latest \
+      github.com/projectdiscovery/uncover/cmd/uncover@latest \
+      github.com/projectdiscovery/shuffledns/cmd/shuffledns@latest \
+      github.com/projectdiscovery/alterx/cmd/alterx@latest \
+      github.com/hahwul/dalfox/v2@latest; do \
+      go install "$mod" || echo "WARN: go install skipped $mod"; \
+    done; \
+    go clean -cache -modcache || true; \
+    rm -rf /home/user/go/pkg /home/user/go/.cache /root/go /tmp/go-build*
+
+# --- Extended pip arsenal (web/sqli, AD/lateral, forensics). Per-package loop
+#     so a single unavailable/broken package never drops the whole batch.
+RUN set -eux; \
+    for p in droopescan mitm6 pywerview pypykatz lsassy spiderfoot \
+             paramspider dnsgen volatility3 pacu prowler; do \
+      pip3 install --break-system-packages --ignore-installed --no-compile "$p" \
+        || echo "WARN: pip skipped $p"; \
+    done
+
+# --- Popular git-only tools with PATH wrappers
+RUN set -eux; \
+    clone() { git clone --depth 1 "$1" "$2" 2>/dev/null || echo "WARN: clone skipped $1"; }; \
+    clone https://github.com/s0md3v/XSStrike.git         /opt/XSStrike; \
+    clone https://github.com/GerbenJavado/LinkFinder.git /opt/LinkFinder; \
+    clone https://github.com/m4ll0k/SecretFinder.git     /opt/SecretFinder; \
+    clone https://github.com/s0md3v/Corsy.git            /opt/Corsy; \
+    clone https://github.com/codingo/NoSQLMap.git        /opt/NoSQLMap; \
+    clone https://github.com/aboul3la/Sublist3r.git      /opt/Sublist3r; \
+    clone https://github.com/r0oth3x49/ghauri.git        /opt/ghauri; \
+    if [ -f /opt/ghauri/setup.py ]; then \
+      pip3 install --break-system-packages --ignore-installed --no-compile /opt/ghauri \
+        || echo "WARN: ghauri install failed"; \
+    fi; \
+    clone https://github.com/devanshbatham/ParamSpider.git /opt/ParamSpider; \
+    if [ -d /opt/ParamSpider ]; then \
+      pip3 install --break-system-packages --ignore-installed --no-compile /opt/ParamSpider \
+        || echo "WARN: paramspider install failed"; \
+    fi; \
+    clone https://github.com/smicallef/spiderfoot.git    /opt/spiderfoot; \
+    if [ -f /opt/spiderfoot/requirements.txt ]; then \
+      python3 -m venv --system-site-packages /opt/spiderfoot/.venv; \
+      SFV=/opt/spiderfoot/.venv/bin; \
+      grep -vi "^lxml" /opt/spiderfoot/requirements.txt > /tmp/sf-reqs.txt || cp /opt/spiderfoot/requirements.txt /tmp/sf-reqs.txt; \
+      "$SFV/pip" install --no-cache-dir --prefer-binary --upgrade pip wheel lxml || true; \
+      "$SFV/pip" install --no-cache-dir --prefer-binary -r /tmp/sf-reqs.txt || echo "WARN: spiderfoot deps skipped"; \
+      rm -f /tmp/sf-reqs.txt; \
+      { echo '#!/bin/bash'; echo 'exec /opt/spiderfoot/.venv/bin/python /opt/spiderfoot/sf.py "$@"'; } > /usr/local/bin/spiderfoot; \
+      chmod +x /usr/local/bin/spiderfoot; \
+      { echo '#!/bin/bash'; echo 'exec /opt/spiderfoot/.venv/bin/python /opt/spiderfoot/sfcli.py "$@"'; } > /usr/local/bin/sfcli; \
+      chmod +x /usr/local/bin/sfcli; \
+    fi; \
+    for spec in \
+      "XSStrike/xsstrike.py:xsstrike" \
+      "LinkFinder/linkfinder.py:linkfinder" \
+      "SecretFinder/SecretFinder.py:secretfinder" \
+      "Corsy/corsy.py:corsy" \
+      "NoSQLMap/nosqlmap.py:nosqlmap" \
+      "Sublist3r/sublist3r.py:sublist3r-git"; do \
+      src="/opt/${spec%%:*}"; name="${spec##*:}"; \
+      if [ -f "$src" ]; then \
+        { echo '#!/bin/bash'; echo "python3 $src \"\$@\""; } > "/usr/local/bin/$name"; \
+        chmod +x "/usr/local/bin/$name"; \
+      fi; \
+    done
+
+# ============================================================================
+# Cloudflare origin-discovery toolkit (authorized pentest recon)
+#   censys + shodan SDK/CLI, CloudFlair (Censys-based origin finder), and a
+#   purpose-built `cf-origin` script (TLS cert -> Censys/Shodan/SecurityTrails/
+#   crt.sh -> Host-header validation). API keys arrive via the sandbox env at
+#   runtime (see run-terminal-cmd RECON_ENV_KEYS); nothing is baked in.
+# ============================================================================
+RUN pip3 install --break-system-packages --ignore-installed --no-compile \
+      censys shodan dnspython || echo "WARN: censys/shodan pip skipped"
+RUN set -eux; \
+    git clone --depth 1 https://github.com/christophetd/CloudFlair.git /opt/CloudFlair 2>/dev/null || echo "WARN: CloudFlair clone skipped"; \
+    if [ -f /opt/CloudFlair/requirements.txt ]; then \
+      pip3 install --break-system-packages --ignore-installed --no-compile -r /opt/CloudFlair/requirements.txt || echo "WARN: CloudFlair deps skipped"; \
+    fi; \
+    if [ -f /opt/CloudFlair/cloudflair.py ]; then \
+      { echo '#!/bin/bash'; echo 'python3 /opt/CloudFlair/cloudflair.py "$@"'; } > /usr/local/bin/cloudflair; \
+      chmod +x /usr/local/bin/cloudflair; \
+    fi
+# cf-origin — base64-embedded so E2B's RUN flattening can't mangle the source.
+RUN set -eux; \
+    echo 'IyEvdXNyL2Jpbi9lbnYgcHl0aG9uMwoiIiIKY2Ytb3JpZ2luIDxkb21haW4+IOKAlCBodW50IHRoZSByZWFsIG9yaWdpbiBzZXJ2ZXIgYmVoaW5kIENsb3VkZmxhcmUgKGFuZCBzaW1pbGFyCmVkZ2UvV0FGIHByb3hpZXMpIGZvciBBVVRIT1JJWkVEIHBlbmV0cmF0aW9uIHRlc3Rpbmcgb25seS4KClBpcGVsaW5lOgogIDEuIFJlc29sdmUgdGhlIGRvbWFpbiwgZmxhZyB3aGV0aGVyIGV2ZXJ5IEEgcmVjb3JkIGlzIGEgQ2xvdWRmbGFyZSBJUC4KICAyLiBQdWxsIHRoZSBvcmlnaW4gVExTIGNlcnRpZmljYXRlIChTQU5zICsgU0hBLTI1NiBmaW5nZXJwcmludCkgZnJvbSB0aGUgZWRnZS4KICAzLiBBc2sgZXh0ZXJuYWwgaW50ZWwgd2hvIGVsc2Ugc2VydmVzIHRoYXQgY2VydCAvIHRob3NlIGhvc3RuYW1lcyBvbiBhIHJhdyBJUDoKICAgICAgIC0gQ2Vuc3lzICAgKENFTlNZU19BUElfSUQgKyBDRU5TWVNfQVBJX1NFQ1JFVCkKICAgICAgIC0gU2hvZGFuICAgKFNIT0RBTl9BUElfS0VZKQogICAgICAgLSBTZWN1cml0eVRyYWlscyBoaXN0b3JpY2FsIEEgcmVjb3JkcyAoU0VDVVJJVFlUUkFJTFNfQVBJX0tFWSkKICAgICAgIC0gY3J0LnNoIGNlcnRpZmljYXRlLXRyYW5zcGFyZW5jeSAobm8ga2V5LCBmcmVlKQogIDQuIFZhbGlkYXRlIGVhY2ggbm9uLUNsb3VkZmxhcmUgY2FuZGlkYXRlIElQOiBmZXRjaCBpdCBkaXJlY3RseSB3aXRoIHRoZSByZWFsCiAgICAgSG9zdCBoZWFkZXIgYW5kIGNvbXBhcmUgdGhlIHJlc3BvbnNlIHRvIHRoZSBlZGdlIGJhc2VsaW5lLiBBIGNsb3NlIG1hdGNoCiAgICAgbWVhbnMgdGhlIG9yaWdpbiBpcyBleHBvc2VkLgoKS2V5cyBhcmUgcmVhZCBmcm9tIHRoZSBlbnZpcm9ubWVudCAoaW5qZWN0ZWQgYnkgdGhlIFJJRlQgc2FuZGJveCkuIE1pc3Npbmcga2V5cwpqdXN0IHNraXAgdGhhdCBzb3VyY2UuIE5vdGhpbmcgaGVyZSBpcyBkZXN0cnVjdGl2ZTsgaXQgb25seSByZWFkcyBwdWJsaWMgaW50ZWwKYW5kIGlzc3VlcyBvcmRpbmFyeSBIVFRQIEdFVHMuCiIiIgppbXBvcnQgb3MsIHN5cywgc3NsLCBqc29uLCBzb2NrZXQsIGhhc2hsaWIsIGlwYWRkcmVzcywgdXJsbGliLnJlcXVlc3QsIHVybGxpYi5lcnJvcgoKVElNRU9VVCA9IDgKCkNGX1JBTkdFUyA9IFsKICAgICIxNzMuMjQ1LjQ4LjAvMjAiLCAiMTAzLjIxLjI0NC4wLzIyIiwgIjEwMy4yMi4yMDAuMC8yMiIsICIxMDMuMzEuNC4wLzIyIiwKICAgICIxNDEuMTAxLjY0LjAvMTgiLCAiMTA4LjE2Mi4xOTIuMC8xOCIsICIxOTAuOTMuMjQwLjAvMjAiLCAiMTg4LjExNC45Ni4wLzIwIiwKICAgICIxOTcuMjM0LjI0MC4wLzIyIiwgIjE5OC40MS4xMjguMC8xNyIsICIxNjIuMTU4LjAuMC8xNSIsICIxMDQuMTYuMC4wLzEzIiwKICAgICIxMDQuMjQuMC4wLzE0IiwgIjE3Mi42NC4wLjAvMTMiLCAiMTMxLjAuNzIuMC8yMiIsCl0KX0NGX05FVFMgPSBbaXBhZGRyZXNzLmlwX25ldHdvcmsoYykgZm9yIGMgaW4gQ0ZfUkFOR0VTXQoKZGVmIGlzX2NmKGlwKToKICAgIHRyeToKICAgICAgICBhID0gaXBhZGRyZXNzLmlwX2FkZHJlc3MoaXApCiAgICBleGNlcHQgVmFsdWVFcnJvcjoKICAgICAgICByZXR1cm4gRmFsc2UKICAgIHJldHVybiBhbnkoYSBpbiBuIGZvciBuIGluIF9DRl9ORVRTKQoKZGVmIGModHh0LCBjb2RlKToKICAgIHJldHVybiBmIlwwMzNbe2NvZGV9bXt0eHR9XDAzM1swbSIKCmRlZiByZXNvbHZlKGhvc3QpOgogICAgdHJ5OgogICAgICAgIHJldHVybiBzb3J0ZWQoe3JbNF1bMF0gZm9yIHIgaW4gc29ja2V0LmdldGFkZHJpbmZvKGhvc3QsIE5vbmUsIHNvY2tldC5BRl9JTkVULCBzb2NrZXQuU09DS19TVFJFQU0pfSkKICAgIGV4Y2VwdCBPU0Vycm9yOgogICAgICAgIHJldHVybiBbXQoKZGVmIGdldF9jZXJ0KGhvc3QpOgogICAgY3R4ID0gc3NsLmNyZWF0ZV9kZWZhdWx0X2NvbnRleHQoKQogICAgY3R4LmNoZWNrX2hvc3RuYW1lID0gRmFsc2UKICAgIGN0eC52ZXJpZnlfbW9kZSA9IHNzbC5DRVJUX05PTkUKICAgIHRyeToKICAgICAgICB3aXRoIHNvY2tldC5jcmVhdGVfY29ubmVjdGlvbigoaG9zdCwgNDQzKSwgdGltZW91dD1USU1FT1VUKSBhcyBzb2NrOgogICAgICAgICAgICB3aXRoIGN0eC53cmFwX3NvY2tldChzb2NrLCBzZXJ2ZXJfaG9zdG5hbWU9aG9zdCkgYXMgc3M6CiAgICAgICAgICAgICAgICBkZXIgPSBzcy5nZXRwZWVyY2VydChiaW5hcnlfZm9ybT1UcnVlKQogICAgICAgICAgICAgICAgZnAgPSBoYXNobGliLnNoYTI1NihkZXIpLmhleGRpZ2VzdCgpCiAgICAgICAgICAgICAgICAjIHBhcnNlIFNBTnMgdmlhIGEgc2Vjb25kLCB2YWxpZGF0aW5nLW9mZiBkaWN0IGNlcnQKICAgICAgICBjdHgyID0gc3NsLl9jcmVhdGVfdW52ZXJpZmllZF9jb250ZXh0KCkKICAgICAgICB3aXRoIHNvY2tldC5jcmVhdGVfY29ubmVjdGlvbigoaG9zdCwgNDQzKSwgdGltZW91dD1USU1FT1VUKSBhcyBzb2NrOgogICAgICAgICAgICB3aXRoIGN0eDIud3JhcF9zb2NrZXQoc29jaywgc2VydmVyX2hvc3RuYW1lPWhvc3QpIGFzIHNzOgogICAgICAgICAgICAgICAgaW5mbyA9IHNzLmdldHBlZXJjZXJ0KCkKICAgICAgICBzYW5zID0gW3YgZm9yIGssIHYgaW4gKGluZm8gb3Ige30pLmdldCgic3ViamVjdEFsdE5hbWUiLCBbXSkgaWYgayA9PSAiRE5TIl0KICAgICAgICByZXR1cm4gZnAsIHNhbnMKICAgIGV4Y2VwdCBFeGNlcHRpb24gYXMgZToKICAgICAgICBwcmludChjKGYiICBbIV0gY2VydCBmZXRjaCBmYWlsZWQ6IHtlfSIsICIzMyIpKQogICAgICAgIHJldHVybiBOb25lLCBbXQoKZGVmIGh0dHBfZ2V0KHVybCwgaG9zdF9oZWFkZXI9Tm9uZSwgaXA9Tm9uZSk6CiAgICAiIiJHRVQgdXJsOyBvcHRpb25hbGx5IG92ZXJyaWRlIEhvc3QgaGVhZGVyIGFuZCBwaW4gdGhlIGNvbm5lY3Rpb24gdG8gaXAuIiIiCiAgICByZXEgPSB1cmxsaWIucmVxdWVzdC5SZXF1ZXN0KHVybCwgaGVhZGVycz17IlVzZXItQWdlbnQiOiAiTW96aWxsYS81LjAifSkKICAgIGlmIGhvc3RfaGVhZGVyOgogICAgICAgIHJlcS5hZGRfdW5yZWRpcmVjdGVkX2hlYWRlcigiSG9zdCIsIGhvc3RfaGVhZGVyKQogICAgY3R4ID0gc3NsLl9jcmVhdGVfdW52ZXJpZmllZF9jb250ZXh0KCkKICAgIHRyeToKICAgICAgICB3aXRoIHVybGxpYi5yZXF1ZXN0LnVybG9wZW4ocmVxLCB0aW1lb3V0PVRJTUVPVVQsIGNvbnRleHQ9Y3R4KSBhcyByOgogICAgICAgICAgICBib2R5ID0gci5yZWFkKDIwMDAwMCkKICAgICAgICAgICAgcmV0dXJuIHIuc3RhdHVzLCBib2R5CiAgICBleGNlcHQgdXJsbGliLmVycm9yLkhUVFBFcnJvciBhcyBlOgogICAgICAgIHJldHVybiBlLmNvZGUsIChlLnJlYWQoMjAwMDAwKSBpZiBlLmZwIGVsc2UgYiIiKQogICAgZXhjZXB0IEV4Y2VwdGlvbjoKICAgICAgICByZXR1cm4gTm9uZSwgYiIiCgpkZWYgdGl0bGVfb2YoYm9keSk6CiAgICB0cnk6CiAgICAgICAgdCA9IGJvZHkuZGVjb2RlKCJ1dGYtOCIsICJpZ25vcmUiKQogICAgZXhjZXB0IEV4Y2VwdGlvbjoKICAgICAgICByZXR1cm4gIiIKICAgIGxvID0gdC5sb3dlcigpCiAgICBpID0gbG8uZmluZCgiPHRpdGxlIikKICAgIGlmIGkgPT0gLTE6CiAgICAgICAgcmV0dXJuICIiCiAgICBqID0gbG8uZmluZCgiPiIsIGkpCiAgICBrID0gbG8uZmluZCgiPC90aXRsZSIsIGopCiAgICByZXR1cm4gdFtqICsgMTprXS5zdHJpcCgpWzo4MF0gaWYgKGogIT0gLTEgYW5kIGsgIT0gLTEpIGVsc2UgIiIKCiMgLS0tLSBpbnRlbCBzb3VyY2VzIC0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0KCmRlZiBmcm9tX2NlbnN5cyhzYW5zLCBmcCk6CiAgICBjaWQsIGNzID0gb3MuZW52aXJvbi5nZXQoIkNFTlNZU19BUElfSUQiKSwgb3MuZW52aXJvbi5nZXQoIkNFTlNZU19BUElfU0VDUkVUIikKICAgIGlmIG5vdCAoY2lkIGFuZCBjcyk6CiAgICAgICAgcmV0dXJuIHNldCgpLCAiY2Vuc3lzOiBubyBDRU5TWVNfQVBJX0lEL1NFQ1JFVCIKICAgIHRyeToKICAgICAgICBpbXBvcnQgYmFzZTY0IGFzIGI2NAogICAgICAgIHEgPSAiIG9yICIuam9pbihbZidzZXJ2aWNlcy50bHMuY2VydGlmaWNhdGVzLmxlYWZfZGF0YS5uYW1lczogIntzfSInIGZvciBzIGluIHNhbnNbOjVdXSkgb3IgZidzZXJ2aWNlcy50bHMuY2VydGlmaWNhdGVzLmxlYWZfZGF0YS5maW5nZXJwcmludF9zaGEyNTY6ICJ7ZnB9IicKICAgICAgICBwYXlsb2FkID0ganNvbi5kdW1wcyh7InEiOiBxLCAicGVyX3BhZ2UiOiA1MH0pLmVuY29kZSgpCiAgICAgICAgcmVxID0gdXJsbGliLnJlcXVlc3QuUmVxdWVzdCgKICAgICAgICAgICAgImh0dHBzOi8vc2VhcmNoLmNlbnN5cy5pby9hcGkvdjIvaG9zdHMvc2VhcmNoIiwKICAgICAgICAgICAgZGF0YT1wYXlsb2FkLCBtZXRob2Q9IlBPU1QiLAogICAgICAgICAgICBoZWFkZXJzPXsiQ29udGVudC1UeXBlIjogImFwcGxpY2F0aW9uL2pzb24iLAogICAgICAgICAgICAgICAgICAgICAiQXV0aG9yaXphdGlvbiI6ICJCYXNpYyAiICsgYjY0LmI2NGVuY29kZShmIntjaWR9Ontjc30iLmVuY29kZSgpKS5kZWNvZGUoKX0sCiAgICAgICAgKQogICAgICAgIHdpdGggdXJsbGliLnJlcXVlc3QudXJsb3BlbihyZXEsIHRpbWVvdXQ9VElNRU9VVCkgYXMgcjoKICAgICAgICAgICAgZGF0YSA9IGpzb24ubG9hZChyKQogICAgICAgIGlwcyA9IHtoLmdldCgiaXAiKSBmb3IgaCBpbiBkYXRhLmdldCgicmVzdWx0Iiwge30pLmdldCgiaGl0cyIsIFtdKSBpZiBoLmdldCgiaXAiKX0KICAgICAgICByZXR1cm4gaXBzLCBmImNlbnN5czoge2xlbihpcHMpfSBjYW5kaWRhdGUocykiCiAgICBleGNlcHQgRXhjZXB0aW9uIGFzIGU6CiAgICAgICAgcmV0dXJuIHNldCgpLCBmImNlbnN5czoge2V9IgoKZGVmIGZyb21fc2hvZGFuKHNhbnMsIGZwKToKICAgIGtleSA9IG9zLmVudmlyb24uZ2V0KCJTSE9EQU5fQVBJX0tFWSIpCiAgICBpZiBub3Qga2V5OgogICAgICAgIHJldHVybiBzZXQoKSwgInNob2Rhbjogbm8gU0hPREFOX0FQSV9LRVkiCiAgICBpcHMgPSBzZXQoKQogICAgdHJ5OgogICAgICAgIGZvciBxdWVyeSBpbiAoW2Yic3NsLmNlcnQuZmluZ2VycHJpbnQ6e2ZwfSJdICsgW2Ync3NsLmNlcnQuc3ViamVjdC5jbjoie3N9IicgZm9yIHMgaW4gc2Fuc1s6Ml1dKToKICAgICAgICAgICAgdXJsID0gZiJodHRwczovL2FwaS5zaG9kYW4uaW8vc2hvZGFuL2hvc3Qvc2VhcmNoP2tleT17a2V5fSZxdWVyeT0iICsgdXJsbGliLnBhcnNlLnF1b3RlKHF1ZXJ5KQogICAgICAgICAgICB0cnk6CiAgICAgICAgICAgICAgICB3aXRoIHVybGxpYi5yZXF1ZXN0LnVybG9wZW4odXJsLCB0aW1lb3V0PVRJTUVPVVQpIGFzIHI6CiAgICAgICAgICAgICAgICAgICAgZGF0YSA9IGpzb24ubG9hZChyKQogICAgICAgICAgICAgICAgaXBzIHw9IHttLmdldCgiaXBfc3RyIikgZm9yIG0gaW4gZGF0YS5nZXQoIm1hdGNoZXMiLCBbXSkgaWYgbS5nZXQoImlwX3N0ciIpfQogICAgICAgICAgICBleGNlcHQgRXhjZXB0aW9uOgogICAgICAgICAgICAgICAgY29udGludWUKICAgICAgICByZXR1cm4gaXBzLCBmInNob2Rhbjoge2xlbihpcHMpfSBjYW5kaWRhdGUocykiCiAgICBleGNlcHQgRXhjZXB0aW9uIGFzIGU6CiAgICAgICAgcmV0dXJuIHNldCgpLCBmInNob2Rhbjoge2V9IgoKZGVmIGZyb21fc2VjdXJpdHl0cmFpbHMoZG9tYWluKToKICAgIGtleSA9IG9zLmVudmlyb24uZ2V0KCJTRUNVUklUWVRSQUlMU19BUElfS0VZIikKICAgIGlmIG5vdCBrZXk6CiAgICAgICAgcmV0dXJuIHNldCgpLCAic2VjdXJpdHl0cmFpbHM6IG5vIGtleSIKICAgIHRyeToKICAgICAgICB1cmwgPSBmImh0dHBzOi8vYXBpLnNlY3VyaXR5dHJhaWxzLmNvbS92MS9oaXN0b3J5L3tkb21haW59L2Rucy9hIgogICAgICAgIHJlcSA9IHVybGxpYi5yZXF1ZXN0LlJlcXVlc3QodXJsLCBoZWFkZXJzPXsiQVBJS0VZIjoga2V5fSkKICAgICAgICB3aXRoIHVybGxpYi5yZXF1ZXN0LnVybG9wZW4ocmVxLCB0aW1lb3V0PVRJTUVPVVQpIGFzIHI6CiAgICAgICAgICAgIGRhdGEgPSBqc29uLmxvYWQocikKICAgICAgICBpcHMgPSBzZXQoKQogICAgICAgIGZvciByZWMgaW4gZGF0YS5nZXQoInJlY29yZHMiLCBbXSk6CiAgICAgICAgICAgIGZvciB2IGluIHJlYy5nZXQoInZhbHVlcyIsIFtdKToKICAgICAgICAgICAgICAgIGlmIHYuZ2V0KCJpcCIpOgogICAgICAgICAgICAgICAgICAgIGlwcy5hZGQodlsiaXAiXSkKICAgICAgICByZXR1cm4gaXBzLCBmInNlY3VyaXR5dHJhaWxzOiB7bGVuKGlwcyl9IGhpc3RvcmljYWwgSVAocykiCiAgICBleGNlcHQgRXhjZXB0aW9uIGFzIGU6CiAgICAgICAgcmV0dXJuIHNldCgpLCBmInNlY3VyaXR5dHJhaWxzOiB7ZX0iCgpkZWYgZnJvbV92aXJ1c3RvdGFsKGRvbWFpbik6CiAgICAiIiJWaXJ1c1RvdGFsIHBhc3NpdmUgRE5TIOKAlCBoaXN0b3JpY2FsIEEtcmVjb3JkIHJlc29sdXRpb25zIChmcmVlIHRpZXIpLgogICAgRnJlZSBlcXVpdmFsZW50IG9mIFNlY3VyaXR5VHJhaWxzJyBoaXN0b3JpY2FsIEROUzogZXZlcnkgSVAgdGhlIGRvbWFpbiBoYXMKICAgIHJlc29sdmVkIHRvIHRoYXQgVlQgb2JzZXJ2ZWQsIHBsdXMgc2libGluZyBzdWJkb21haW5zJyBsaXZlIEEgcmVjb3Jkcy4iIiIKICAgIGtleSA9IG9zLmVudmlyb24uZ2V0KCJWSVJVU1RPVEFMX0FQSV9LRVkiKQogICAgaWYgbm90IGtleToKICAgICAgICByZXR1cm4gc2V0KCksICJ2aXJ1c3RvdGFsOiBubyBWSVJVU1RPVEFMX0FQSV9LRVkiCiAgICBpcHMgPSBzZXQoKQogICAgaGRyID0geyJ4LWFwaWtleSI6IGtleX0KICAgIHRyeToKICAgICAgICB1cmwgPSBmImh0dHBzOi8vd3d3LnZpcnVzdG90YWwuY29tL2FwaS92My9kb21haW5zL3tkb21haW59L3Jlc29sdXRpb25zP2xpbWl0PTQwIgogICAgICAgIHJlcSA9IHVybGxpYi5yZXF1ZXN0LlJlcXVlc3QodXJsLCBoZWFkZXJzPWhkcikKICAgICAgICB3aXRoIHVybGxpYi5yZXF1ZXN0LnVybG9wZW4ocmVxLCB0aW1lb3V0PVRJTUVPVVQpIGFzIHI6CiAgICAgICAgICAgIGRhdGEgPSBqc29uLmxvYWQocikKICAgICAgICBmb3IgaXRlbSBpbiBkYXRhLmdldCgiZGF0YSIsIFtdKToKICAgICAgICAgICAgaXAgPSAoaXRlbS5nZXQoImF0dHJpYnV0ZXMiLCB7fSkgb3Ige30pLmdldCgiaXBfYWRkcmVzcyIpCiAgICAgICAgICAgIGlmIGlwOgogICAgICAgICAgICAgICAgaXBzLmFkZChpcCkKICAgIGV4Y2VwdCBFeGNlcHRpb24gYXMgZToKICAgICAgICByZXR1cm4gaXBzLCBmInZpcnVzdG90YWw6IHtlfSIKICAgIHRyeToKICAgICAgICB1cmwgPSBmImh0dHBzOi8vd3d3LnZpcnVzdG90YWwuY29tL2FwaS92My9kb21haW5zL3tkb21haW59L3N1YmRvbWFpbnM/bGltaXQ9NDAiCiAgICAgICAgcmVxID0gdXJsbGliLnJlcXVlc3QuUmVxdWVzdCh1cmwsIGhlYWRlcnM9aGRyKQogICAgICAgIHdpdGggdXJsbGliLnJlcXVlc3QudXJsb3BlbihyZXEsIHRpbWVvdXQ9VElNRU9VVCkgYXMgcjoKICAgICAgICAgICAgZGF0YSA9IGpzb24ubG9hZChyKQogICAgICAgIGZvciBpdGVtIGluIGRhdGEuZ2V0KCJkYXRhIiwgW10pOgogICAgICAgICAgICBzdWIgPSBpdGVtLmdldCgiaWQiKQogICAgICAgICAgICBpZiBzdWI6CiAgICAgICAgICAgICAgICBmb3IgaXAgaW4gcmVzb2x2ZShzdWIpOgogICAgICAgICAgICAgICAgICAgIGlwcy5hZGQoaXApCiAgICBleGNlcHQgRXhjZXB0aW9uOgogICAgICAgIHBhc3MKICAgIHJldHVybiBpcHMsIGYidmlydXN0b3RhbDoge2xlbihpcHMpfSBoaXN0b3JpY2FsL3NpYmxpbmcgSVAocykiCgpkZWYgZnJvbV9jcnRzaChkb21haW4pOgogICAgdHJ5OgogICAgICAgIGltcG9ydCB1cmxsaWIucGFyc2UKICAgICAgICB1cmwgPSBmImh0dHBzOi8vY3J0LnNoLz9xPSUyNS57dXJsbGliLnBhcnNlLnF1b3RlKGRvbWFpbil9Jm91dHB1dD1qc29uIgogICAgICAgIHJlcSA9IHVybGxpYi5yZXF1ZXN0LlJlcXVlc3QodXJsLCBoZWFkZXJzPXsiVXNlci1BZ2VudCI6ICJjZi1vcmlnaW4ifSkKICAgICAgICB3aXRoIHVybGxpYi5yZXF1ZXN0LnVybG9wZW4ocmVxLCB0aW1lb3V0PVRJTUVPVVQpIGFzIHI6CiAgICAgICAgICAgIGRhdGEgPSBqc29uLmxvYWQocikKICAgICAgICBuYW1lcyA9IHNldCgpCiAgICAgICAgZm9yIHJvdyBpbiBkYXRhOgogICAgICAgICAgICBmb3IgbiBpbiAocm93LmdldCgibmFtZV92YWx1ZSIsICIiKSBvciAiIikuc3BsaXQoIlxuIik6CiAgICAgICAgICAgICAgICBuID0gbi5zdHJpcCgpLmxzdHJpcCgiKi4iKQogICAgICAgICAgICAgICAgaWYgbi5lbmRzd2l0aChkb21haW4pOgogICAgICAgICAgICAgICAgICAgIG5hbWVzLmFkZChuKQogICAgICAgIHJldHVybiBuYW1lcywgZiJjcnQuc2g6IHtsZW4obmFtZXMpfSByZWxhdGVkIGhvc3QocykiCiAgICBleGNlcHQgRXhjZXB0aW9uIGFzIGU6CiAgICAgICAgcmV0dXJuIHNldCgpLCBmImNydC5zaDoge2V9IgoKIyAtLS0tIG1haW4gLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLQoKZGVmIG1haW4oKToKICAgIGltcG9ydCB1cmxsaWIucGFyc2UgICMgbm9xYQogICAgaWYgbGVuKHN5cy5hcmd2KSA8IDI6CiAgICAgICAgcHJpbnQoInVzYWdlOiBjZi1vcmlnaW4gPGRvbWFpbj4iKQogICAgICAgIHN5cy5leGl0KDEpCiAgICBkb21haW4gPSBzeXMuYXJndlsxXS5zdHJpcCgpLnJlcGxhY2UoImh0dHBzOi8vIiwgIiIpLnJlcGxhY2UoImh0dHA6Ly8iLCAiIikucnN0cmlwKCIvIikuc3BsaXQoIi8iKVswXQogICAgcHJpbnQoYyhmIlxuPT09IGNmLW9yaWdpbiA6OiBodW50aW5nIG9yaWdpbiBiZWhpbmQgdGhlIGVkZ2UgZm9yIHtkb21haW59ID09PVxuIiwgIjE7MzYiKSkKCiAgICBhID0gcmVzb2x2ZShkb21haW4pCiAgICBjZl9hbGwgPSBhIGFuZCBhbGwoaXNfY2YoaXApIGZvciBpcCBpbiBhKQogICAgcHJpbnQoZiJBIHJlY29yZHM6IHsnLCAnLmpvaW4oYSkgb3IgJ25vbmUnfSIpCiAgICBwcmludCgiZWRnZSAgICAgOiAiICsgKGMoIkNsb3VkZmxhcmUgKGFsbCBBIHJlY29yZHMgYXJlIENGKSIsICIzMyIpIGlmIGNmX2FsbCBlbHNlICJub3QgZnVsbHkgQ0YtZnJvbnRlZCIgaWYgYSBlbHNlICJ1bnJlc29sdmVkIikpCgogICAgZnAsIHNhbnMgPSBnZXRfY2VydChkb21haW4pCiAgICBpZiBmcDoKICAgICAgICBwcmludChmImNlcnQgICAgIDogc2hhMjU2PXtmcFs6MjRdfeKApiAgU0FOcz17JywgJy5qb2luKHNhbnNbOjZdKSBvciAnLSd9IikKCiAgICAjIGJhc2VsaW5lIHZpYSBlZGdlCiAgICBiYXNlX3N0YXR1cywgYmFzZV9ib2R5ID0gaHR0cF9nZXQoZiJodHRwczovL3tkb21haW59LyIpCiAgICBiYXNlX3RpdGxlID0gdGl0bGVfb2YoYmFzZV9ib2R5KQogICAgYmFzZV9sZW4gPSBsZW4oYmFzZV9ib2R5KQogICAgcHJpbnQoZiJiYXNlbGluZSA6IHN0YXR1cz17YmFzZV9zdGF0dXN9IGxlbj17YmFzZV9sZW59IHRpdGxlPXtiYXNlX3RpdGxlIXJ9XG4iKQoKICAgICMgZ2F0aGVyIGNhbmRpZGF0ZXMKICAgIGNhbmRzLCBub3RlcyA9IHNldCgpLCBbXQogICAgZm9yIGZuLCBhcmdzIGluIFsoZnJvbV9jZW5zeXMsIChzYW5zLCBmcCkpLCAoZnJvbV9zaG9kYW4sIChzYW5zLCBmcCkpLAogICAgICAgICAgICAgICAgICAgICAoZnJvbV9zZWN1cml0eXRyYWlscywgKGRvbWFpbiwpKSwgKGZyb21fdmlydXN0b3RhbCwgKGRvbWFpbiwpKV06CiAgICAgICAgaXBzLCBub3RlID0gZm4oKmFyZ3MpCiAgICAgICAgY2FuZHMgfD0gaXBzCiAgICAgICAgbm90ZXMuYXBwZW5kKG5vdGUpCiAgICBob3N0cywgbm90ZSA9IGZyb21fY3J0c2goZG9tYWluKQogICAgbm90ZXMuYXBwZW5kKG5vdGUpCiAgICBmb3IgaCBpbiBob3N0czoKICAgICAgICBmb3IgaXAgaW4gcmVzb2x2ZShoKToKICAgICAgICAgICAgY2FuZHMuYWRkKGlwKQoKICAgIHByaW50KGMoImludGVsIHNvdXJjZXM6IiwgIjEiKSkKICAgIGZvciBuIGluIG5vdGVzOgogICAgICAgIHByaW50KCIgIC0gIiArIG4pCgogICAgY2FuZHMgPSB7aXAgZm9yIGlwIGluIGNhbmRzIGlmIGlwIGFuZCBub3QgaXNfY2YoaXApIGFuZCBpcCBub3QgaW4gYX0KICAgIHByaW50KGMoZiJcbm5vbi1DRiBjYW5kaWRhdGUgSVBzIHRvIHZhbGlkYXRlOiB7bGVuKGNhbmRzKX0iLCAiMSIpKQogICAgaWYgbm90IGNhbmRzOgogICAgICAgIHByaW50KGMoIiAgbm9uZSDigJQgb3JpZ2luIGlzIG5vdCBleHBvc2VkIHZpYSBjZXJ0L0ROUyBpbnRlbCBhdmFpbGFibGUuIiwgIjMzIikpCiAgICAgICAgaWYgbm90IGFueSgiY2FuZGlkYXRlIiBpbiBuIG9yICJoaXN0b3JpY2FsIiBpbiBuIG9yICJzaWJsaW5nIiBpbiBuIGZvciBuIGluIG5vdGVzKToKICAgICAgICAgICAgcHJpbnQoYygiICAoYWRkIFZJUlVTVE9UQUwvU0hPREFOIGtleXMgZm9yIGEgcmVhbCBodW50IOKAlCBhbGwgc291cmNlcyB3ZXJlIGJsaW5kLikiLCAiMzMiKSkKICAgICAgICBwcmludCgpCiAgICAgICAgcmV0dXJuCgogICAgIyB2YWxpZGF0ZQogICAgaGl0cyA9IFtdCiAgICBmb3IgaXAgaW4gc29ydGVkKGNhbmRzKToKICAgICAgICBzdCwgYm9keSA9IGh0dHBfZ2V0KGYiaHR0cHM6Ly97aXB9LyIsIGhvc3RfaGVhZGVyPWRvbWFpbiwgaXA9aXApCiAgICAgICAgaWYgc3QgaXMgTm9uZToKICAgICAgICAgICAgY29udGludWUKICAgICAgICB0ID0gdGl0bGVfb2YoYm9keSkKICAgICAgICBtYXRjaCA9ICh0IGFuZCB0ID09IGJhc2VfdGl0bGUpIG9yIChiYXNlX2xlbiBhbmQgYWJzKGxlbihib2R5KSAtIGJhc2VfbGVuKSAvIG1heChiYXNlX2xlbiwgMSkgPCAwLjE1KQogICAgICAgIHRhZyA9IGMoIk9SSUdJTiBNQVRDSCIsICIxOzMyIikgaWYgbWF0Y2ggZWxzZSAibm8gbWF0Y2giCiAgICAgICAgcHJpbnQoZiIgIHtpcDo8MTZ9IHN0YXR1cz17c3R9IGxlbj17bGVuKGJvZHkpfSB0aXRsZT17dCFyfSAgLT4ge3RhZ30iKQogICAgICAgIGlmIG1hdGNoOgogICAgICAgICAgICBoaXRzLmFwcGVuZChpcCkKCiAgICBwcmludCgpCiAgICBpZiBoaXRzOgogICAgICAgIHByaW50KGMoZiJbK10gTElLRUxZIE9SSUdJTihTKTogeycsICcuam9pbihoaXRzKX0iLCAiMTszMiIpKQogICAgICAgIHByaW50KGMoZiIgICAgdmVyaWZ5OiBjdXJsIC1rIC1IICdIb3N0OiB7ZG9tYWlufScgaHR0cHM6Ly97aGl0c1swXX0vIiwgIjMyIikpCiAgICBlbHNlOgogICAgICAgIHByaW50KGMoIlstXSBubyBjYW5kaWRhdGUgcmVwcm9kdWNlZCB0aGUgc2l0ZTsgb3JpZ2luIGxpa2VseSBsb2NrZWQgdG8gQ0YgaW5ncmVzcy4iLCAiMzMiKSkKICAgIHByaW50KCkKCmlmIF9fbmFtZV9fID09ICJfX21haW5fXyI6CiAgICBtYWluKCkK' \
+      | base64 -d > /usr/local/bin/cf-origin; \
+    chmod +x /usr/local/bin/cf-origin; \
+    python3 -c "import ast; ast.parse(open('/usr/local/bin/cf-origin').read())" && echo "cf-origin: syntax OK"
+
 # Symlink searchsploit if exploitdb landed under a non-PATH location
 RUN set -eux; \
     if [ -x /usr/bin/searchsploit ] || command -v searchsploit >/dev/null 2>&1; then \

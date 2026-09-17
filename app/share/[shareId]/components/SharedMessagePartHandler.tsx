@@ -107,6 +107,16 @@ export const SharedMessagePartHandler = ({
     );
   }
 
+  // Generated image (generate_image tool) — render the stored image inline so
+  // it survives on public share pages. The chat is finished here, so there is
+  // no in-progress placeholder; failed generations simply render nothing.
+  if (part.type === "tool-generate_image") {
+    return renderGeneratedImage(part, idx);
+  }
+  if (part.type === "tool-generate_video") {
+    return renderGeneratedVideo(part, idx);
+  }
+
   // Terminal commands
   if (
     part.type === "data-terminal" ||
@@ -139,7 +149,7 @@ export const SharedMessagePartHandler = ({
   }
 
   // Open URL
-  if (part.type === "tool-open_url") {
+  if (part.type === "tool-open_url" || part.type === "tool-browse_url") {
     return renderOpenUrlTool(part, idx);
   }
 
@@ -182,6 +192,49 @@ export const SharedMessagePartHandler = ({
 
   return null;
 };
+
+// Generated image renderer — shows the image from the durable tool-output URL.
+function renderGeneratedImage(part: MessagePart, idx: number) {
+  if (part.state !== "output-available") return null;
+  const out = part.output as { url?: string; mediaType?: string } | undefined;
+  if (!out || !out.url) return null;
+  return (
+    <div key={idx} className="my-1">
+      {/* eslint-disable-next-line @next/next/no-img-element */}
+      <img
+        src={out.url}
+        alt="Generated image"
+        className="h-auto max-h-[32rem] w-full max-w-lg rounded-lg border border-border object-contain"
+      />
+    </div>
+  );
+}
+
+function renderGeneratedVideo(part: MessagePart, idx: number) {
+  if (part.state !== "output-available") return null;
+  const out = part.output as
+    | { url?: string; mediaType?: string; name?: string }
+    | undefined;
+  if (!out?.url) return null;
+  return (
+    <figure
+      key={idx}
+      className="my-1 w-full max-w-2xl overflow-hidden rounded-xl border border-border bg-black"
+    >
+      <video
+        src={out.url}
+        controls
+        playsInline
+        preload="metadata"
+        className="aspect-video w-full bg-black object-contain"
+        aria-label={out.name || "Generated video"}
+      />
+      <figcaption className="border-t border-white/10 bg-neutral-950 px-3 py-2 text-[11px] text-neutral-400">
+        {out.name || "RIFT generated video"}
+      </figcaption>
+    </figure>
+  );
+}
 
 // Terminal tool renderer
 function renderTerminalTool(

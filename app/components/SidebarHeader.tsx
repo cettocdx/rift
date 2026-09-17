@@ -1,29 +1,165 @@
 "use client";
 
-import { useState, useEffect, useMemo, FC } from "react";
-import { useRouter } from "next/navigation";
+import { useState, useEffect, useSyncExternalStore, FC } from "react";
+import { useRouter, usePathname } from "next/navigation";
+import { useTheme } from "next-themes";
 import { Button } from "@/components/ui/button";
 import {
   PanelLeft,
-  Sidebar as SidebarIcon,
-  SquarePen,
   Plus,
-  Search,
-  History,
+  CircleDashed,
+  LockKeyhole,
+  ChevronDown,
+  Moon,
+  Sun,
 } from "lucide-react";
-import { useSidebar } from "@/components/ui/sidebar";
-import { RiftPixelMark } from "@/components/icons/rift-pixel-mark";
+import {
+  BuildIcon as Blocks,
+  StudioIcon as Images,
+  HackIcon as Crosshair,
+  PluginsIcon as Plug,
+  AgentsIcon as Bot,
+  RunsIcon as History,
+  TasksIcon as ListTodo,
+  ArtifactsIcon as LayoutGrid,
+  NewChatIcon as SquarePen,
+  SearchIcon as Search,
+  MoreIcon,
+} from "@/lib/ui/workspace-icons";
+import { RiftBrandLockup } from "@/components/icons/rift-brand-lockup";
 import { useGlobalState } from "../contexts/GlobalState";
-import { chatRoute, useAppShell } from "../contexts/AppShellContext";
+import type { ChatPurpose } from "@/types/chat";
 import { useIsMobile } from "@/hooks/use-mobile";
-import { useChats } from "../hooks/useChats";
 import { MessageSearchDialog } from "./MessageSearchDialog";
+import {
+  chatIdFromPathname,
+  useChatNavigation,
+} from "@/app/hooks/useChatNavigation";
+import { isPurposeChatActive } from "@/lib/navigation/chat-routes";
+import { useProShell } from "@/app/components/pro/ProShellContext";
+import { openCommandPalette } from "@/lib/utils/command-palette";
+import {
+  sidebarNavRowClass,
+  SIDEBAR_SECTION_LABEL_CLASS,
+} from "@/lib/ui/workspace-chrome";
+import { hasHackWorkbenchAccess } from "@/lib/auth/premium-access";
+import { useWorkspaceNavigation } from "@/app/hooks/useWorkspaceNavigation";
+import { WORKSPACE_ITEMS } from "@/lib/navigation/workspace-items";
+import { useIsMac } from "@/app/hooks/useIsMac";
+
+const subscribeToHydration = () => () => {};
+
+const MORE_OPEN_KEY = "rift:sidebar:more-open";
+const moreOpenListeners = new Set<() => void>();
+
+const subscribeMoreOpen = (notify: () => void) => {
+  moreOpenListeners.add(notify);
+  return () => {
+    moreOpenListeners.delete(notify);
+  };
+};
+
+const readMoreOpen = () => {
+  try {
+    return window.localStorage.getItem(MORE_OPEN_KEY) === "1";
+  } catch {
+    return false;
+  }
+};
+
+/**
+ * The fold is a preference, so it outlives the route and the reload. Read
+ * through useSyncExternalStore rather than an effect: the server has no
+ * storage to read, and the folded state is what it renders either way.
+ */
+function useSidebarMoreOpen() {
+  const open = useSyncExternalStore(
+    subscribeMoreOpen,
+    readMoreOpen,
+    () => false,
+  );
+  const set = (next: boolean) => {
+    try {
+      window.localStorage.setItem(MORE_OPEN_KEY, next ? "1" : "0");
+    } catch {}
+    moreOpenListeners.forEach((notify) => notify());
+  };
+  return [open, set] as const;
+}
+
+export function SidebarThemeToggle({
+  variant,
+}: {
+  variant: "standard" | "collapsed" | "pro";
+}) {
+  const { theme, resolvedTheme, setTheme } = useTheme();
+  const isHydrated = useSyncExternalStore(
+    subscribeToHydration,
+    () => true,
+    () => false,
+  );
+  const isDark = (resolvedTheme ?? theme ?? "dark") === "dark";
+  const nextTheme = isDark ? "light" : "dark";
+  const label = isHydrated
+    ? `Switch to ${nextTheme} theme`
+    : "Toggle color theme";
+  const sizing =
+    variant === "standard"
+      ? "size-7 rounded-md"
+      : variant === "pro"
+        ? "size-6 rounded-[6px]"
+        : "size-8 rounded-md";
+
+  return (
+    <button
+      data-testid="sidebar-theme-toggle"
+      type="button"
+      disabled={!isHydrated}
+      onClick={() => setTheme(nextTheme)}
+      aria-label={label}
+      title={label}
+      className={`flex items-center justify-center text-[var(--cursor-icon-secondary)] transition-[background-color,color,transform] duration-(--duration-press) ease-(--ease-out) active:scale-[0.94] motion-reduce:transition-none motion-reduce:active:scale-100 hover:bg-sidebar-accent/70 hover:text-foreground focus-visible:outline-none disabled:cursor-wait disabled:opacity-60 ${sizing}`}
+    >
+      {isDark ? (
+        <Sun aria-hidden className="size-[14px]" strokeWidth={1.5} />
+      ) : (
+        <Moon aria-hidden className="size-[14px]" strokeWidth={1.5} />
+      )}
+    </button>
+  );
+}
+
+/**
+ * The normal chat modes the user can launch from the sidebar. Each opens a fresh
+ * chat with the matching ChatPurpose (which drives the system prompt, model, and
+ * execution path on the backend). Offensive-security work is intentionally not
+ * a chat mode here; it lives only in the Max-gated Hack Workbench.
+ */
+type SidebarChatPurpose = Extract<ChatPurpose, "app" | "image">;
+
+const MODES = WORKSPACE_ITEMS.filter(
+  (item) => item.id === "app" || item.id === "image",
+).map((item) => ({
+  purpose: item.id as SidebarChatPurpose,
+  label: item.label,
+  Icon: item.Icon,
+  title: `Open ${item.label}`,
+}));
+
+/**
+ * Sidebar row and section-label styles now live in lib/ui/workspace-chrome, so
+ * the landing page's working replica of the workspace can render from the same
+ * tokens instead of a copy that drifts. Re-exported here because this module
+ * has been their import site for a long time.
+ */
+export {
+  sidebarNavRowClass,
+  SIDEBAR_SECTION_LABEL_CLASS,
+} from "@/lib/ui/workspace-chrome";
 
 interface SidebarHeaderContentProps {
   /** Function to handle closing the sidebar */
   handleCloseSidebar: () => void;
-  /** Whether the sidebar is collapsed */
-  isCollapsed: boolean;
   /** Whether this is being used in mobile overlay (without SidebarProvider) */
   isMobileOverlay?: boolean;
 }
@@ -31,74 +167,167 @@ interface SidebarHeaderContentProps {
 // Shared implementation component
 interface SidebarHeaderContentImplProps {
   handleCloseSidebar: () => void;
-  isCollapsed: boolean;
-  toggleSidebar: () => void;
+  closeOnNavigate: boolean;
 }
 
 const SidebarHeaderContentImpl: FC<SidebarHeaderContentImplProps> = ({
   handleCloseSidebar,
-  isCollapsed,
-  toggleSidebar,
+  closeOnNavigate,
 }) => {
   const isMobile = useIsMobile();
   const router = useRouter();
+  const pathname = usePathname();
   const {
     setChatSidebarOpen,
     closeSidebar,
     initializeNewChat,
     setTemporaryChatsEnabled,
+    chatPurpose,
+    subscription,
+    isSubscriptionReady,
+    toggleChatSidebar,
   } = useGlobalState();
-  const { basePath, displayClass } = useAppShell();
+  const { goHome, goPurpose } = useChatNavigation();
+  const openWorkspace = useWorkspaceNavigation();
+  const { enabled: proShell } = useProShell();
+  const premiumAccessPending = !isSubscriptionReady;
+  const canUseHack =
+    isSubscriptionReady && hasHackWorkbenchAccess(subscription);
+  const hackAccessLabel = premiumAccessPending
+    ? "Checking plan access for Hack Workbench"
+    : canUseHack
+      ? "Open Hack Workbench"
+      : "Hack Workbench - Max plan required";
+  const hackAccessTitle = premiumAccessPending
+    ? "Checking plan access…"
+    : canUseHack
+      ? "Hack Workbench - terminal security operations"
+      : "Hack Workbench - exclusive to Max ($129/month)";
 
   // Search dialog state
   const [isSearchOpen, setIsSearchOpen] = useState(false);
-
-  // Fetch chats when search dialog is opened to ensure data is available
-  // This handles the case where user opens search without opening sidebar first
-  useChats(isSearchOpen);
-
   // Detect if user is on Mac
-  const isMac = useMemo(
-    () => /macintosh|mac os x/i.test(navigator.userAgent),
-    [],
-  );
+  const isMac = useIsMac();
 
   // Platform-specific modifier key
   const modifierKey = isMac ? "⌘" : "Ctrl+";
+  const buildActive = isPurposeChatActive("app", pathname, chatPurpose);
+  const studioActive = isPurposeChatActive("image", pathname, chatPurpose);
+  const agentsActive = pathname === "/agents";
+
+  /*
+   * Warm every destination the sidebar can reach.
+   *
+   * These rows are buttons rather than links — they close the mobile drawer
+   * and, for Build and Studio, select a chat purpose before navigating — so
+   * Next's viewport prefetch never fires for any of them. Only `/studio` and
+   * `/` were warmed by hand, which left six of the eight rows paying for
+   * their route chunk on the first click. That cost is the whole of what the
+   * app felt like when you clicked Agents or Tasks.
+   *
+   * `/hack` is deliberately absent: it is `force-dynamic` with a server-side
+   * auth check and a redirect, so prefetching it fires that round trip for
+   * every visitor who never clicks it. `/notebook` has no row.
+   */
+  useEffect(() => {
+    for (const href of [
+      "/",
+      "/studio",
+      "/agents",
+      "/runs",
+      "/tasks",
+      "/plugins",
+      "/artifacts",
+    ]) {
+      router.prefetch(href);
+    }
+  }, [router]);
+
+  const closeMobileSidebarForNavigation = () => {
+    if (closeOnNavigate) handleCloseSidebar();
+  };
+
+  const navigateHome = () => {
+    closeMobileSidebarForNavigation();
+    goHome();
+  };
+
+  const navigateTo = (href: string) => {
+    closeMobileSidebarForNavigation();
+    router.push(href);
+  };
 
   // Add keyboard shortcut for search (Cmd/Ctrl + K)
   useEffect(() => {
+    if (proShell) return;
     const handleKeyDown = (e: KeyboardEvent) => {
       if ((e.metaKey || e.ctrlKey) && e.key === "k") {
         e.preventDefault();
         setIsSearchOpen(true);
       }
     };
-
     document.addEventListener("keydown", handleKeyDown);
-    return () => {
-      document.removeEventListener("keydown", handleKeyDown);
-    };
-  }, []);
+    return () => document.removeEventListener("keydown", handleKeyDown);
+  }, [proShell]);
+
+  const launchMode = (purpose: SidebarChatPurpose) => {
+    closeMobileSidebarForNavigation();
+    if (isMobile) setChatSidebarOpen(false);
+    openWorkspace(purpose);
+  };
 
   const handleNewChat = () => {
-    // Close computer sidebar when creating new chat
     closeSidebar();
-
-    // Close chat sidebar when creating new chat on mobile screens
-    // On desktop, keep it open for better UX on large screens
-    // On mobile screens, close it to give more space for the chat
-    if (isMobile) {
-      setChatSidebarOpen(false);
+    if (isMobile) setChatSidebarOpen(false);
+    // Reset the mounted tree only for the same purpose; the destination owns
+    // cross-purpose initialization after the old conversation unmounts.
+    if (
+      chatPurpose === "app" &&
+      isPurposeChatActive("app", pathname, chatPurpose)
+    ) {
+      initializeNewChat("app");
     }
-
-    // Reset chat state while current Chat is still mounted (so chatResetRef is set)
-    initializeNewChat();
     setTemporaryChatsEnabled(false);
-    router.push(basePath);
+    closeMobileSidebarForNavigation();
+    goPurpose("app");
+  };
+
+  const launchHack = () => {
+    if (premiumAccessPending) return;
+    navigateTo(canUseHack ? "/hack" : "/upgrade?feature=hack");
+  };
+
+  const [moreOpen, setMoreOpen] = useSidebarMoreOpen();
+  // Reveal a secondary destination on entry, but let a deliberate close win
+  // until the route changes. A permanent route OR made the toggle ineffective.
+  const [moreRoute, setMoreRoute] = useState({ pathname, dismissed: false });
+  if (moreRoute.pathname !== pathname) {
+    setMoreRoute({ pathname, dismissed: false });
+  }
+  const activeRouteInFold =
+    agentsActive ||
+    pathname === "/plugins" ||
+    pathname.startsWith("/runs") ||
+    pathname === "/tasks" ||
+    pathname === "/artifacts";
+  const moreExpanded =
+    moreOpen ||
+    (activeRouteInFold &&
+      !(moreRoute.pathname === pathname && moreRoute.dismissed));
+  const toggleMore = () => {
+    const next = !moreExpanded;
+    setMoreOpen(next);
+    setMoreRoute({ pathname, dismissed: !next });
   };
 
   const handleSearchOpen = () => {
+    if (proShell) {
+      // A row in the nav behaves like the rest of the nav: on mobile the drawer
+      // is covering the palette it is about to open.
+      closeMobileSidebarForNavigation();
+      openCommandPalette();
+      return;
+    }
     setIsSearchOpen(true);
   };
 
@@ -106,65 +335,206 @@ const SidebarHeaderContentImpl: FC<SidebarHeaderContentImplProps> = ({
     setIsSearchOpen(false);
   };
 
-  if (isCollapsed) {
+  if (proShell) {
+    // The Pro shell used to carry its own copy of the row class, which is how
+    // the two shells drifted apart the last time these metrics changed. One
+    // source now; the only difference left is the hover fill.
+    // Row icons carry no size or stroke of their own. They used to, and the
+    // values were a lie: the row's own `[&>svg]` selector is a child selector
+    // (0,1,1) and beat every `size-[14px]` (0,1,0) at the call site, so the
+    // marks rendered at the token's size no matter what was written here.
+    const proNavRow = (active: boolean) =>
+      sidebarNavRowClass(active).replace(
+        "hover:bg-sidebar-accent/60",
+        "hover:bg-sidebar-accent",
+      );
+
     return (
       <>
-        <div className="flex flex-col items-center p-2">
-          {/* RIFT Logo with hover sidebar toggle */}
-          <div
-            data-testid="sidebar-toggle"
-            className="relative flex items-center justify-center mb-2 cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-terminal-green focus-visible:ring-offset-2 rounded p-1"
-            onClick={toggleSidebar}
-            onKeyDown={(e) => {
-              if (e.key === "Enter" || e.key === " ") {
-                if (e.key === " ") {
-                  e.preventDefault();
-                }
-                toggleSidebar();
-              }
-            }}
-            tabIndex={0}
-            role="button"
-            aria-label="Expand sidebar"
-          >
-            <RiftPixelMark size={26} />
-            {/* Sidebar icon shown on hover over entire collapsed sidebar */}
-            <div className="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity bg-sidebar/80 rounded">
-              <SidebarIcon className="w-5 h-5" />
-            </div>
-          </div>
+        {/* The outer sidebar header owns the inset for both nav groups. */}
+        <div
+          data-pro-sidebar-header
+          className="rift-desktop-sidebar-header px-0 pb-0 pt-0"
+        >
+          {/* No brand row. Neither of the two apps this shell is measured
+              against puts its own name in the sidebar -- the window already
+              says which app this is, and the row cost four destinations worth
+              of vertical space. Search is a destination here for the same
+              reason it is one in Cursor: an icon in a header is a thing you
+              have to already know about.
 
-          {/* Sidebar Actions - Collapsed */}
-          <div className="flex flex-col items-center">
-            {/* New Chat Button - Collapsed */}
-            <div className="p-1">
-              <Button
-                variant="ghost"
-                size="sm"
-                className="h-8 w-8 p-0 hover:bg-sidebar-accent/50"
+              Mobile is the exception, and only because the window strip that
+              carries these two controls on desktop is hidden at this width:
+              without them the drawer has no way out but the scrim, and the
+              theme control has nowhere to live at all. */}
+          {isMobile ? (
+            <div className="mb-1 flex h-11 items-center">
+              <SidebarThemeToggle variant="pro" />
+              <button
+                type="button"
+                onClick={handleCloseSidebar}
+                aria-label="Close navigation"
+                title="Close navigation"
+                className="ml-auto flex size-6 shrink-0 items-center justify-center rounded-[6px] text-[var(--cursor-icon-secondary)] transition-[background-color,color,transform] duration-(--duration-press) ease-(--ease-out) active:scale-[0.94] motion-reduce:transition-none motion-reduce:active:scale-100 hover:bg-sidebar-accent hover:text-foreground focus-visible:outline-none focus-visible:bg-sidebar-accent"
+              >
+                <PanelLeft
+                  aria-hidden
+                  className="size-[14px]"
+                  strokeWidth={1.6}
+                />
+              </button>
+            </div>
+          ) : null}
+
+          <nav aria-label="Primary workspaces" className="space-y-px">
+            {!isMobile && (
+              <button
+                type="button"
                 onClick={handleNewChat}
                 aria-label="Start new chat"
+                aria-current={
+                  pathname === "/" && buildActive ? "page" : undefined
+                }
+                className={proNavRow(pathname === "/" && buildActive)}
               >
-                <SquarePen className="w-4 h-4" />
-              </Button>
-            </div>
+                <SquarePen aria-hidden />
+                New chat
+              </button>
+            )}
+            <button
+              type="button"
+              onClick={() => launchMode("app")}
+              aria-current={
+                buildActive && pathname !== "/" ? "page" : undefined
+              }
+              className={proNavRow(buildActive && pathname !== "/")}
+            >
+              <Blocks aria-hidden />
+              Build
+            </button>
+            <button
+              type="button"
+              onClick={() => launchMode("image")}
+              aria-current={studioActive ? "page" : undefined}
+              className={proNavRow(studioActive)}
+            >
+              <Images aria-hidden />
+              Studio
+            </button>
+            <button
+              data-testid="sidebar-hack"
+              type="button"
+              onClick={launchHack}
+              disabled={premiumAccessPending}
+              aria-busy={premiumAccessPending}
+              aria-label={hackAccessLabel}
+              aria-current={pathname === "/hack" ? "page" : undefined}
+              title={hackAccessTitle}
+              className={`${proNavRow(pathname === "/hack")} disabled:cursor-wait disabled:opacity-55`}
+            >
+              <Crosshair aria-hidden />
+              Hack Workbench
+              {premiumAccessPending ? (
+                <span className="ml-auto flex shrink-0 items-center">
+                  <CircleDashed aria-hidden className="size-3" />
+                </span>
+              ) : !canUseHack ? (
+                <span className="ml-auto flex shrink-0 items-center">
+                  <LockKeyhole aria-hidden className="size-3 text-primary/80" />
+                </span>
+              ) : null}
+            </button>
+          </nav>
 
-            {/* Search Button - Collapsed */}
-            <div className="p-1">
-              <Button
-                variant="ghost"
-                size="sm"
-                className="h-8 w-8 p-0 hover:bg-sidebar-accent/50"
-                onClick={handleSearchOpen}
-                aria-label="Search chats"
-              >
-                <Search className="w-4 h-4" />
-              </Button>
-            </div>
-          </div>
+          {/* Keep the daily entry points visible; secondary workspaces stay one click away. */}
+          <nav aria-label="More workspaces" className="space-y-px">
+            <button
+              data-testid="sidebar-more-toggle"
+              type="button"
+              onClick={toggleMore}
+              aria-expanded={moreExpanded}
+              aria-controls="rift-sidebar-more"
+              className={`${proNavRow(false)} text-[var(--cursor-text-tertiary)]`}
+            >
+              <MoreIcon aria-hidden />
+              More
+              {!moreExpanded && activeRouteInFold ? (
+                <span
+                  aria-hidden
+                  className="ml-auto size-1 rounded-full bg-current"
+                />
+              ) : null}
+            </button>
+
+            {moreExpanded ? (
+              <div id="rift-sidebar-more" className="space-y-px">
+                <button
+                  type="button"
+                  onClick={() => navigateTo("/plugins")}
+                  aria-current={pathname === "/plugins" ? "page" : undefined}
+                  className={proNavRow(pathname === "/plugins")}
+                >
+                  <Plug aria-hidden />
+                  Plugins
+                </button>
+                {isMobile ? (
+                  <button
+                    type="button"
+                    onClick={handleSearchOpen}
+                    aria-label="Search chats"
+                    data-testid="sidebar-search-row"
+                    className={proNavRow(false)}
+                  >
+                    <Search aria-hidden />
+                    Search
+                  </button>
+                ) : null}
+                <button
+                  type="button"
+                  onClick={() => navigateTo("/agents")}
+                  aria-current={agentsActive ? "page" : undefined}
+                  className={proNavRow(agentsActive)}
+                >
+                  <Bot aria-hidden />
+                  Agents
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => navigateTo("/runs")}
+                  aria-current={
+                    pathname.startsWith("/runs") ? "page" : undefined
+                  }
+                  className={proNavRow(pathname.startsWith("/runs"))}
+                >
+                  <History aria-hidden />
+                  Runs
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => navigateTo("/tasks")}
+                  aria-current={pathname === "/tasks" ? "page" : undefined}
+                  className={proNavRow(pathname === "/tasks")}
+                >
+                  <ListTodo aria-hidden />
+                  Tasks
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => navigateTo("/artifacts")}
+                  aria-current={pathname === "/artifacts" ? "page" : undefined}
+                  className={proNavRow(pathname === "/artifacts")}
+                >
+                  <LayoutGrid aria-hidden />
+                  Artifacts
+                </button>
+              </div>
+            ) : null}
+          </nav>
         </div>
 
-        {/* Search Dialog */}
         <MessageSearchDialog
           isOpen={isSearchOpen}
           onClose={handleSearchClose}
@@ -175,95 +545,223 @@ const SidebarHeaderContentImpl: FC<SidebarHeaderContentImplProps> = ({
 
   return (
     <>
-      <div className="flex items-center gap-1 px-2 pb-2 pt-2">
+      {/* Workspace controls sit at the top and carry the desktop traffic-light
+          clearance. Build / Image start fresh chats; Hack opens the dedicated
+          premium terminal workspace. */}
+      {/* Collapse toggle — slim top control; carries the desktop traffic-light
+          clearance as the topmost element. */}
+      <div
+        data-rift-native-titlebar="sidebar"
+        data-tauri-drag-region
+        className="rift-desktop-sidebar-header flex items-center justify-between gap-2 px-2.5 pb-1 pt-2"
+      >
         <button
           type="button"
-          onClick={handleNewChat}
-          aria-label="Start new chat"
-          className={`${displayClass} studio-new-chat flex h-8 flex-1 items-center justify-center gap-1.5 rounded-full border border-border/60 bg-surface-2/50 text-[12px] font-medium text-foreground transition-colors hover:border-signal/40 hover:bg-surface-3/60`}
+          onClick={navigateHome}
+          aria-label="RIFT home"
+          className="flex min-w-0 items-center gap-2 rounded-md px-1.5 py-1 text-foreground transition-colors hover:bg-sidebar-accent/60 hover:text-foreground focus-visible:outline-none focus-visible:bg-sidebar-accent"
         >
-          <Plus className="size-3.5" />
-          New Chat
-        </button>
-        <button
-          type="button"
-          onClick={handleSearchOpen}
-          aria-label="Search chat history"
-          className="flex size-8 shrink-0 items-center justify-center rounded-full border border-border/50 text-muted-foreground transition-colors hover:bg-surface-2/60 hover:text-foreground"
-        >
-          <History className="size-4" />
-        </button>
-      </div>
-
-      <div className="px-2 pb-2">
-        <div className="studio-search flex h-8 items-center gap-2 rounded-full border border-border/50 bg-surface-1/60 px-3 text-[12px] text-muted-foreground backdrop-blur-sm">
-          <Search className="size-3.5 shrink-0" />
-          <input
-            type="text"
-            readOnly
-            onFocus={handleSearchOpen}
-            onClick={handleSearchOpen}
-            placeholder="Search chats…"
-            aria-label="Search chats"
-            className="min-w-0 flex-1 bg-transparent text-[12px] text-foreground placeholder:text-muted-foreground focus:outline-none"
+          <RiftBrandLockup
+            decorative
+            markSize={26}
+            textSize={14}
+            gap={8}
+            markClassName="text-foreground"
           />
+        </button>
+        <button
+          type="button"
+          onClick={toggleChatSidebar}
+          aria-label="Toggle sidebar"
+          title="Toggle sidebar"
+          className="flex size-7 shrink-0 items-center justify-center rounded-md text-[var(--cursor-icon-secondary)] transition-colors hover:bg-sidebar-accent hover:text-foreground focus-visible:outline-none focus-visible:bg-sidebar-accent"
+        >
+          <PanelLeft aria-hidden className="size-[14px]" strokeWidth={1.5} />
+        </button>
+        <div className="flex shrink-0 items-center gap-1">
+          <button
+            type="button"
+            onClick={handleSearchOpen}
+            aria-label="Search chats"
+            title={`Search chats (${modifierKey}K)`}
+            className="flex size-7 items-center justify-center rounded-md text-[var(--cursor-icon-secondary)] transition-colors hover:bg-sidebar-accent hover:text-foreground focus-visible:outline-none focus-visible:bg-sidebar-accent"
+          >
+            <Search aria-hidden className="size-[14px]" strokeWidth={1.5} />
+          </button>
+          <SidebarThemeToggle variant="standard" />
         </div>
       </div>
+
+      {/* Cursor keeps the primary action stack unlabelled and compact. */}
+      <div className="px-2 pb-1.5 pt-1.5">
+        <nav aria-label="Primary workspaces" className="space-y-px">
+          {!isMobile && (
+            <button
+              type="button"
+              onClick={handleNewChat}
+              aria-label="Start new chat"
+              className={sidebarNavRowClass(false)}
+            >
+              <Plus aria-hidden />
+              New chat
+            </button>
+          )}
+
+          <button
+            type="button"
+            onClick={() => launchMode("app")}
+            aria-current={buildActive ? "page" : undefined}
+            title={MODES[0].title}
+            className={sidebarNavRowClass(buildActive)}
+          >
+            <Blocks aria-hidden />
+            Build
+          </button>
+
+          <button
+            type="button"
+            onClick={() => launchMode("image")}
+            aria-current={studioActive ? "page" : undefined}
+            title={MODES[1].title}
+            className={sidebarNavRowClass(studioActive)}
+          >
+            <Images aria-hidden />
+            Studio
+          </button>
+
+          <button
+            data-testid="sidebar-hack"
+            type="button"
+            onClick={launchHack}
+            disabled={premiumAccessPending}
+            aria-busy={premiumAccessPending}
+            aria-label={hackAccessLabel}
+            aria-current={pathname === "/hack" ? "page" : undefined}
+            title={hackAccessTitle}
+            className={`${sidebarNavRowClass(pathname === "/hack")} disabled:cursor-wait disabled:opacity-60`}
+          >
+            <Crosshair aria-hidden />
+            Hack Workbench
+            {premiumAccessPending ? (
+              <span className="ml-auto flex shrink-0 items-center">
+                <CircleDashed aria-hidden className="size-3" />
+              </span>
+            ) : !canUseHack ? (
+              <span className="ml-auto flex shrink-0 items-center">
+                <LockKeyhole aria-hidden className="size-3 text-primary/80" />
+              </span>
+            ) : null}
+          </button>
+        </nav>
+      </div>
+
+      {/* Utility nav is a uniform, tightly-stacked list. Search moved
+          to an icon by the collapse toggle; Projects to its own section below.
+
+          /notebook and /appearance are deliberately absent. /notebook already
+          redirects to /hack (lib/routing/compatibility-redirects.ts), so the
+          notebook is reached through the Hack Workbench that owns it rather
+          than advertised to every account as a separate destination.
+          Appearance is a settings surface and belongs with the rest of
+          settings, not in the destination list. */}
+      <nav aria-label="More workspaces" className="mx-2 space-y-px pb-1">
+        <button
+          data-testid="sidebar-more-toggle"
+          type="button"
+          onClick={toggleMore}
+          aria-expanded={moreExpanded}
+          aria-controls="rift-sidebar-more"
+          className={sidebarNavRowClass(false)}
+        >
+          <ChevronDown
+            aria-hidden
+            className={`transition-transform duration-(--duration-hover) ${moreExpanded ? "" : "-rotate-90"} motion-reduce:transition-none`}
+          />
+          More
+          {!moreExpanded && activeRouteInFold ? (
+            <span
+              aria-hidden
+              className="ml-auto size-1 rounded-full bg-current"
+            />
+          ) : null}
+        </button>
+        {moreExpanded ? (
+          <div id="rift-sidebar-more" className="space-y-px">
+            <button
+              type="button"
+              onClick={() => navigateTo("/agents")}
+              aria-current={agentsActive ? "page" : undefined}
+              title="Agents and teams"
+              className={sidebarNavRowClass(agentsActive)}
+            >
+              <Bot aria-hidden />
+              Agents
+            </button>
+
+            <button
+              type="button"
+              onClick={() => navigateTo("/runs")}
+              aria-current={pathname.startsWith("/runs") ? "page" : undefined}
+              title="Runs and their evidence"
+              className={sidebarNavRowClass(pathname.startsWith("/runs"))}
+            >
+              <History aria-hidden />
+              Runs
+            </button>
+
+            <button
+              type="button"
+              onClick={() => navigateTo("/tasks")}
+              aria-current={pathname === "/tasks" ? "page" : undefined}
+              title="Tasks and schedules"
+              className={sidebarNavRowClass(pathname === "/tasks")}
+            >
+              <ListTodo aria-hidden />
+              Tasks
+            </button>
+
+            <button
+              type="button"
+              onClick={() => navigateTo("/plugins")}
+              aria-current={pathname === "/plugins" ? "page" : undefined}
+              title="Plugins - connect MCP servers and tools"
+              className={sidebarNavRowClass(pathname === "/plugins")}
+            >
+              <Plug aria-hidden />
+              Plugins
+            </button>
+
+            <button
+              type="button"
+              onClick={() => navigateTo("/artifacts")}
+              aria-current={pathname === "/artifacts" ? "page" : undefined}
+              title="Artifacts - all your images, sent and generated"
+              className={sidebarNavRowClass(pathname === "/artifacts")}
+            >
+              <LayoutGrid aria-hidden />
+              Artifacts
+            </button>
+          </div>
+        ) : null}
+      </nav>
 
       <MessageSearchDialog isOpen={isSearchOpen} onClose={handleSearchClose} />
     </>
   );
 };
 
-// Desktop sidebar header component (requires SidebarProvider)
-const DesktopSidebarHeaderContent: FC<
-  Omit<SidebarHeaderContentProps, "isMobileOverlay">
-> = ({ handleCloseSidebar, isCollapsed }) => {
-  const { toggleSidebar } = useSidebar();
-  return (
-    <SidebarHeaderContentImpl
-      handleCloseSidebar={handleCloseSidebar}
-      isCollapsed={isCollapsed}
-      toggleSidebar={toggleSidebar}
-    />
-  );
-};
-
-// Mobile sidebar header component (doesn't use SidebarProvider)
-const MobileSidebarHeaderContent: FC<
-  Omit<SidebarHeaderContentProps, "isMobileOverlay">
-> = ({ handleCloseSidebar, isCollapsed }) => {
-  const toggleSidebar = () => {}; // No-op for mobile
-  return (
-    <SidebarHeaderContentImpl
-      handleCloseSidebar={handleCloseSidebar}
-      isCollapsed={isCollapsed}
-      toggleSidebar={toggleSidebar}
-    />
-  );
-};
-
-// Main component that conditionally renders based on context
+// The desktop shell and the mobile overlay render the same header. They used
+// to be two components because the desktop one called useSidebar() for a
+// collapse toggle that only the icon rail used; with the rail gone the only
+// difference left is whether navigating closes the sidebar behind you.
 const SidebarHeaderContent: FC<SidebarHeaderContentProps> = ({
   handleCloseSidebar,
-  isCollapsed,
   isMobileOverlay = false,
-}) => {
-  if (isMobileOverlay) {
-    return (
-      <MobileSidebarHeaderContent
-        handleCloseSidebar={handleCloseSidebar}
-        isCollapsed={isCollapsed}
-      />
-    );
-  }
-
-  return (
-    <DesktopSidebarHeaderContent
-      handleCloseSidebar={handleCloseSidebar}
-      isCollapsed={isCollapsed}
-    />
-  );
-};
+}) => (
+  <SidebarHeaderContentImpl
+    handleCloseSidebar={handleCloseSidebar}
+    closeOnNavigate={isMobileOverlay}
+  />
+);
 
 export default SidebarHeaderContent;

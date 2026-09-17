@@ -1,7 +1,9 @@
 "use client";
 
+import { useSyncExternalStore } from "react";
 import { toast } from "sonner";
 import { hasAuthenticatedBefore } from "@/lib/utils/client-storage";
+import { isDesktopAuthState } from "@/lib/desktop-auth-flow";
 
 export const DESKTOP_UPDATE_URL =
   "https://github.com/rift-tech/rift/releases/latest";
@@ -78,6 +80,31 @@ export function useTauri(): { isTauri: boolean } {
   return { isTauri };
 }
 
+/**
+ * Whether this is the desktop shell, for decisions that change what RENDERS.
+ *
+ * `detectTauri()` reads `window`, so calling it during render answers false on
+ * the server and true in the desktop client -- a hydration mismatch, and React
+ * resolves those by discarding the client render, which is exactly the wrong
+ * outcome for chrome the user is looking at. Deciding after mount costs one
+ * extra paint on desktop and is correct on both shells.
+ *
+ * Use `isTauriEnvironment()` for anything that only runs in an event handler or
+ * an effect; this is for markup.
+ */
+const subscribeToNothing = () => () => {};
+const readDesktopShell = () => detectTauri();
+/** The shell cannot change under a mounted app, so the server always says web. */
+const desktopShellServerSnapshot = () => false;
+
+export function useIsDesktopShell(): boolean {
+  return useSyncExternalStore(
+    subscribeToNothing,
+    readDesktopShell,
+    desktopShellServerSnapshot,
+  );
+}
+
 export async function openInBrowser(url: string): Promise<boolean> {
   if (!detectTauri()) {
     return false;
@@ -150,6 +177,9 @@ export async function navigateToAuth(
         const desktopAuthState = await invoke<string>(
           "prepare_desktop_auth_state",
         );
+        if (!isDesktopAuthState(desktopAuthState)) {
+          throw new Error("Desktop auth state has an invalid format");
+        }
         authSearchParams.set("desktop_state", desktopAuthState);
       } catch (err) {
         console.error("[Tauri] Failed to prepare desktop auth state:", err);
@@ -298,69 +328,24 @@ export async function revealFileInDir(path: string): Promise<boolean> {
   }
 }
 
-/**
- * Save file content to disk via command server.
- * Tries Downloads folder first, falls back to current working directory.
- * Returns the full path of the saved file, or null if both attempts fail.
- */
+/** Save bounded file content directly to Downloads through native IPC. */
 export async function saveFileToLocal(
   filename: string,
   content: string,
+  encoding: "utf8" | "base64" = "utf8",
 ): Promise<string | null> {
-  const info = await getCmdServerInfo();
-  if (!info) return null;
-
-  const escaped = filename.replace(/'/g, "'\\''");
-
-  const delimiter = `RIFT_EOF_${Date.now()}_${Math.random().toString(36).substring(2, 10)}`;
-
-  const writeToDir = async (dir: string) => {
-    const targetPath = `${dir}/${escaped}`;
-    const res = await fetch(`http://127.0.0.1:${info.port}/execute`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${info.token}`,
-      },
-      body: JSON.stringify({
-        command: `cat > '${targetPath}' << '${delimiter}'\n${content}\n${delimiter}`,
-        timeout_ms: 5000,
-      }),
-    });
-    if (!res.ok) throw new Error("Request failed");
-    const result = await res.json();
-    if (result.exit_code !== 0) throw new Error("Write failed");
-    return `${dir}/${filename}`;
-  };
-
-  // Try Downloads folder first
+  if (!detectTauri()) return null;
   try {
-    const pathMod = await import("@tauri-apps/api/path");
-    const downloadsDir = (await pathMod.downloadDir()).replace(/\/+$/, "");
-    return await writeToDir(downloadsDir);
-  } catch {
-    // Fall back to current directory
+    const { invoke } = await import("@tauri-apps/api/core");
+    const saved = await invoke<{ path: string; size: number }>(
+      "save_file_to_downloads",
+      { filename, content, encoding },
+    );
+    return saved.path;
+  } catch (error) {
+    console.error("[Tauri] Failed to save download:", error);
+    return null;
   }
-
-  try {
-    const cwdRes = await fetch(`http://127.0.0.1:${info.port}/execute`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${info.token}`,
-      },
-      body: JSON.stringify({ command: "pwd", timeout_ms: 3000 }),
-    });
-    if (cwdRes.ok) {
-      const cwdResult = await cwdRes.json();
-      const cwd = cwdResult.stdout?.trim();
-      if (cwd) return await writeToDir(cwd);
-    }
-  } catch {
-    // Both failed
-  }
-
-  return null;
 }
 
 export async function openDownloadsFolder(): Promise<boolean> {

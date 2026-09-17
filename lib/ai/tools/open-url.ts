@@ -1,3 +1,4 @@
+import { getProviderContext } from "@/lib/ai/provider-context";
 import { tool } from "ai";
 import { z } from "zod";
 import { truncateContent } from "@/lib/token-utils";
@@ -6,7 +7,7 @@ import { truncateContent } from "@/lib/token-utils";
  * Open URL tool using Jina AI for content retrieval
  * Retrieves and returns the full contents of a webpage
  */
-export const createOpenUrlTool = () => {
+export const createOpenUrlTool = (origin = getProviderContext()) => {
   return tool({
     description: `Retrieve the full contents of a specific webpage by URL.
 
@@ -33,7 +34,7 @@ export const createOpenUrlTool = () => {
         const response = await fetch(jinaUrl, {
           method: "GET",
           headers: {
-            Authorization: `Bearer ${process.env.JINA_API_KEY}`,
+            Authorization: `Bearer ${origin.jinaApiKey}`,
             "X-Timeout": "30",
             "X-Base": "final",
             "X-Token-Budget": "200000",

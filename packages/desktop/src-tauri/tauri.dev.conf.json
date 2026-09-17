@@ -1,11 +1,12 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
   "build": {
-    "devUrl": "http://localhost:3000"
+    "devUrl": "http://localhost:3010"
   },
   "app": {
     "security": {
-      "csp": "default-src 'self' http://localhost:3000 https://rift.co https://*.rift.co https://*.convex.cloud https://*.convex.dev https://auth.rift.co https://api.workos.com; script-src 'self' 'unsafe-inline' 'unsafe-eval' http://localhost:3000 https://rift.co https://*.rift.co https://*.convex.cloud; style-src 'self' 'unsafe-inline' http://localhost:3000 https://rift.co https://*.rift.co; img-src 'self' data: https: http: blob:; font-src 'self' data: https: http:; connect-src 'self' http://localhost:3000 ws://localhost:3000 https://rift.co https://*.rift.co https://*.convex.cloud wss://*.convex.cloud https://auth.rift.co https://api.workos.com https://*.posthog.com https://*.stripe.com https://api.trigger.dev https://*.trigger.dev wss://*.trigger.dev; frame-src 'self' https://*.stripe.com; media-src 'self' blob:;"
+      "csp": "default-src 'self' http://localhost:3010 https://riftsys.app https://*.riftsys.app https://*.convex.cloud https://*.convex.dev https://api.workos.com; script-src 'self' 'unsafe-inline' 'unsafe-eval' http://localhost:3010 https://riftsys.app https://*.riftsys.app https://*.convex.cloud; style-src 'self' 'unsafe-inline' http://localhost:3010 https://riftsys.app https://*.riftsys.app; img-src 'self' data: https: http: blob:; font-src 'self' data: https: http:; connect-src 'self' http://localhost:3010 ws://localhost:3010 https://riftsys.app https://*.riftsys.app wss://*.riftsys.app https://*.convex.cloud wss://*.convex.cloud https://api.workos.com https://*.posthog.com https://*.stripe.com https://api.trigger.dev https://*.trigger.dev wss://*.trigger.dev; frame-src 'self' https://*.stripe.com; media-src 'self' blob:;",
+      "capabilities": ["dev"]
     }
   }
 }

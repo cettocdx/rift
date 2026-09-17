@@ -1,0 +1,110 @@
+{
+  "github": {
+    "name": "GitHub",
+    "path": "/plugin-logos/github.svg",
+    "source": "Iconify Logos",
+    "sourceUrl": "https://icon-sets.iconify.design/logos/github-icon/"
+  },
+  "hugging-face": {
+    "name": "Hugging Face",
+    "path": "/plugin-logos/hugging-face.svg",
+    "source": "Iconify Logos",
+    "sourceUrl": "https://icon-sets.iconify.design/logos/hugging-face-icon/"
+  },
+  "stripe": {
+    "name": "Stripe",
+    "path": "/plugin-logos/stripe.svg",
+    "source": "Iconify",
+    "sourceUrl": "https://api.iconify.design/simple-icons/stripe.svg"
+  },
+  "sentry": {
+    "name": "Sentry",
+    "path": "/plugin-logos/sentry.svg",
+    "source": "Iconify Logos",
+    "sourceUrl": "https://icon-sets.iconify.design/logos/sentry-icon/"
+  },
+  "circleci": {
+    "name": "CircleCI",
+    "path": "/plugin-logos/circleci.svg",
+    "source": "Iconify Logos",
+    "sourceUrl": "https://icon-sets.iconify.design/logos/circleci/"
+  },
+  "amplitude": {
+    "name": "Amplitude",
+    "path": "/plugin-logos/amplitude.svg",
+    "source": "Iconify Logos",
+    "sourceUrl": "https://icon-sets.iconify.design/logos/amplitude-icon/"
+  },
+  "cloudflare": {
+    "name": "Cloudflare",
+    "path": "/plugin-logos/cloudflare.svg",
+    "source": "Iconify Logos",
+    "sourceUrl": "https://icon-sets.iconify.design/logos/cloudflare-icon/"
+  },
+  "notion": {
+    "name": "Notion",
+    "path": "/plugin-logos/notion.svg",
+    "source": "Iconify Logos",
+    "sourceUrl": "https://icon-sets.iconify.design/logos/notion-icon/"
+  },
+  "linear": {
+    "name": "Linear",
+    "path": "/plugin-logos/linear.svg",
+    "source": "Iconify Logos",
+    "sourceUrl": "https://icon-sets.iconify.design/logos/linear-icon/"
+  },
+  "deepwiki": {
+    "name": "DeepWiki",
+    "path": "/plugin-logos/deepwiki.svg",
+    "source": "Provider favicon",
+    "sourceUrl": "https://www.google.com/s2/favicons?domain_url=https%3A%2F%2Fdeepwiki.com&sz=128"
+  },
+  "exa-search": {
+    "name": "Exa Search",
+    "path": "/plugin-logos/exa-search.svg",
+    "source": "Provider favicon",
+    "sourceUrl": "https://www.google.com/s2/favicons?domain_url=https%3A%2F%2Fexa.ai&sz=128"
+  },
+  "context7": {
+    "name": "Context7",
+    "path": "/plugin-logos/context7.svg",
+    "source": "Provider favicon",
+    "sourceUrl": "https://www.google.com/s2/favicons?domain_url=https%3A%2F%2Fcontext7.com&sz=128"
+  },
+  "higgsfield": {
+    "name": "Higgsfield",
+    "path": "/plugin-logos/higgsfield.svg",
+    "source": "Provider favicon",
+    "sourceUrl": "https://www.google.com/s2/favicons?domain_url=https%3A%2F%2Fhiggsfield.ai&sz=128"
+  },
+  "vercel": {
+    "name": "Vercel",
+    "path": "/plugin-logos/vercel.svg",
+    "source": "Vercel brand mark",
+    "sourceUrl": "https://vercel.com/design/brands"
+  },
+  "supabase": {
+    "name": "Supabase",
+    "path": "/plugin-logos/supabase.svg",
+    "source": "Iconify",
+    "sourceUrl": "https://api.iconify.design/logos/supabase-icon.svg"
+  },
+  "atlassian": {
+    "name": "Atlassian",
+    "path": "/plugin-logos/atlassian.svg",
+    "source": "Iconify",
+    "sourceUrl": "https://api.iconify.design/logos/atlassian.svg"
+  },
+  "browserbase": {
+    "name": "Browserbase",
+    "path": "/plugin-logos/browserbase.svg",
+    "source": "Browserbase official favicon",
+    "sourceUrl": "https://www.browserbase.com/favicon.svg"
+  },
+  "firecrawl": {
+    "name": "Firecrawl",
+    "path": "/plugin-logos/firecrawl.svg",
+    "source": "LobeHub icons",
+    "sourceUrl": "https://github.com/lobehub/lobe-icons/tree/master/packages/static-svg/icons/firecrawl-color.svg"
+  }
+}

@@ -1,0 +1,289 @@
+{
+  "at": "2026-09-15T08:58:12.281Z",
+  "mode": "terminal-soak",
+  "origin": "http://localhost:3046",
+  "chatStorage": "persisted",
+  "model": "build-codex",
+  "effort": "medium",
+  "scenarios": ["terminal-soak"],
+  "samples": [
+    {
+      "index": 1,
+      "scenario": "terminal-soak",
+      "runId": "run_06ga8dmlvucr4runk0ncl7nj01",
+      "chatId": "7025c47e-3d10-4757-8278-79c7dc8c2c82",
+      "status": "COMPLETED",
+      "admissionMs": 2298,
+      "routeTimings": {
+        "auth": 389,
+        "entitlement": 151,
+        "chat": 347,
+        "project": 2,
+        "claim": 208,
+        "persistMessage": 216,
+        "claimRecheck": 160,
+        "dispatch": 291,
+        "finalize": 192
+      },
+      "tokenLifetimeHours": 6,
+      "tokenRunScoped": true,
+      "firstEventMs": 12304,
+      "firstTextMs": 1241917,
+      "progressTiming": {
+        "firstToolInputMs": 17076,
+        "firstToolReadyMs": 17938,
+        "firstTextMs": 1241919
+      },
+      "progressTimingInterpretation": "Monotonic milliseconds from request start to observer receipt. Reasoning text, partial tool input and executable tool input are distinct; none proves native paint or tool completion. Replayed arrivals include detachment time.",
+      "totalMs": 1242146,
+      "finished": true,
+      "detached": true,
+      "completedWhileDetached": true,
+      "toolStarted": true,
+      "toolOutputConfirmed": true,
+      "soakVerified": true,
+      "soakEvidence": {
+        "verified": true,
+        "commandCount": 1,
+        "commandMatches": true,
+        "durationConfirmed": true,
+        "durationMs": 1204464,
+        "resultCount": 1,
+        "markersComplete": true,
+        "markerCount": 120,
+        "exitConfirmed": true,
+        "exitCode": 0
+      },
+      "soakResponse": "RIFT_SOAK_DONE",
+      "duplicateEvents": 0,
+      "workerVersion": "20260915.11",
+      "cleanup": {
+        "confirmed": true,
+        "verified": true
+      },
+      "startupTiming": {
+        "providerCreatedAt": 1789461452303,
+        "providerStartedAt": 1789461452347,
+        "handlerEnteredAt": 1789461457826,
+        "attemptStartedAt": 1789461452349,
+        "providerAttemptCount": 1,
+        "providerRegion": "cmpwyuc0y020mog0jppwqw7xa",
+        "environmentType": "DEVELOPMENT",
+        "processUptimeMs": 411329,
+        "providerPreStartMs": 44,
+        "providerStartToAttemptMs": 2,
+        "attemptToHandlerWallClockDeltaMs": 5477,
+        "interpretation": "Provider intervals use provider timestamps, not queue or cold-start measurements. Attempt-to-handler is a signed cross-runtime wall-clock delta and may include clock skew. Process uptime is process age, not initialization duration."
+      },
+      "setupPhases": {
+        "origin": "worker setup timer creation (monotonic)",
+        "interpretation": "Phases can overlap. Do not sum durations or subtract these offsets from wall-clock timestamps.",
+        "spans": {
+          "tags": {
+            "startedMs": 0,
+            "endedMs": 3,
+            "durationMs": 3,
+            "outcome": "completed"
+          },
+          "claim": {
+            "startedMs": 8,
+            "endedMs": 718,
+            "durationMs": 710,
+            "outcome": "completed"
+          },
+          "balance": {
+            "startedMs": 719,
+            "endedMs": 1043,
+            "durationMs": 324,
+            "outcome": "completed"
+          },
+          "entitlement": {
+            "startedMs": 733,
+            "endedMs": 1444,
+            "durationMs": 711,
+            "outcome": "completed"
+          },
+          "billingConfig": {
+            "startedMs": 1440,
+            "endedMs": 1440,
+            "durationMs": 0,
+            "outcome": "completed"
+          },
+          "historyFetch": {
+            "startedMs": 723,
+            "endedMs": 1616,
+            "durationMs": 893,
+            "outcome": "completed"
+          },
+          "skills": {
+            "startedMs": 726,
+            "endedMs": 1629,
+            "durationMs": 903,
+            "outcome": "completed"
+          },
+          "messages": {
+            "startedMs": 1636,
+            "endedMs": 1639,
+            "durationMs": 3,
+            "outcome": "completed"
+          },
+          "moderation": {
+            "startedMs": 1641,
+            "endedMs": 4234,
+            "durationMs": 2593,
+            "outcome": "completed"
+          },
+          "estimate": {
+            "startedMs": 1659,
+            "endedMs": 1678,
+            "durationMs": 19,
+            "outcome": "completed"
+          },
+          "checkpoint": {
+            "startedMs": 1683,
+            "endedMs": 1997,
+            "durationMs": 314,
+            "outcome": "completed"
+          },
+          "mcp": {
+            "startedMs": 2006,
+            "endedMs": 2346,
+            "durationMs": 340,
+            "outcome": "completed"
+          },
+          "github": {
+            "startedMs": 2078,
+            "endedMs": 2344,
+            "durationMs": 266,
+            "outcome": "completed"
+          },
+          "billingReserve": {
+            "startedMs": 2095,
+            "endedMs": 2644,
+            "durationMs": 549,
+            "outcome": "completed"
+          },
+          "runRecord": {
+            "startedMs": 2005,
+            "endedMs": 2380,
+            "durationMs": 375,
+            "outcome": "completed"
+          },
+          "tools": {
+            "startedMs": 4236,
+            "endedMs": 4275,
+            "durationMs": 39,
+            "outcome": "completed"
+          },
+          "executionFence": {
+            "startedMs": 4275,
+            "endedMs": 4518,
+            "durationMs": 243,
+            "outcome": "completed"
+          },
+          "turnSandbox": {
+            "startedMs": 4519,
+            "endedMs": 4547,
+            "durationMs": 28,
+            "outcome": "completed"
+          },
+          "systemPrompt": {
+            "startedMs": 4681,
+            "endedMs": 4681,
+            "durationMs": 0,
+            "outcome": "completed"
+          }
+        }
+      },
+      "taskStartLatencyMs": 5931,
+      "routeStartedAt": 1789461450549,
+      "triggerRequestedAt": 1789461451906,
+      "workerModelRequestedMs": 4718,
+      "workerFirstChunkMs": 9106,
+      "workerFirstPrepareMs": 264,
+      "workerFirstOwnershipWaitMs": 253,
+      "workerFirstPrepareFinishedMs": 5055,
+      "afterPrepareToFirstChunkMs": 4051,
+      "workerFirstTextMs": 1218400,
+      "textDeliveryMs": 15813,
+      "systemPromptTokens": 4143,
+      "setup": {
+        "tags": 3,
+        "claim": 710,
+        "project": 15,
+        "balance": 324,
+        "billingConfig": 0,
+        "entitlement": 711,
+        "historyFetch": 893,
+        "skills": 903,
+        "messages": 3,
+        "estimate": 19,
+        "checkpoint": 314,
+        "billingMigration": 1,
+        "github": 266,
+        "mcp": 340,
+        "runRecord": 375,
+        "billingAccountDebit": 543,
+        "billingReserve": 549,
+        "moderation": 2593,
+        "tools": 39,
+        "executionFence": 243,
+        "turnSandbox": 28,
+        "systemPrompt": 0
+      },
+      "billingReservation": {
+        "strategy": "account_credits",
+        "autoReloadAllowed": false
+      }
+    }
+  ],
+  "summary": {
+    "cleanupVerified": 1,
+    "completed": 1,
+    "verified": 1,
+    "byScenario": {
+      "terminal-soak": {
+        "samples": 1,
+        "smallSample": true,
+        "verified": 1,
+        "firstText": {
+          "samples": 1,
+          "medianMs": 1241917,
+          "p95Ms": 1241917,
+          "maxMs": 1241917
+        },
+        "admission": {
+          "samples": 1,
+          "medianMs": 2298,
+          "p95Ms": 2298,
+          "maxMs": 2298
+        },
+        "workerModelRequested": {
+          "samples": 1,
+          "medianMs": 4718,
+          "p95Ms": 4718,
+          "maxMs": 4718
+        }
+      }
+    },
+    "firstText": {
+      "samples": 1,
+      "medianMs": 1241917,
+      "p95Ms": 1241917,
+      "maxMs": 1241917
+    },
+    "admission": {
+      "samples": 1,
+      "medianMs": 2298,
+      "p95Ms": 2298,
+      "maxMs": 2298
+    },
+    "workerModelRequested": {
+      "samples": 1,
+      "medianMs": 4718,
+      "p95Ms": 4718,
+      "maxMs": 4718
+    }
+  },
+  "note": "Recovery test: firstText includes intentional disconnection and replay after completion; not live first-token latency."
+}

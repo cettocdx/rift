@@ -4,3 +4,5 @@
 .cursor/
 .github/
 convex/_generated/
+packages/desktop/src-tauri/gen/
+pnpm-lock.yaml

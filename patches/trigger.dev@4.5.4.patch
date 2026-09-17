@@ -1,0 +1,15 @@
+diff --git a/dist/esm/dev/taskRunProcessPool.js b/dist/esm/dev/taskRunProcessPool.js
+index 05565fba0b4ebfb40848ffd721d537e77672aa34..6529347f16bcfa7e32d70e55207c0b8d04cd9e08 100644
+--- a/dist/esm/dev/taskRunProcessPool.js
++++ b/dist/esm/dev/taskRunProcessPool.js
+@@ -179,6 +179,10 @@ export class TaskRunProcessPool {
+     }
+     startIdleTimer(process, version) {
+         this.clearIdleTimer(process);
++        // RIFT's supervised local worker keeps healthy, bounded pool entries
++        // ready between tasks. Deprecation, execution limits and shutdown
++        // still clean up normally; no background tasks or model calls needed.
++        if (globalThis.process.env.RIFT_TRIGGER_DEV_KEEP_WARM === "1") return;
+         const timer = setTimeout(() => {
+             // Synchronously remove from available pool before async kill to prevent race with getProcess()
+             const available = this.availableProcessesByVersion.get(version);

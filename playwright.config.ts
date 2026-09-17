@@ -5,6 +5,8 @@ import * as path from "path";
 // Load .env.e2e file for test environment variables
 dotenv.config({ path: path.join(__dirname, ".env.e2e") });
 
+const testBaseURL = process.env.PLAYWRIGHT_BASE_URL || "http://localhost:3010";
+
 /**
  * See https://playwright.dev/docs/test-configuration.
  */
@@ -18,7 +20,7 @@ export default defineConfig({
   timeout: 60000,
 
   use: {
-    baseURL: process.env.PLAYWRIGHT_BASE_URL || "http://localhost:3000",
+    baseURL: testBaseURL,
     trace: "on-first-retry",
     screenshot: "only-on-failure",
     navigationTimeout: 30000,
@@ -37,12 +39,36 @@ export default defineConfig({
       dependencies: ["setup"],
       testIgnore: /.*\.setup\.ts/,
     },
+    {
+      name: "firefox",
+      use: { ...devices["Desktop Firefox"] },
+      dependencies: ["setup"],
+      testIgnore: /.*\.setup\.ts/,
+    },
+    {
+      name: "webkit",
+      use: { ...devices["Desktop Safari"] },
+      dependencies: ["setup"],
+      testIgnore: /.*\.setup\.ts/,
+    },
+    {
+      name: "Mobile Chrome",
+      use: { ...devices["Pixel 7"] },
+      dependencies: ["setup"],
+      testIgnore: /.*\.setup\.ts/,
+    },
+    {
+      name: "Mobile Safari",
+      use: { ...devices["iPhone 15"] },
+      dependencies: ["setup"],
+      testIgnore: /.*\.setup\.ts/,
+    },
   ],
 
   /* Run your local dev server before starting the tests */
   webServer: {
     command: "pnpm dev:next",
-    url: "http://localhost:3000",
+    url: testBaseURL,
     reuseExistingServer: !process.env.CI,
     timeout: 120000,
   },

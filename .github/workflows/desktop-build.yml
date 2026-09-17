@@ -7,6 +7,11 @@ on:
   workflow_dispatch:
 
 jobs:
+  verify:
+    uses: ./.github/workflows/test.yml
+    permissions:
+      contents: read
+
   prepare:
     runs-on: ubuntu-latest
     outputs:
@@ -34,7 +39,7 @@ jobs:
           fi
 
   build:
-    needs: prepare
+    needs: [prepare, verify]
     permissions:
       contents: read
     strategy:
@@ -64,7 +69,7 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 22
           cache: pnpm
 
       - name: Install Rust stable (Windows)
@@ -106,20 +111,49 @@ jobs:
       - name: Rust cache
         uses: swatinem/rust-cache@v2
         with:
-          workspaces: src-tauri -> target
+          workspaces: packages/desktop/src-tauri -> target
 
       - name: Install frontend dependencies
         run: pnpm install --frozen-lockfile
 
-      - name: Update version
+      - name: Validate release version
         if: needs.prepare.outputs.version != 'dev'
         shell: bash
         env:
-          VERSION: ${{ needs.prepare.outputs.version }}
+          RELEASE_VERSION: ${{ needs.prepare.outputs.version }}
         run: |
-          cd src-tauri
-          sed -i.bak "s/\"version\": \".*\"/\"version\": \"$VERSION\"/" tauri.conf.json
-          rm -f tauri.conf.json.bak
+          package_version="$(node -p "require('./packages/desktop/package.json').version")"
+          tauri_version="$(node -p "require('./packages/desktop/src-tauri/tauri.conf.json').version")"
+          cargo_version="$(awk -F'\"' '/^version = "/ { print $2; exit }' packages/desktop/src-tauri/Cargo.toml)"
+
+          if [[ "$RELEASE_VERSION" != "$package_version" || "$RELEASE_VERSION" != "$tauri_version" || "$RELEASE_VERSION" != "$cargo_version" ]]; then
+            echo "Release tag version $RELEASE_VERSION must match desktop package ($package_version), Tauri config ($tauri_version), and Cargo crate ($cargo_version)." >&2
+            exit 1
+          fi
+
+      - name: Validate Apple release credentials
+        if: matrix.platform == 'macos-latest' && needs.prepare.outputs.should_release == 'true'
+        shell: bash
+        env:
+          RIFT_APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          RIFT_APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          RIFT_APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          RIFT_APPLE_ID: ${{ secrets.APPLE_ID }}
+          RIFT_APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          RIFT_APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          missing_credentials=()
+          [ -n "$RIFT_APPLE_CERTIFICATE" ] || missing_credentials+=(APPLE_CERTIFICATE)
+          [ -n "$RIFT_APPLE_CERTIFICATE_PASSWORD" ] || missing_credentials+=(APPLE_CERTIFICATE_PASSWORD)
+          [ -n "$RIFT_APPLE_SIGNING_IDENTITY" ] || missing_credentials+=(APPLE_SIGNING_IDENTITY)
+          [ -n "$RIFT_APPLE_ID" ] || missing_credentials+=(APPLE_ID)
+          [ -n "$RIFT_APPLE_PASSWORD" ] || missing_credentials+=(APPLE_PASSWORD)
+          [ -n "$RIFT_APPLE_TEAM_ID" ] || missing_credentials+=(APPLE_TEAM_ID)
+
+          if [ "${#missing_credentials[@]}" -gt 0 ]; then
+            echo "Refusing to publish an unnotarized macOS release. Missing: ${missing_credentials[*]}" >&2
+            exit 1
+          fi
 
       - name: Import Apple certificate
         if: matrix.platform == 'macos-latest'
@@ -147,22 +181,48 @@ jobs:
         uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY || '-' }}
           APPLE_ID: ${{ secrets.APPLE_ID }}
           APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
-          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
-          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         with:
+          projectPath: packages/desktop
           tauriScript: pnpm tauri
           args: --target ${{ matrix.target }}
+
+      - name: Verify macOS bundle signature
+        if: matrix.platform == 'macos-latest'
+        shell: bash
+        run: |
+          bundle_root="packages/desktop/src-tauri/target/${{ matrix.target }}/release/bundle/macos"
+          app_path="$(find "$bundle_root" -maxdepth 1 -type d -name '*.app' -print -quit)"
+
+          if [ -z "$app_path" ]; then
+            echo "No macOS app bundle found in $bundle_root" >&2
+            exit 1
+          fi
+
+          codesign --verify --deep --strict --verbose=2 "$app_path"
+
+      - name: Verify notarized macOS release
+        if: matrix.platform == 'macos-latest' && needs.prepare.outputs.should_release == 'true'
+        shell: bash
+        run: |
+          bundle_root="packages/desktop/src-tauri/target/${{ matrix.target }}/release/bundle"
+          app_path="$(find "$bundle_root/macos" -maxdepth 1 -type d -name '*.app' -print -quit)"
+          dmg_path="$(find "$bundle_root/dmg" -maxdepth 1 -type f -name '*.dmg' -print -quit)"
+
+          codesign --verify --deep --strict --verbose=4 "$app_path"
+          codesign -d --verbose=4 "$app_path" 2>&1 | grep -q 'Authority=Developer ID Application:'
+          spctl --assess --type execute --verbose=4 "$app_path"
+          xcrun stapler validate "$dmg_path"
 
       - name: Upload build artifacts
         uses: actions/upload-artifact@v4
         with:
           name: desktop-${{ matrix.name }}
           path: |
-            src-tauri/target/${{ matrix.target }}/release/bundle/**/*
+            packages/desktop/src-tauri/target/${{ matrix.target }}/release/bundle/**/*
           if-no-files-found: error
           retention-days: 14
 
@@ -186,10 +246,7 @@ jobs:
         run: |
           mkdir -p release-files
           find artifacts -name "*.dmg" -exec cp {} release-files/ \;
-          find artifacts -name "*.app.tar.gz" -exec cp {} release-files/ \;
-          find artifacts -name "*.app.tar.gz.sig" -exec cp {} release-files/ \;
-          find artifacts -name "*.nsis.zip" -exec cp {} release-files/ \;
-          find artifacts -name "*.nsis.zip.sig" -exec cp {} release-files/ \;
+          find artifacts -name "*.msi" -exec cp {} release-files/ \;
           find artifacts -name "*_x64-setup.exe" -exec cp {} release-files/ \;
           echo "Release files:"
           ls -la release-files/

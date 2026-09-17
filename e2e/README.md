@@ -136,32 +136,25 @@ e2e/
 - Show subscription badge for each tier
 - Show upgrade button for free tier users
 
-### Test Users
+### Authentication setup
 
-Three test users are configured for different subscription tiers:
+RIFT uses Convex Auth. Follow [authenticated setup](setup/README.md) for existing,
+email-verified test accounts, exact deployment/origin configuration, and private
+storage state. There are no default credentials or automatic account-provisioning
+scripts in this checkout.
 
-| Tier  | Email          | Test ID Prefix |
-| ----- | -------------- | -------------- |
-| Free  | free@rift.com  | TEST*FREE*     |
-| Pro   | pro@rift.com   | TEST*PRO*      |
-| Ultra | ultra@rift.com | TEST*ULTRA*    |
+```sh
+pnpm test:e2e:setup
+```
 
-### Setup
+This command signs in the three configured test accounts through the real UI and
+verifies identity and live subscription tier. It does not create accounts or
+change billing. Discovery alone is not evidence of passing acceptance tests.
 
-1. **Create test users in WorkOS:**
-
-   ```bash
-   pnpm test:e2e:setup
-   ```
-
-   This command will:
-   - Create test users in WorkOS
-   - Verify their emails
-   - Display credentials for .env.e2e
-
-2. **Configure environment variables:**
-
-   Copy `.env.e2e.example` to `.env.e2e` if it doesn't exist, and ensure all test user credentials are set.
+For mobile navigation and layout without submitting model requests, use the
+[separate mobile acceptance suite](mobile-acceptance/README.md). The legacy suites
+below include real model requests and account/chat mutations; their fixtures and
+coverage need live validation before being used as a release gate.
 
 ### Running Tests
 
@@ -211,32 +204,6 @@ pnpm test:e2e e2e/chat-files-pro.spec.ts
 pnpm test:e2e e2e/chat-agent.spec.ts
 ```
 
-### Test User Management
-
-Create test users:
-
-```bash
-pnpm test:e2e:users:create
-```
-
-Delete test users:
-
-```bash
-pnpm test:e2e:users:delete
-```
-
-Reset test user passwords:
-
-```bash
-pnpm test:e2e:users:reset-passwords
-```
-
-Reset rate limits for test users:
-
-```bash
-pnpm rate-limit:reset free|pro|ultra|--all
-```
-
 ### Test Constants
 
 All timeout values and test data are centralized in `e2e/constants.ts`:
@@ -258,23 +225,12 @@ All timeout values and test data are centralized in `e2e/constants.ts`:
 
 Always use these constants instead of magic numbers for timeouts.
 
-### Session Caching
+### Session reuse
 
-The auth fixture implements session caching to minimize WorkOS API calls and avoid rate limiting:
-
-- Sessions are cached for 5 minutes
-- Failed auth attempts use exponential backoff (1s, 2s, 4s)
-- Session cookies are reused across tests when valid
-- Cache can be cleared with `clearAuthCache()`
-
-### WorkOS Rate Limiting
-
-To avoid WorkOS rate limits:
-
-- Tests use session caching (5-minute TTL)
-- Failed attempts have exponential backoff
-- CI runs with `workers=1` to avoid parallel auth calls
-- Space out test runs if encountering auth failures
+Setup restores complete cookies and origin storage in an isolated browser context.
+It verifies the real Convex identity and live tier before accepting cached state.
+Invalid state receives one clean login attempt; no time-based cache or cookie-only
+success check is used. See [setup details](setup/README.md).
 
 ### Adding Test IDs
 
@@ -389,9 +345,9 @@ The test suite uses a Page Object Model pattern for maintainability:
 3. **Wait for elements**: Use Playwright's auto-waiting, don't add arbitrary timeouts
 4. **Use page objects**: Encapsulate UI interactions in page object classes
 5. **Use test helpers**: Reuse common test patterns via helper functions
-6. **Clean up**: Clear auth cache between tests to ensure isolation
+6. **Clean up**: Use isolated browser contexts; keep private storage state out of version control
 7. **Handle rate limits**: Use session caching, don't bypass it unless testing login flow specifically
-8. **Test real flows**: E2E tests use real WorkOS and Convex, not mocks
+8. **Test real flows**: Authenticated acceptance uses the real Convex session; synthetic harness checks are reported separately
 9. **Verify state**: Always verify both visual state (UI) and logical state (URLs, cookies)
 10. **Compare titles**: When testing chat titles, compare sidebar and header titles for consistency
 
@@ -399,9 +355,9 @@ The test suite uses a Page Object Model pattern for maintainability:
 
 **"Authentication failed" errors:**
 
-- Check that test users exist in WorkOS (`pnpm test:e2e:setup`)
+- Check existing Convex Auth accounts and deployment configuration using [setup instructions](setup/README.md)
 - Verify `.env.e2e` has correct credentials
-- Check for WorkOS rate limiting (space out test runs)
+- Check the actual Convex Auth error and account verification state; do not bypass authentication
 
 **"Element not found" errors:**
 
@@ -419,4 +375,4 @@ The test suite uses a Page Object Model pattern for maintainability:
 
 - Increase timeout in `playwright.config.ts`
 - Check network conditions
-- Verify WorkOS services are responsive
+- Verify the configured Convex deployment is reachable

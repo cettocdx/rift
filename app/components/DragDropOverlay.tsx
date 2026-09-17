@@ -22,14 +22,14 @@ export const DragDropOverlay = ({
       }`}
     >
       <div
-        className={`flex flex-col items-center justify-center p-8 rounded-2xl border-2 border-dashed transition-all duration-200 ${
+        className={`flex flex-col items-center justify-center p-8 rounded-2xl border-2 border-dashed transition-[background-color,border-color] duration-200 ${
           isDragOver
             ? "border-primary bg-card/95 text-foreground scale-105 shadow-lg"
             : "border-border bg-card/90 text-muted-foreground"
         }`}
       >
         <Upload
-          className={`w-12 h-12 mb-4 transition-all duration-200 ${
+          className={`w-12 h-12 mb-4 transition-[color,transform] duration-200 ${
             isDragOver ? "text-foreground scale-110" : "text-muted-foreground"
           }`}
         />

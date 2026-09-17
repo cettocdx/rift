@@ -1,5 +1,5 @@
 <div align="center">
-  <img src="public/brand/rift-panda-x-header.png" alt="RIFT — autonomous offensive intelligence" width="100%" />
+  <img src="public/brand/rift-header.png" alt="RIFT — autonomous offensive intelligence" width="100%" />
 </div>
 
 <br/>
@@ -295,7 +295,7 @@ Browser / Desktop / CLI
 ---
 
 <div align="center">
-  <img src="public/brand/rift-panda-x-avatar.png" width="72" alt="RIFT" />
+  <img src="public/brand/Rift-AppIcon-Light.svg" width="72" alt="RIFT" />
   <br/><br/>
   <strong>RIFT</strong> · <a href="https://riftsys.app">riftsys.app</a>
   <br/>

@@ -1,17 +1,17 @@
 "use client";
 
-import { useEffect, useRef, useState, useCallback } from "react";
+import { RootShellPresence } from "@/app/components/RootShellPresence";
+
+import { useEffect, useRef, useState } from "react";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { useGlobalState } from "../contexts/GlobalState";
 import { useChats } from "../hooks/useChats";
 import { SidebarProvider } from "@/components/ui/sidebar";
 import MainSidebar from "./Sidebar";
 import SidebarUserNav from "./SidebarUserNav";
-import { SettingsDialog } from "./SettingsDialog";
 import { ChatTitlebar } from "./ChatTitlebar";
-import { onOpenSettingsDialog } from "@/lib/utils/settings-dialog";
-import { useAppShell } from "../contexts/AppShellContext";
-import { AppVariantSwitcher } from "./AppVariantSwitcher";
+import { useResizableAppSidebar } from "../hooks/useResizableAppSidebar";
+import { AppSidebarResizeHandle } from "./AppSidebarResizeHandle";
 
 /**
  * Shared layout for chat routes: Chat Sidebar (left) + main content slot.
@@ -20,31 +20,13 @@ import { AppVariantSwitcher } from "./AppVariantSwitcher";
  */
 export function ChatLayout({ children }: { children: React.ReactNode }) {
   const isMobile = useIsMobile();
-  const { sidebarClass, panelClass } = useAppShell();
-  const { chatSidebarOpen, setChatSidebarOpen, sidebarOpen } = useGlobalState();
+  const { chatSidebarOpen, setChatSidebarOpen } = useGlobalState();
   const panelRef = useRef<HTMLDivElement>(null);
   // Keep chat list subscription in layout so it doesn't refetch when sidebar opens/closes
   const chatListData = useChats();
   const previousActiveElementRef = useRef<HTMLElement | null>(null);
-
-  // Settings dialog — local state, opened via custom event from anywhere
-  const [settingsDialogOpen, setSettingsDialogOpen] = useState(false);
-  const [settingsDialogTab, setSettingsDialogTab] = useState<string | null>(
-    null,
-  );
-
-  const handleOpenSettings = useCallback((tab?: string) => {
-    setSettingsDialogTab(null);
-    // Force a fresh state change even if the same tab is requested again
-    queueMicrotask(() => {
-      setSettingsDialogTab(tab ?? null);
-      setSettingsDialogOpen(true);
-    });
-  }, []);
-
-  useEffect(
-    () => onOpenSettingsDialog(handleOpenSettings),
-    [handleOpenSettings],
+  const sidebarResize = useResizableAppSidebar(
+    isMobile === false && chatSidebarOpen,
   );
 
   // Escape key handler and focus trap for mobile overlay
@@ -125,79 +107,79 @@ export function ChatLayout({ children }: { children: React.ReactNode }) {
   }, [isMobile, chatSidebarOpen, setChatSidebarOpen]);
 
   return (
-    <div className="flex min-h-0 flex-1 w-full flex-col overflow-hidden">
+    <div
+      data-rift-workspace
+      data-chat-sidebar-open={chatSidebarOpen}
+      className="relative flex min-h-0 flex-1 w-full flex-col overflow-hidden bg-background"
+    >
+      <RootShellPresence kind="workspace" />
       <ChatTitlebar chatListData={chatListData} />
       <div className="flex min-h-0 flex-1 w-full overflow-hidden">
-        {/* Chat Sidebar - Desktop: only mount once isMobile is resolved to avoid flash on mobile */}
-        {isMobile === false && (
-          <div
-            data-testid="sidebar"
-            className={`${sidebarClass} relative flex h-full min-h-0 shrink-0 flex-col overflow-hidden border-r transition-[width] duration-300 ${
-              chatSidebarOpen ? "w-[260px]" : "w-0 border-r-0"
-            }`}
-          >
-            <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
-              <SidebarProvider
-                open={chatSidebarOpen}
-                onOpenChange={setChatSidebarOpen}
-                defaultOpen={true}
-                className="h-full min-h-0"
-                style={{ "--sidebar-width": "260px" } as React.CSSProperties}
-              >
-                <MainSidebar chatListData={chatListData} />
-              </SidebarProvider>
-            </div>
-            {chatSidebarOpen ? (
+        {/* Desktop sidebar mounts only while open. The native titlebar owns the
+            single reopen affordance beside the macOS traffic lights. */}
+        {isMobile === false &&
+          (chatSidebarOpen ? (
+            <div
+              data-testid="sidebar"
+              data-rift-sidebar-panel
+              className="relative flex h-full min-h-0 w-[279px] shrink-0 flex-col overflow-visible border-r border-sidebar-border bg-sidebar"
+              style={{ width: `${sidebarResize.width}px` }}
+            >
+              <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
+                <SidebarProvider
+                  open={chatSidebarOpen}
+                  onOpenChange={setChatSidebarOpen}
+                  defaultOpen={true}
+                  className="h-full min-h-0"
+                  style={
+                    {
+                      "--sidebar-width": `${sidebarResize.width}px`,
+                    } as React.CSSProperties
+                  }
+                >
+                  <MainSidebar chatListData={chatListData} />
+                </SidebarProvider>
+              </div>
               <div
                 data-testid="sidebar-session-dock"
-                className="shrink-0 border-t border-border/40 bg-surface-1/50 px-2 pb-2 pt-2 backdrop-blur-md"
+                className="shrink-0 border-t border-sidebar-border bg-sidebar px-2 pb-2 pt-2"
               >
-                <SidebarUserNav />
+                <SidebarUserNav identityMode="name-only" />
               </div>
-            ) : null}
-          </div>
-        )}
-
-        {/* Session dock when sidebar column is hidden — hide when terminal panel is open */}
-        {isMobile === false && !chatSidebarOpen && !sidebarOpen && (
-          <div
-            data-testid="sidebar-session-dock-floating"
-            className={`${panelClass} fixed bottom-0 left-0 z-30 w-[260px] px-2 pb-2 pt-2 shadow-lg`}
-          >
-            <SidebarUserNav />
-          </div>
-        )}
+              <AppSidebarResizeHandle
+                handleProps={sidebarResize.handleProps}
+                isResizing={sidebarResize.isResizing}
+              />
+            </div>
+          ) : null)}
 
         {/* Main content slot - pages render here */}
-        <div className="rift-cursor-app relative flex min-h-0 min-w-0 flex-1 flex-col">
+        <main
+          data-rift-main-panel
+          className="rift-cursor-app flex min-h-0 flex-1 min-w-0 flex-col relative bg-background"
+        >
           {children}
-        </div>
+        </main>
 
         {/* Overlay Chat Sidebar - Mobile: only when resolved to mobile */}
         {isMobile === true && chatSidebarOpen && (
           <div
-            className="fixed inset-0 z-40 bg-black/80 flex"
+            className="fixed inset-0 z-40 flex bg-[var(--app-scrim)]"
             onClick={() => setChatSidebarOpen(false)}
           >
             <div
               ref={panelRef}
+              data-rift-sidebar-panel
               role="dialog"
               aria-modal="true"
               tabIndex={-1}
-              className={`${panelClass} h-full w-full max-w-80 transform shadow-lg transition-transform duration-300 ease-in-out`}
+              className="h-full w-full max-w-80 border-r border-sidebar-border bg-sidebar shadow-2xl"
               onClick={(e) => e.stopPropagation()}
             >
               <MainSidebar isMobileOverlay={true} chatListData={chatListData} />
             </div>
           </div>
         )}
-        {/* Settings Dialog - rendered here so it's always mounted (including mobile) */}
-        <SettingsDialog
-          open={settingsDialogOpen}
-          onOpenChange={setSettingsDialogOpen}
-          initialTab={settingsDialogTab}
-        />
-        <AppVariantSwitcher />
       </div>
     </div>
   );

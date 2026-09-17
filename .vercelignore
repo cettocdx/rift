@@ -1,0 +1,54 @@
+# Local dependencies and package-manager caches
+node_modules
+**/node_modules
+.pnpm-store
+
+# Next.js/Turbopack output (including named local verification builds)
+.next
+.next-*
+out
+build
+
+# Trigger.dev local/deployment build artifacts
+.trigger
+
+# Test and coverage output
+coverage
+test-results
+playwright-report
+playwright/.cache
+e2e/.auth
+.auth
+.playwright-mcp
+
+# Local tooling, desktop build output, and non-runtime review artifacts
+.git
+.vercel
+.agents
+.claude
+.cursor
+.gstack
+/artifacts
+mockups
+/film
+/k_*.png
+/.superpowers
+/e2e/**/results
+/.rift-ui-release.json*
+/.rift-build-tsconfig-*.json
+/tmp
+/output
+packages/desktop/src-tauri/target
+src-tauri/target
+
+# The macOS direct build is intentionally published. Keep the stale Windows
+# installer excluded until a current package is produced.
+public/downloads/RIFT-windows-x64-setup.exe
+
+# Local-only environment and debug files
+.env
+.env.local
+.env.*.local
+*.log
+*.tsbuildinfo
+.DS_Store

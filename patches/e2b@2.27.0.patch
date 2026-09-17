@@ -1,0 +1,118 @@
+diff --git a/dist/index.d.mts b/dist/index.d.mts
+index 22e631848f2a26620a4cb45e93da74bd558d504a..c4803a541dc722c67f8fb4b455bd8b3d25f45303 100644
+--- a/dist/index.d.mts
++++ b/dist/index.d.mts
+@@ -2903,6 +2903,8 @@ interface Logger {
+  * Connection options for requests to the API.
+  */
+ interface ConnectionOpts {
++    /** RIFT: set false to use only supplied configuration and SDK defaults. Defaults to true. */
++    environmentFallback?: boolean;
+     /**
+      * E2B API key to use for authentication.
+      *
+@@ -2964,6 +2966,7 @@ interface ConnectionOpts {
+  * Configuration for connecting to the API.
+  */
+ declare class ConnectionConfig {
++    readonly environmentFallback: boolean;
+     static envdPort: number;
+     readonly debug: boolean;
+     readonly domain: string;
+diff --git a/dist/index.d.ts b/dist/index.d.ts
+index 22e631848f2a26620a4cb45e93da74bd558d504a..c4803a541dc722c67f8fb4b455bd8b3d25f45303 100644
+--- a/dist/index.d.ts
++++ b/dist/index.d.ts
+@@ -2903,6 +2903,8 @@ interface Logger {
+  * Connection options for requests to the API.
+  */
+ interface ConnectionOpts {
++    /** RIFT: set false to use only supplied configuration and SDK defaults. Defaults to true. */
++    environmentFallback?: boolean;
+     /**
+      * E2B API key to use for authentication.
+      *
+@@ -2964,6 +2966,7 @@ interface ConnectionOpts {
+  * Configuration for connecting to the API.
+  */
+ declare class ConnectionConfig {
++    readonly environmentFallback: boolean;
+     static envdPort: number;
+     readonly debug: boolean;
+     readonly domain: string;
+diff --git a/dist/index.js b/dist/index.js
+index 8c72424f52a83dfe1f63a1c5a2836114359d4d18..4d82ab82ca230193abe62a2946ccdfa97b6c2d47 100644
+--- a/dist/index.js
++++ b/dist/index.js
+@@ -701,16 +701,18 @@ function setupRequestController(requestTimeoutMs, userSignal) {
+ var _ConnectionConfig = class _ConnectionConfig {
+   constructor(opts) {
+     var _a3;
+-    this.apiKey = (opts == null ? void 0 : opts.apiKey) || _ConnectionConfig.apiKey;
+-    this.debug = (opts == null ? void 0 : opts.debug) || _ConnectionConfig.debug;
+-    this.domain = (opts == null ? void 0 : opts.domain) || _ConnectionConfig.domain;
+-    this.accessToken = (opts == null ? void 0 : opts.accessToken) || _ConnectionConfig.accessToken;
++    // RIFT: explicit origins must not borrow configuration from a later task.
++    this.environmentFallback = (opts == null ? void 0 : opts.environmentFallback) !== false;
++    this.apiKey = (opts == null ? void 0 : opts.apiKey) || (this.environmentFallback ? _ConnectionConfig.apiKey : void 0);
++    this.debug = (opts == null ? void 0 : opts.debug) || (this.environmentFallback ? _ConnectionConfig.debug : false);
++    this.domain = (opts == null ? void 0 : opts.domain) || (this.environmentFallback ? _ConnectionConfig.domain : "e2b.app");
++    this.accessToken = (opts == null ? void 0 : opts.accessToken) || (this.environmentFallback ? _ConnectionConfig.accessToken : void 0);
+     this.requestTimeoutMs = (_a3 = opts == null ? void 0 : opts.requestTimeoutMs) != null ? _a3 : REQUEST_TIMEOUT_MS;
+     this.logger = opts == null ? void 0 : opts.logger;
+     this.headers = (opts == null ? void 0 : opts.headers) || {};
+     this.headers["User-Agent"] = `e2b-js-sdk/${version}`;
+-    this.apiUrl = (opts == null ? void 0 : opts.apiUrl) || _ConnectionConfig.apiUrl || (this.debug ? "http://localhost:3000" : `https://api.${this.domain}`);
+-    this.sandboxUrl = (opts == null ? void 0 : opts.sandboxUrl) || _ConnectionConfig.sandboxUrl;
++    this.apiUrl = (opts == null ? void 0 : opts.apiUrl) || (this.environmentFallback ? _ConnectionConfig.apiUrl : void 0) || (this.debug ? "http://localhost:3000" : `https://api.${this.domain}`);
++    this.sandboxUrl = (opts == null ? void 0 : opts.sandboxUrl) || (this.environmentFallback ? _ConnectionConfig.sandboxUrl : void 0);
+   }
+   static get domain() {
+     return getEnvVar("E2B_DOMAIN") || "e2b.app";
+@@ -1694,7 +1696,7 @@ var CommandHandle = class {
+           } else if (stderr !== null) {
+             (_b = this.onStderr) == null ? void 0 : _b.call(this, stderr);
+           } else if (pty) {
+-            (_c = this.onPty) == null ? void 0 : _c.call(this, pty);
++            await ((_c = this.onPty) == null ? void 0 : _c.call(this, pty));
+           }
+         }
+       } catch (temp) {
+diff --git a/dist/index.mjs b/dist/index.mjs
+index e6ad49f32ab34c629dada651816c14c7162e90b7..eeb902f547ea2b40d2052373723944aa38504e86 100644
+--- a/dist/index.mjs
++++ b/dist/index.mjs
+@@ -636,16 +636,18 @@ function setupRequestController(requestTimeoutMs, userSignal) {
+ var _ConnectionConfig = class _ConnectionConfig {
+   constructor(opts) {
+     var _a3;
+-    this.apiKey = (opts == null ? void 0 : opts.apiKey) || _ConnectionConfig.apiKey;
+-    this.debug = (opts == null ? void 0 : opts.debug) || _ConnectionConfig.debug;
+-    this.domain = (opts == null ? void 0 : opts.domain) || _ConnectionConfig.domain;
+-    this.accessToken = (opts == null ? void 0 : opts.accessToken) || _ConnectionConfig.accessToken;
++    // RIFT: explicit origins must not borrow configuration from a later task.
++    this.environmentFallback = (opts == null ? void 0 : opts.environmentFallback) !== false;
++    this.apiKey = (opts == null ? void 0 : opts.apiKey) || (this.environmentFallback ? _ConnectionConfig.apiKey : void 0);
++    this.debug = (opts == null ? void 0 : opts.debug) || (this.environmentFallback ? _ConnectionConfig.debug : false);
++    this.domain = (opts == null ? void 0 : opts.domain) || (this.environmentFallback ? _ConnectionConfig.domain : "e2b.app");
++    this.accessToken = (opts == null ? void 0 : opts.accessToken) || (this.environmentFallback ? _ConnectionConfig.accessToken : void 0);
+     this.requestTimeoutMs = (_a3 = opts == null ? void 0 : opts.requestTimeoutMs) != null ? _a3 : REQUEST_TIMEOUT_MS;
+     this.logger = opts == null ? void 0 : opts.logger;
+     this.headers = (opts == null ? void 0 : opts.headers) || {};
+     this.headers["User-Agent"] = `e2b-js-sdk/${version}`;
+-    this.apiUrl = (opts == null ? void 0 : opts.apiUrl) || _ConnectionConfig.apiUrl || (this.debug ? "http://localhost:3000" : `https://api.${this.domain}`);
+-    this.sandboxUrl = (opts == null ? void 0 : opts.sandboxUrl) || _ConnectionConfig.sandboxUrl;
++    this.apiUrl = (opts == null ? void 0 : opts.apiUrl) || (this.environmentFallback ? _ConnectionConfig.apiUrl : void 0) || (this.debug ? "http://localhost:3000" : `https://api.${this.domain}`);
++    this.sandboxUrl = (opts == null ? void 0 : opts.sandboxUrl) || (this.environmentFallback ? _ConnectionConfig.sandboxUrl : void 0);
+   }
+   static get domain() {
+     return getEnvVar("E2B_DOMAIN") || "e2b.app";
+@@ -1638,7 +1640,7 @@ var CommandHandle = class {
+           } else if (stderr !== null) {
+             (_b = this.onStderr) == null ? void 0 : _b.call(this, stderr);
+           } else if (pty) {
+-            (_c = this.onPty) == null ? void 0 : _c.call(this, pty);
++            await ((_c = this.onPty) == null ? void 0 : _c.call(this, pty));
+           }
+         }
+       } catch (temp) {

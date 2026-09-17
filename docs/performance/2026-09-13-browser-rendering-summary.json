@@ -1,0 +1,351 @@
+{
+  "diagnostic": true,
+  "thread": {
+    "pid": 84741,
+    "tid": 11497579,
+    "markers": [
+      {
+        "name": "rift-cpu-clock-before-replay-start",
+        "pid": 84741,
+        "tid": 11497579,
+        "pageMs": 2224.5069999992847,
+        "expectedMs": 2224.399999976158,
+        "residualMs": 0.10700002312660217
+      },
+      {
+        "name": "rift-cpu-clock-before-replay-end",
+        "pid": 84741,
+        "tid": 11497579,
+        "pageMs": 2254.6710000038147,
+        "expectedMs": 2254.699999988079,
+        "residualMs": -0.02899998426437378
+      },
+      {
+        "name": "rift-cpu-clock-after-replay-start",
+        "pid": 84741,
+        "tid": 11497579,
+        "pageMs": 64172.60499998927,
+        "expectedMs": 64172.5,
+        "residualMs": 0.10499998927116394
+      },
+      {
+        "name": "rift-cpu-clock-after-replay-end",
+        "pid": 84741,
+        "tid": 11497579,
+        "pageMs": 64202.85199999809,
+        "expectedMs": 64202.79999998212,
+        "residualMs": 0.0520000159740448
+      }
+    ],
+    "markerToleranceMs": 2,
+    "clockUncertaintyMs": 0.19600000977516174
+  },
+  "incomplete": {
+    "unmatchedBegins": 0,
+    "unmatchedEnds": 0
+  },
+  "synchronousSpanCount": 127202,
+  "capture": {
+    "browser": "140.0.7339.16",
+    "bytes": 70106221,
+    "dataLossOccurred": false
+  },
+  "replayPhaseCoverage": {
+    "startTime": 2359.0999999940395,
+    "duration": 60570,
+    "exclusiveMs": {
+      "browser-other": 1746.774999999494,
+      "untraced": 45994.84099999249,
+      "javascript": 5137.51100000155,
+      "paint": 1486.7589999998725,
+      "compositing": 321.7609999999734,
+      "style": 28.454999999999956,
+      "layout": 5586.775999999991,
+      "gc": 267.1220000000086
+    },
+    "accountedMs": 60569.999999993386,
+    "topLeafEvents": [
+      {
+        "name": "(untraced)",
+        "exclusiveMs": 45994.84099999249
+      },
+      {
+        "name": "Layout",
+        "exclusiveMs": 5586.775999999991
+      },
+      {
+        "name": "FunctionCall",
+        "exclusiveMs": 5008.850000000507
+      },
+      {
+        "name": "RunTask",
+        "exclusiveMs": 1285.776999999476
+      },
+      {
+        "name": "PrePaint",
+        "exclusiveMs": 851.7649999999653
+      },
+      {
+        "name": "Paint",
+        "exclusiveMs": 634.9939999999718
+      },
+      {
+        "name": "HitTest",
+        "exclusiveMs": 261.0370000000013
+      },
+      {
+        "name": "IntersectionObserverController::computeIntersections",
+        "exclusiveMs": 230.34899999998743
+      },
+      {
+        "name": "Layerize",
+        "exclusiveMs": 178.22300000000237
+      },
+      {
+        "name": "Commit",
+        "exclusiveMs": 106.25400000000276
+      },
+      {
+        "name": "V8.GC_MC_INCREMENTAL",
+        "exclusiveMs": 100.57300000000123
+      },
+      {
+        "name": "EventDispatch",
+        "exclusiveMs": 49.53499999999673
+      }
+    ],
+    "overlappingSpanCount": 124646,
+    "windowBoundaryUncertaintyMs": 1
+  },
+  "rendererRunTasks": {
+    "label": "Trace RunTask spans, not Long Task API entries",
+    "scope": "Measured replay window from timeline",
+    "count": 35760,
+    "boundaryCrossingCount": 2,
+    "boundaryCrossing": [
+      {
+        "startTime": 62928.31200000644,
+        "duration": 3.398,
+        "label": "Crosses replay/marker window boundary; excluded from longest fully-contained tasks",
+        "overlapMs": 0.7879999876022339
+      },
+      {
+        "startTime": 2357.9110000133514,
+        "duration": 1.276,
+        "label": "Crosses replay/marker window boundary; excluded from longest fully-contained tasks",
+        "overlapMs": 0.08700001239776611
+      }
+    ],
+    "longest": [
+      {
+        "startTime": 56949.24500000477,
+        "duration": 10.573,
+        "exclusiveMs": {
+          "browser-other": 1.17,
+          "layout": 6.022,
+          "paint": 2.771,
+          "javascript": 0.122,
+          "style": 0.099,
+          "compositing": 0.38900000000000007
+        },
+        "accountedMs": 10.573,
+        "topLeafEvents": [
+          {
+            "name": "Layout",
+            "exclusiveMs": 6.022
+          },
+          {
+            "name": "PrePaint",
+            "exclusiveMs": 1.393
+          },
+          {
+            "name": "Paint",
+            "exclusiveMs": 1.378
+          },
+          {
+            "name": "RunTask",
+            "exclusiveMs": 0.7510000000000001
+          },
+          {
+            "name": "Layerize",
+            "exclusiveMs": 0.268
+          },
+          {
+            "name": "IntersectionObserverController::computeIntersections",
+            "exclusiveMs": 0.21799999999999997
+          },
+          {
+            "name": "HitTest",
+            "exclusiveMs": 0.216
+          },
+          {
+            "name": "UpdateLayoutTree",
+            "exclusiveMs": 0.099
+          },
+          {
+            "name": "FunctionCall",
+            "exclusiveMs": 0.09899999999999999
+          },
+          {
+            "name": "Commit",
+            "exclusiveMs": 0.082
+          },
+          {
+            "name": "UpdateLayer",
+            "exclusiveMs": 0.024
+          },
+          {
+            "name": "FireAnimationFrame",
+            "exclusiveMs": 0.023
+          }
+        ],
+        "overlappingSpanCount": 19
+      },
+      {
+        "startTime": 56833.38600000739,
+        "duration": 8.034,
+        "exclusiveMs": {
+          "browser-other": 0.6340000000000001,
+          "layout": 5.054,
+          "paint": 1.674,
+          "javascript": 0.15300000000000002,
+          "style": 0.032,
+          "compositing": 0.48700000000000004
+        },
+        "accountedMs": 8.034,
+        "topLeafEvents": [
+          {
+            "name": "Layout",
+            "exclusiveMs": 5.054
+          },
+          {
+            "name": "PrePaint",
+            "exclusiveMs": 1.05
+          },
+          {
+            "name": "Paint",
+            "exclusiveMs": 0.624
+          },
+          {
+            "name": "RunTask",
+            "exclusiveMs": 0.381
+          },
+          {
+            "name": "HitTest",
+            "exclusiveMs": 0.256
+          },
+          {
+            "name": "Layerize",
+            "exclusiveMs": 0.175
+          },
+          {
+            "name": "IntersectionObserverController::computeIntersections",
+            "exclusiveMs": 0.14700000000000002
+          },
+          {
+            "name": "Commit",
+            "exclusiveMs": 0.14500000000000002
+          },
+          {
+            "name": "FunctionCall",
+            "exclusiveMs": 0.118
+          },
+          {
+            "name": "UpdateLayoutTree",
+            "exclusiveMs": 0.032
+          },
+          {
+            "name": "EventDispatch",
+            "exclusiveMs": 0.031000000000000007
+          },
+          {
+            "name": "UpdateLayer",
+            "exclusiveMs": 0.017
+          }
+        ],
+        "overlappingSpanCount": 33
+      },
+      {
+        "startTime": 56865.659999996424,
+        "duration": 8.01,
+        "exclusiveMs": {
+          "browser-other": 0.6190000000000001,
+          "layout": 5.0169999999999995,
+          "paint": 1.76,
+          "javascript": 0.23800000000000007,
+          "style": 0.038,
+          "compositing": 0.338
+        },
+        "accountedMs": 8.01,
+        "topLeafEvents": [
+          {
+            "name": "Layout",
+            "exclusiveMs": 5.0169999999999995
+          },
+          {
+            "name": "PrePaint",
+            "exclusiveMs": 1.052
+          },
+          {
+            "name": "Paint",
+            "exclusiveMs": 0.708
+          },
+          {
+            "name": "RunTask",
+            "exclusiveMs": 0.37400000000000005
+          },
+          {
+            "name": "FunctionCall",
+            "exclusiveMs": 0.18300000000000002
+          },
+          {
+            "name": "Layerize",
+            "exclusiveMs": 0.177
+          },
+          {
+            "name": "IntersectionObserverController::computeIntersections",
+            "exclusiveMs": 0.14300000000000002
+          },
+          {
+            "name": "Commit",
+            "exclusiveMs": 0.131
+          },
+          {
+            "name": "HitTest",
+            "exclusiveMs": 0.11
+          },
+          {
+            "name": "EventDispatch",
+            "exclusiveMs": 0.05100000000000001
+          },
+          {
+            "name": "UpdateLayoutTree",
+            "exclusiveMs": 0.038
+          },
+          {
+            "name": "UpdateLayer",
+            "exclusiveMs": 0.022000000000000002
+          }
+        ],
+        "overlappingSpanCount": 40
+      }
+    ]
+  },
+  "tasks": [],
+  "note": "Exclusive phase durations partition each Long Task; parent and child durations are never added together. Names classify trace phases, not causal initiators. Unmatched boundary events are omitted; marker tolerance is separate from command-clock uncertainty. Other threads and asynchronous events are excluded.",
+  "measurement": {
+    "durationMs": 60570,
+    "frameSamples": 3634,
+    "frameP95": 16.700000000004366,
+    "frameP99": 16.80000000000291,
+    "frameMax": 16.80000000000291,
+    "longTaskEntriesDropped": 0,
+    "fixtureShape": {
+      "historyRows": 200,
+      "historyHeadings": 200,
+      "liveHeadings": 180,
+      "liveTables": 15,
+      "liveCodeBlocks": 18
+    }
+  }
+}

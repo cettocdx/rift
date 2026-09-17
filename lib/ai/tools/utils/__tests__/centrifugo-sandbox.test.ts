@@ -104,6 +104,84 @@ describe("CentrifugoSandbox", () => {
     crypto.randomUUID = originalRandomUUID;
   });
 
+  it("deduplicates retried output while preserving distinct identical chunks", async () => {
+    const { promise } = startCommand(createSandbox(), "echo hello");
+    await jest.advanceTimersByTimeAsync(0);
+    const sub = mockSubscriptions[0];
+    sub.emit("subscribed");
+    for (const deliveryId of ["one", "one", "two"]) {
+      sub.emit("publication", {
+        data: {
+          type: "stdout",
+          commandId: FIXED_UUID,
+          data: "hello\n",
+          deliveryId,
+        },
+      });
+    }
+    sub.emit("publication", {
+      data: { type: "exit", commandId: FIXED_UUID, exitCode: 0 },
+    });
+    expect((await promise).stdout).toBe("hello\nhello\n");
+  });
+
+  it("waits for the command receiver after reconnect and publishes the side effect only once", async () => {
+    const sandbox = new CentrifugoSandbox(
+      "user-1",
+      {
+        ...defaultConnection,
+        capabilities: { commands: true, pty: true, commandReadiness: true },
+      },
+      defaultConfig,
+    );
+    const promise = sandbox.commands.run("append-to-ledger");
+    await jest.advanceTimersByTimeAsync(0);
+    const sub = mockSubscriptions[0];
+    sub.emit("subscribed");
+    await jest.advanceTimersByTimeAsync(1000);
+    expect(
+      sub.publish.mock.calls.every(([data]) => data.type === "runner_probe"),
+    ).toBe(true);
+    sub.emit("subscribed");
+    const probe = sub.publish.mock.calls[0][0];
+    sub.emit("publication", { data: { ...probe, type: "runner_ready" } });
+    await jest.advanceTimersByTimeAsync(0);
+    sub.emit("subscribed");
+    expect(
+      sub.publish.mock.calls.filter(([data]) => data.type === "command"),
+    ).toHaveLength(1);
+    sub.emit("publication", {
+      data: { type: "exit", commandId: FIXED_UUID, exitCode: 0 },
+    });
+    expect((await promise).exitCode).toBe(0);
+    expect(jest.getTimerCount()).toBe(0);
+  });
+
+  it("cancels before readiness without publishing the command", async () => {
+    const sandbox = new CentrifugoSandbox(
+      "user-1",
+      {
+        ...defaultConnection,
+        capabilities: { commands: true, pty: true, commandReadiness: true },
+      },
+      defaultConfig,
+    );
+    const stop = new AbortController();
+    const promise = sandbox.commands.run("append-to-ledger", {
+      signal: stop.signal,
+    });
+    await jest.advanceTimersByTimeAsync(0);
+    const sub = mockSubscriptions[0];
+    sub.emit("subscribed");
+    await jest.advanceTimersByTimeAsync(0);
+    stop.abort();
+    expect((await promise).exitCode).toBe(130);
+    expect(
+      sub.publish.mock.calls.some(([data]) => data.type === "command"),
+    ).toBe(false);
+    expect(jest.getTimerCount()).toBe(0);
+  });
+
   describe("parseSandboxMessage", () => {
     it("ignores known PTY traffic without warning", () => {
       const warnSpy = jest.spyOn(console, "warn").mockImplementation(() => {});
@@ -150,6 +228,36 @@ describe("CentrifugoSandbox", () => {
   });
 
   describe("commands.run happy path", () => {
+    it.each([false, true])(
+      "does not replay a command on reconnect while publish pending=%s",
+      async (pending) => {
+        const sandbox = createSandbox();
+        const { promise } = startCommand(sandbox, "append-to-ledger", {
+          timeoutMs: 5000,
+        });
+        await jest.advanceTimersByTimeAsync(0);
+        const sub = mockSubscriptions[0];
+        let acknowledge!: () => void;
+        if (pending)
+          sub.publish.mockImplementationOnce(
+            () =>
+              new Promise<void>((resolve) => {
+                acknowledge = resolve;
+              }),
+          );
+        sub.emit("subscribed");
+        await jest.advanceTimersByTimeAsync(0);
+        sub.emit("subscribed");
+        expect(sub.publish).toHaveBeenCalledTimes(1);
+        if (pending) acknowledge();
+        await jest.advanceTimersByTimeAsync(0);
+        sub.emit("publication", {
+          data: { type: "exit", commandId: FIXED_UUID, exitCode: 0 },
+        });
+        await expect(promise).resolves.toMatchObject({ exitCode: 0 });
+      },
+    );
+
     it("subscribes, receives stdout/stderr/exit messages, and returns aggregated result", async () => {
       const sandbox = createSandbox();
       const onStdout = jest.fn();
@@ -197,6 +305,40 @@ describe("CentrifugoSandbox", () => {
     });
   });
 
+  it("does not spend the long command's exit-delivery budget on connection admission", async () => {
+    const run = createSandbox().commands.run("one-side-effect", {
+      timeoutMs: 630000,
+    });
+    let settled = false;
+    const result = run.then(
+      (value) => {
+        settled = true;
+        return value;
+      },
+      (error) => {
+        settled = true;
+        return { error };
+      },
+    );
+    await jest.advanceTimersByTimeAsync(10000);
+    const sub = mockSubscriptions[0];
+    sub.emit("subscribed");
+    await jest.advanceTimersByTimeAsync(0);
+    expect(
+      sub.publish.mock.calls.filter(([data]) => data.type === "command"),
+    ).toHaveLength(1);
+    await jest.advanceTimersByTimeAsync(634000);
+    expect(settled).toBe(false);
+    sub.emit("publication", {
+      data: { type: "exit", commandId: FIXED_UUID, exitCode: 124 },
+    });
+    expect(await result).toMatchObject({ exitCode: 124 });
+    expect(
+      sub.publish.mock.calls.filter(([data]) => data.type === "command"),
+    ).toHaveLength(1);
+    expect(jest.getTimerCount()).toBe(0);
+  });
+
   describe("commands.run timeout", () => {
     it("rejects with timeout error when command exceeds maxWaitTime", async () => {
       const sandbox = createSandbox();
@@ -211,7 +353,8 @@ describe("CentrifugoSandbox", () => {
       const sub = mockSubscriptions[0];
       sub.emit("subscribed");
 
-      // maxWaitTime = timeoutMs + 5000
+      await jest.advanceTimersByTimeAsync(0);
+      // maxWaitTime = timeoutMs + 5000, measured from publication
       jest.advanceTimersByTime(timeoutMs + 5000 + 1);
 
       await expect(promise).rejects.toThrow(
@@ -283,7 +426,7 @@ describe("CentrifugoSandbox", () => {
 
       const client = mockClients[0];
 
-      jest.advanceTimersByTime(100 + 5000 + 1);
+      jest.advanceTimersByTime(15000 + 1);
 
       await expect(promise).rejects.toThrow("timeout");
 

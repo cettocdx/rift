@@ -1,3 +1,4 @@
+import { getProviderContext } from "@/lib/ai/provider-context";
 import { tool } from "ai";
 import { z } from "zod";
 import { ToolContext } from "@/types";
@@ -16,7 +17,10 @@ import {
 /** Perplexity Search API cost: $5 per 1K requests */
 const WEB_SEARCH_COST_PER_REQUEST = 0.005;
 
-export const createWebSearch = (context: ToolContext) => {
+export const createWebSearch = (
+  context: ToolContext,
+  origin = getProviderContext(),
+) => {
   const { userLocation, onToolCost } = context;
 
   return tool({
@@ -81,7 +85,7 @@ export const createWebSearch = (context: ToolContext) => {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
-            Authorization: `Bearer ${process.env.PERPLEXITY_API_KEY || ""}`,
+            Authorization: `Bearer ${origin.perplexityApiKey || ""}`,
           },
           body: JSON.stringify(searchBody),
           signal: abortSignal,

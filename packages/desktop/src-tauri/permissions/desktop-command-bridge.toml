@@ -1,12 +1,8 @@
 [[permission]]
 identifier = "allow-desktop-command-bridge"
-description = "Allows the desktop webview to reach the local command bridge."
+description = "Development-only arbitrary command and PTY bridge. Never grant this to the production remote webview."
 commands.allow = [
-  "get_dev_auth_port",
-  "prepare_desktop_auth_state",
   "get_cmd_server_info",
-  "get_local_file_metadata",
-  "read_local_file",
   "execute_command",
   "execute_stream_command",
   "cancel_stream_command",

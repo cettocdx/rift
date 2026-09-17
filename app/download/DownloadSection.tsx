@@ -5,36 +5,50 @@ import { Button } from "@/components/ui/button";
 import { useIsStandalone } from "@/hooks/use-is-standalone";
 import { downloadLinks } from "./constants";
 import {
-  AppleIcon,
-  WindowsIcon,
-  LinuxIcon,
   AndroidIcon,
+  AppleIcon,
   DeviceIcon,
   DownloadIcon,
+  LinuxIcon,
+  WindowsIcon,
 } from "./icons";
 
-type Platform = "macos" | "windows" | "linux" | "ios" | "android" | "unknown";
-type LinuxArch = "x64" | "arm64";
+export type Platform =
+  | "macos"
+  | "windows"
+  | "linux"
+  | "ios"
+  | "android"
+  | "unknown";
+
+type PlatformNavigator = Pick<
+  Navigator,
+  "userAgent" | "platform" | "maxTouchPoints"
+>;
 
 export interface DetectedPlatform {
   platform: Platform;
-  linuxArch?: LinuxArch;
   displayName: string;
-  downloadUrl: string;
+  downloadUrl: string | null;
 }
 
-export function detectPlatform(): DetectedPlatform {
-  const userAgent = navigator.userAgent.toLowerCase();
-  const platform = navigator.platform?.toLowerCase() || "";
+const DESKTOP_VERSION = "0.1.0";
+
+export function detectPlatform(
+  platformNavigator: PlatformNavigator = navigator,
+): DetectedPlatform {
+  const userAgent = platformNavigator.userAgent.toLowerCase();
+  const platform = platformNavigator.platform?.toLowerCase() || "";
 
   const isIpadOS =
-    navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1;
+    platformNavigator.platform === "MacIntel" &&
+    platformNavigator.maxTouchPoints > 1;
 
   if (/iphone|ipad|ipod/.test(userAgent) || isIpadOS) {
     return {
       platform: "ios",
       displayName: "iOS",
-      downloadUrl: "",
+      downloadUrl: null,
     };
   }
 
@@ -42,7 +56,7 @@ export function detectPlatform(): DetectedPlatform {
     return {
       platform: "android",
       displayName: "Android",
-      downloadUrl: "",
+      downloadUrl: null,
     };
   }
 
@@ -66,12 +80,36 @@ export function detectPlatform(): DetectedPlatform {
     };
   }
 
-  // Linux is not supported; fall back to the macOS build for unknown OSes.
+  if (
+    userAgent.includes("linux") ||
+    userAgent.includes("x11") ||
+    userAgent.includes("cros") ||
+    platform.includes("linux")
+  ) {
+    return {
+      platform: "linux",
+      displayName: "Linux",
+      downloadUrl: null,
+    };
+  }
+
   return {
     platform: "unknown",
     displayName: "your platform",
-    downloadUrl: downloadLinks.macos,
+    downloadUrl: null,
   };
+}
+
+export function hasDesktopDownload(
+  detected: DetectedPlatform,
+): detected is DetectedPlatform & {
+  platform: "macos" | "windows";
+  downloadUrl: string;
+} {
+  return (
+    (detected.platform === "macos" || detected.platform === "windows") &&
+    Boolean(detected.downloadUrl)
+  );
 }
 
 const serverSnapshot: DetectedPlatform | null = null;
@@ -101,9 +139,16 @@ export function DownloadSection() {
 
   if (!detected) {
     return (
-      <div className="rounded-md border bg-card p-8 text-center shadow-lg">
-        <div className="h-20 animate-pulse rounded bg-muted" />
-      </div>
+      <section
+        aria-label="Detecting your platform"
+        role="status"
+        className="rounded-[16px] border border-border bg-[var(--surface)] p-5 sm:p-6"
+      >
+        <div className="h-3 w-28 animate-pulse rounded-sm bg-[var(--signal-bright)]/12 motion-reduce:animate-none" />
+        <div className="mt-4 h-6 w-48 animate-pulse rounded-sm bg-[var(--signal-bright)]/12 motion-reduce:animate-none" />
+        <div className="mt-5 h-11 w-full animate-pulse rounded-[12px] bg-[var(--signal-bright)]/12 motion-reduce:animate-none" />
+        <span className="sr-only">Detecting your operating system…</span>
+      </section>
     );
   }
 
@@ -111,25 +156,115 @@ export function DownloadSection() {
     return <MobileInstallCard detected={detected} />;
   }
 
+  if (!hasDesktopDownload(detected)) {
+    return <UnsupportedDesktopCard detected={detected} />;
+  }
+
+  const isMacOS = detected.platform === "macos";
+
   return (
-    <div className="rounded-md border bg-card p-8 text-center shadow-lg">
-      <div className="mb-6">
-        <PlatformIcon platform={detected.platform} />
+    <section
+      aria-labelledby="detected-download-title"
+      className="rounded-[16px] border border-border bg-[var(--surface)] p-5 sm:p-6"
+    >
+      <div className="flex items-start gap-3">
+        <div className="flex size-10 shrink-0 items-center justify-center rounded-[10px] border border-border bg-[var(--surface)] text-[var(--cursor-text-secondary)]">
+          <PlatformIcon platform={detected.platform} />
+        </div>
+        <div className="min-w-0">
+          <p className="text-[11px] text-[var(--muted-foreground)]">Detected platform</p>
+          <h2
+            id="detected-download-title"
+            className="mt-0.5 text-[18px] font-medium tracking-[-0.025em] text-[var(--foreground)]"
+          >
+            RIFT for {detected.displayName}
+          </h2>
+        </div>
       </div>
 
-      <Button asChild size="lg" className="mb-4 text-lg">
-        <a href={detected.downloadUrl}>
-          <DownloadIcon />
+      <Button
+        asChild
+        size="lg"
+        className="mt-6 h-11 w-full cursor-pointer rounded-[12px] bg-[var(--foreground)] text-[13px] font-semibold text-[var(--background)] shadow-[inset_0_1px_0_rgba(255,255,255,0.7)] transition-[background-color,transform] hover:bg-[var(--foreground)] active:translate-y-px"
+      >
+        <a
+          href={detected.downloadUrl}
+          download={isMacOS ? "RIFT-0.1.0-macOS-arm64.dmg" : undefined}
+          aria-describedby={isMacOS ? "macos-direct-build-note" : undefined}
+        >
+          <DownloadIcon className="size-4" />
           Download for {detected.displayName}
         </a>
       </Button>
 
-      {detected.platform === "unknown" && (
-        <p className="mt-4 text-sm text-muted-foreground">
-          Can&apos;t detect your OS? Choose from the options below.
-        </p>
-      )}
-    </div>
+      <p className="mt-3 text-[11px] leading-4 text-[var(--muted-foreground)]">
+        Current build {DESKTOP_VERSION}. Apple Silicon. Direct download from
+        RIFT.
+      </p>
+
+      {isMacOS ? (
+        <div
+          id="macos-direct-build-note"
+          role="note"
+          className="mt-4 rounded-[12px] border border-border bg-[var(--surface)] px-3.5 py-3"
+        >
+          <p className="text-[12px] font-medium text-[var(--foreground)]">
+            Unsigned developer build
+          </p>
+          <p className="mt-1 text-[11px] leading-[18px] text-[var(--muted-foreground)]">
+            This build is not signed with Apple Developer ID or notarized by
+            Apple. If macOS blocks the first launch, try opening RIFT once, then
+            choose Open Anyway in System Settings, Privacy &amp; Security.
+          </p>
+        </div>
+      ) : null}
+    </section>
+  );
+}
+
+function UnsupportedDesktopCard({ detected }: { detected: DetectedPlatform }) {
+  const isLinux = detected.platform === "linux";
+  const isDesktopReleasePending =
+    detected.platform === "macos" || detected.platform === "windows";
+
+  return (
+    <section
+      aria-labelledby="unsupported-download-title"
+      className="rounded-[16px] border border-border bg-[var(--surface)] p-5 sm:p-6"
+    >
+      <div className="flex size-10 items-center justify-center rounded-[10px] border border-border bg-[var(--surface)] text-[var(--cursor-text-secondary)]">
+        <PlatformIcon platform={detected.platform} />
+      </div>
+      <h2
+        id="unsupported-download-title"
+        className="mt-5 text-[18px] font-medium tracking-[-0.025em] text-[var(--foreground)]"
+      >
+        {isDesktopReleasePending
+          ? `Verified ${detected.displayName} build in progress`
+          : isLinux
+            ? "Use RIFT in your browser on Linux"
+            : "Choose a supported desktop installer"}
+      </h2>
+      <p className="mt-2 max-w-md text-[13px] leading-5 text-[var(--cursor-text-secondary)]">
+        {isDesktopReleasePending
+          ? "We will publish this installer only after platform signing and release verification pass. RIFT remains fully available in your browser meanwhile."
+          : isLinux
+            ? "The desktop build is not available for Linux. The browser app remains available without an installer."
+            : "We could not identify your operating system. Verified desktop builds will appear below when they are ready."}
+      </p>
+      <Button
+        asChild
+        size="lg"
+        variant="outline"
+        className="mt-5 h-11 cursor-pointer rounded-[12px] border-border bg-[var(--surface)] text-[13px] text-[var(--foreground)] transition-[background-color,transform] hover:bg-[var(--surface)] hover:text-[var(--foreground)] active:translate-y-px"
+      >
+        <a href={isDesktopReleasePending ? "/" : "#desktop-downloads"}>
+          {isDesktopReleasePending
+            ? "Open RIFT in browser"
+            : "View release status"}
+        </a>
+      </Button>
+    </section>
   );
 }
 
@@ -147,9 +282,9 @@ function MobileInstallCard({ detected }: { detected: DetectedPlatform }) {
   useEffect(() => {
     if (detected.platform !== "android") return;
 
-    const handleBeforeInstall = (e: Event) => {
-      e.preventDefault();
-      setDeferredPrompt(e as BeforeInstallPromptEvent);
+    const handleBeforeInstall = (event: Event) => {
+      event.preventDefault();
+      setDeferredPrompt(event as BeforeInstallPromptEvent);
     };
 
     const handleAppInstalled = () => {
@@ -175,7 +310,7 @@ function MobileInstallCard({ detected }: { detected: DetectedPlatform }) {
         setInstalled(true);
       }
     } catch {
-      // Prompt already shown or blocked by the browser — fall back to manual steps.
+      // If the browser blocks a repeated prompt, the manual path stays visible.
     } finally {
       setDeferredPrompt(null);
     }
@@ -183,107 +318,131 @@ function MobileInstallCard({ detected }: { detected: DetectedPlatform }) {
 
   if (isStandalone) {
     return (
-      <div className="rounded-md border bg-card p-8 text-center shadow-lg">
-        <MobilePlatformIcon platform={detected.platform} />
-        <h2 className="mt-4 text-2xl font-semibold text-card-foreground">
-          RIFT is installed
+      <section
+        aria-labelledby="installed-app-title"
+        className="rounded-[16px] border border-border bg-[var(--surface)] p-5 sm:p-6"
+      >
+        <div className="flex size-10 items-center justify-center rounded-[10px] border border-border bg-[var(--surface)] text-[var(--cursor-text-secondary)]">
+          <MobilePlatformIcon platform={detected.platform} />
+        </div>
+        <h2
+          id="installed-app-title"
+          className="mt-5 text-[18px] font-medium tracking-[-0.025em] text-[var(--foreground)]"
+        >
+          RIFT is already installed
         </h2>
-        <p className="mt-2 text-sm text-muted-foreground">
-          You&apos;re already running RIFT as an installed app.
+        <p className="mt-2 text-[13px] leading-5 text-[var(--cursor-text-secondary)]">
+          Open RIFT from your home screen to continue.
         </p>
-      </div>
+      </section>
     );
   }
 
   return (
-    <div className="rounded-md border bg-card p-8 shadow-lg">
-      <div className="mb-6 text-center">
-        <MobilePlatformIcon platform={detected.platform} />
-        <h2 className="mt-4 text-2xl font-semibold text-card-foreground">
-          Install Mobile App
-        </h2>
-        <p className="mt-2 text-sm text-muted-foreground">
-          Install RIFT on your {detected.displayName} device
-        </p>
+    <section
+      aria-labelledby="mobile-install-title"
+      className="rounded-[16px] border border-border bg-[var(--surface)] p-5 sm:p-6"
+    >
+      <div className="flex items-start gap-3">
+        <div className="flex size-10 shrink-0 items-center justify-center rounded-[10px] border border-border bg-[var(--surface)] text-[var(--cursor-text-secondary)]">
+          <MobilePlatformIcon platform={detected.platform} />
+        </div>
+        <div>
+          <p className="text-[11px] text-[var(--muted-foreground)]">Mobile web app</p>
+          <h2
+            id="mobile-install-title"
+            className="mt-0.5 text-[18px] font-medium tracking-[-0.025em] text-[var(--foreground)]"
+          >
+            Install RIFT on {detected.displayName}
+          </h2>
+        </div>
       </div>
 
-      {installed && (
-        <div className="mb-4 rounded-md border border-green-500/30 bg-green-500/10 p-4 text-center text-sm text-green-600 dark:text-green-400">
-          Installed! Open RIFT from your home screen.
+      {installed ? (
+        <div
+          role="status"
+          className="mt-5 rounded-[12px] border border-border bg-[var(--signal-bright)] px-3 py-2.5 text-[12px] text-[var(--foreground)]"
+        >
+          Installed. Open RIFT from your home screen.
         </div>
-      )}
+      ) : null}
 
-      {!installed && deferredPrompt && (
-        <>
-          <Button
-            size="lg"
-            className="mb-4 w-full text-lg"
-            onClick={handleInstallClick}
-          >
-            <DownloadIcon />
-            Install RIFT
-          </Button>
-          <div className="mb-4 flex items-center gap-3 text-xs text-muted-foreground">
-            <div className="h-px flex-1 bg-border" />
-            <span>Or install manually</span>
-            <div className="h-px flex-1 bg-border" />
-          </div>
-        </>
-      )}
+      {!installed && deferredPrompt ? (
+        <Button
+          size="lg"
+          className="mt-5 h-11 w-full cursor-pointer rounded-[12px] bg-[var(--foreground)] text-[13px] font-semibold text-[var(--background)] shadow-[inset_0_1px_0_rgba(255,255,255,0.7)] transition-[background-color,transform] hover:bg-[var(--foreground)] active:translate-y-px"
+          onClick={handleInstallClick}
+        >
+          <DownloadIcon className="size-4" />
+          Install RIFT
+        </Button>
+      ) : null}
 
-      {!installed && <InstallInstructions platform={detected.platform} />}
-    </div>
+      {!installed ? (
+        <div className="mt-6">
+          <h3 className="text-[12px] font-medium text-[var(--foreground)]">
+            {deferredPrompt ? "Manual install" : "Add RIFT to your home screen"}
+          </h3>
+          <InstallInstructions platform={detected.platform} />
+        </div>
+      ) : null}
+    </section>
   );
 }
+
+type InstallStep = { title: string; detail: string };
 
 function InstallInstructions({ platform }: { platform: Platform }) {
-  if (platform === "ios") {
-    return (
-      <StepsList
-        steps={[
-          <>
-            Tap the <strong>Share</strong> button (the square with an arrow
-            pointing up). You may need to tap the three dots (⋯) menu first to
-            reveal it.
-          </>,
-          <>
-            Scroll down and tap <strong>Add to Home Screen</strong>.
-          </>,
-          <>
-            Tap <strong>Add</strong> in the top right corner.
-          </>,
-        ]}
-      />
-    );
-  }
+  const steps: InstallStep[] =
+    platform === "ios"
+      ? [
+          {
+            title: "Open Share",
+            detail:
+              "In Safari, open Share. If it is hidden, open the More menu first.",
+          },
+          {
+            title: "Add to Home Screen",
+            detail: "Choose Add to Home Screen from the actions list.",
+          },
+          {
+            title: "Confirm",
+            detail: "Choose Add in the top-right corner.",
+          },
+        ]
+      : [
+          {
+            title: "Open the browser menu",
+            detail: "Open the menu in the top-right corner.",
+          },
+          {
+            title: "Choose Install app",
+            detail: "Some browsers label this Add to Home screen.",
+          },
+          {
+            title: "Confirm",
+            detail: "Choose Install to add RIFT to your device.",
+          },
+        ];
 
-  return (
-    <StepsList
-      steps={[
-        <>
-          Tap the <strong>menu</strong> button (three dots in the top right)
-        </>,
-        <>
-          Tap <strong>Install app</strong> or{" "}
-          <strong>Add to Home screen</strong>
-        </>,
-        <>
-          Tap <strong>Install</strong> to confirm
-        </>,
-      ]}
-    />
-  );
+  return <StepsList steps={steps} />;
 }
 
-function StepsList({ steps }: { steps: React.ReactNode[] }) {
+function StepsList({ steps }: { steps: InstallStep[] }) {
   return (
-    <ol className="space-y-3">
-      {steps.map((step, i) => (
-        <li key={i} className="flex gap-3 text-sm text-card-foreground">
-          <span className="flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-full bg-primary text-xs font-semibold text-primary-foreground">
-            {i + 1}
+    <ol className="mt-3 space-y-3">
+      {steps.map((step, index) => (
+        <li key={step.title} className="flex gap-3 text-[12px]">
+          <span
+            aria-hidden
+            className="mt-0.5 font-mono text-[10px] text-[var(--muted-foreground)]"
+          >
+            {String(index + 1).padStart(2, "0")}
           </span>
-          <span className="pt-0.5">{step}</span>
+          <div>
+            <p className="font-medium text-[var(--foreground)]">{step.title}</p>
+            <p className="mt-0.5 leading-5 text-[var(--muted-foreground)]">{step.detail}</p>
+          </div>
         </li>
       ))}
     </ol>
@@ -291,7 +450,7 @@ function StepsList({ steps }: { steps: React.ReactNode[] }) {
 }
 
 function PlatformIcon({ platform }: { platform: Platform }) {
-  const className = "mx-auto h-16 w-16 text-muted-foreground";
+  const className = "size-5";
 
   switch (platform) {
     case "macos":
@@ -306,7 +465,7 @@ function PlatformIcon({ platform }: { platform: Platform }) {
 }
 
 function MobilePlatformIcon({ platform }: { platform: Platform }) {
-  const className = "mx-auto h-16 w-16 text-muted-foreground";
+  const className = "size-5";
 
   switch (platform) {
     case "ios":

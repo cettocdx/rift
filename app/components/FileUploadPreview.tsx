@@ -21,6 +21,7 @@ const isBrowserFile = (file: File | LocalDesktopFile): file is File =>
 export const FileUploadPreview = ({
   uploadedFiles,
   onRemoveFile,
+  mediaKind,
 }: FileUploadPreviewProps) => {
   const [filePreviews, setFilePreviews] = useState<FilePreview[]>([]);
   const [selectedImage, setSelectedImage] = useState<{
@@ -101,7 +102,7 @@ export const FileUploadPreview = ({
 
   return (
     <>
-      <div className="flex flex-col gap-3 rounded-t-[22px] transition-all relative bg-input-chat py-3 shadow-[0px_12px_32px_0px_rgba(0,0,0,0.02)] border border-black/8 dark:border-border border-b-0">
+      <div className="relative flex flex-col gap-3 rounded-t-[22px] bg-input-chat py-3 shadow-[0px_12px_32px_0px_rgba(0,0,0,0.02)] border border-black/8 dark:border-border border-b-0">
         <div className="w-full">
           <div className="no-scrollbar horizontal-scroll-fade-mask flex flex-nowrap gap-2 overflow-x-auto px-2.5 [--edge-fade-distance:1rem]">
             {filePreviews.map((filePreview, index) => (
@@ -111,7 +112,7 @@ export const FileUploadPreview = ({
                 data-testid="attached-file"
               >
                 <div
-                  className={`relative overflow-hidden border rounded-lg ${
+                  className={`relative overflow-hidden border rounded-2xl ${
                     filePreview.error
                       ? "border-red-500 border-2 bg-red-50 dark:bg-red-950/20"
                       : isImageFile(filePreview.file)
@@ -164,12 +165,14 @@ export const FileUploadPreview = ({
                     ) : filePreview.preview ? (
                       <button
                         className="h-full w-full overflow-hidden relative"
-                        onClick={() =>
+                        onClick={(event) => {
+                          // WebKit mouse clicks do not focus buttons by default.
+                          event.currentTarget.focus({ preventScroll: true });
                           handleImageClick(
                             filePreview.preview!,
                             filePreview.file.name,
-                          )
-                        }
+                          );
+                        }}
                       >
                         <Image
                           src={filePreview.preview}
@@ -190,9 +193,7 @@ export const FileUploadPreview = ({
                         <div className="flex flex-row items-center gap-2">
                           <div
                             className={`relative h-10 w-10 shrink-0 overflow-hidden rounded-lg flex items-center justify-center ${
-                              filePreview.error
-                                ? "bg-destructive"
-                                : "bg-surface-3"
+                              filePreview.error ? "bg-red-500" : "bg-[#FF5588]"
                             }`}
                           >
                             {filePreview.uploading ? (
@@ -223,6 +224,20 @@ export const FileUploadPreview = ({
                       </div>
                     )}
                   </div>
+                  {!filePreview.error &&
+                    mediaKind &&
+                    isImageFile(filePreview.file) && (
+                      <span
+                        className="pointer-events-none absolute bottom-1.5 left-1.5 z-10 rounded-md border border-white/15 bg-black/70 px-1.5 py-0.5 font-mono text-[9px] font-medium uppercase tracking-[0.08em] text-white/90 backdrop-blur-sm"
+                        title={
+                          mediaKind === "video"
+                            ? "This image will guide the video generation"
+                            : "This image will guide the image generation"
+                        }
+                      >
+                        {mediaKind === "video" ? "Video guide" : "Reference"}
+                      </span>
+                    )}
                 </div>
 
                 <div className="absolute end-1.5 top-1.5 inline-flex gap-1">

@@ -111,6 +111,7 @@ function makeFakeE2BSandbox() {
   return {
     jupyterUrl: "http://fake",
     commands: { run: jest.fn() },
+    files: { write: jest.fn(async () => undefined) },
   };
 }
 
@@ -573,3 +574,270 @@ describe("interact_terminal_session — PTY action dispatch", () => {
     expect(handle.sendInputCalls.length).toBe(before);
   });
 });
+
+describe("PTY model context projection", () => {
+  test("an empty poll keeps the current prompt without resending cumulative scrollback", async () => {
+    const { context, ptySessionManager } = makeContext({
+      sandbox: makeFakeE2BSandbox(),
+    });
+    const handle = makeFakeHandle();
+    const session = await ptySessionManager.create("chat-1", {
+      createHandle: async () => handle,
+      cols: 120,
+      rows: 30,
+    });
+    try {
+      const oldHistory = "OLD_DIAGNOSTIC " + "x1 y2 z3 ".repeat(8);
+      handle.emit(
+        new TextEncoder().encode(
+          (oldHistory + "\r\n").repeat(1600) + "Ready for input> ",
+        ),
+      );
+      ptySessionManager.consumeDelta(session);
+      const tool = createInteractTerminalSession(context);
+      const result = (await runTool(tool, {
+        action: "wait",
+        session: session.sessionId,
+        timeout: 0,
+      })) as any;
+      const projection = await tool.toModelOutput!({
+        output: result,
+        input: {
+          action: "wait",
+          session: session.sessionId,
+          brief: "Check prompt",
+        },
+        toolCallId: "poll",
+      });
+      expect(result.result.output).toBe("");
+      expect(result.result.rawSnapshot).toContain("OLD_DIAGNOSTIC");
+      expect(result.result.sessionSnapshot).toContain("OLD_DIAGNOSTIC");
+      expect(projection.type).toBe("text");
+      const text = (projection as { value: string }).value;
+      expect(text).toContain("Ready for input>");
+      expect(text.length).toBeLessThan(6000);
+      const projected = JSON.parse(text).result;
+      expect(projected.scrollback.path).toMatch(
+        /terminal_full_output\/pty-[a-f0-9]{64}\.txt$/,
+      );
+      const sandbox = (await context.sandboxManager.getSandbox())
+        .sandbox as any;
+      expect(sandbox.files.write).toHaveBeenCalledWith(
+        projected.scrollback.path,
+        result.result.sessionSnapshot,
+      );
+      const second = (await runTool(tool, {
+        action: "wait",
+        session: session.sessionId,
+        timeout: 0,
+      })) as any;
+      const secondProjection = await tool.toModelOutput!({
+        output: second,
+        input: {
+          action: "wait",
+          session: session.sessionId,
+          brief: "Check prompt",
+        },
+        toolCallId: "poll-2",
+      });
+      expect(
+        JSON.parse((secondProjection as { value: string }).value).result
+          .scrollback.path,
+      ).toBe(projected.scrollback.path);
+      expect(sandbox.files.write).toHaveBeenCalledTimes(1);
+    } finally {
+      await ptySessionManager.close("chat-1", session.sessionId);
+    }
+  });
+});
+
+describe("PTY evidence preservation", () => {
+  test("explicit view retains all scrollback and changed output produces a new immutable reference", async () => {
+    const sandbox = makeFakeE2BSandbox();
+    const { context, ptySessionManager } = makeContext({ sandbox });
+    const handle = makeFakeHandle();
+    const session = await ptySessionManager.create("chat-1", {
+      createHandle: async () => handle,
+      cols: 120,
+      rows: 30,
+    });
+    try {
+      handle.emit(
+        new TextEncoder().encode(
+          "EARLY_EVIDENCE\r\n" + "log line\r\n".repeat(1300),
+        ),
+      );
+      const tool = createInteractTerminalSession(context);
+      const input = {
+        action: "view" as const,
+        session: session.sessionId,
+        brief: "Inspect retained history",
+      };
+      const first = (await runTool(tool, input)) as any;
+      const view = await tool.toModelOutput!({
+        output: first,
+        input,
+        toolCallId: "view",
+      });
+      expect((view as { value: string }).value).toContain("EARLY_EVIDENCE");
+      expect(
+        JSON.parse((view as { value: string }).value).result.sessionSnapshot,
+      ).toBe(first.result.sessionSnapshot);
+      handle.emit(new TextEncoder().encode("NEW_EVIDENCE\r\n"));
+      const second = (await runTool(tool, {
+        action: "wait",
+        session: session.sessionId,
+        timeout: 0,
+      })) as any;
+      expect(second.result.modelContext.scrollback.path).not.toBe(
+        first.result.modelContext.scrollback.path,
+      );
+      expect(sandbox.files.write).toHaveBeenNthCalledWith(
+        1,
+        first.result.modelContext.scrollback.path,
+        first.result.sessionSnapshot,
+      );
+      expect(sandbox.files.write).toHaveBeenNthCalledWith(
+        2,
+        second.result.modelContext.scrollback.path,
+        second.result.sessionSnapshot,
+      );
+      expect(second.result.output).toContain("NEW_EVIDENCE");
+    } finally {
+      await ptySessionManager.close("chat-1", session.sessionId);
+    }
+  });
+
+  test("a failed artifact write leaves full evidence inline and never advertises a saved path", async () => {
+    const sandbox = makeFakeE2BSandbox();
+    sandbox.files.write.mockRejectedValue(new Error("fixture write failed"));
+    const warn = jest.spyOn(console, "warn").mockImplementation(() => {});
+    const { context, ptySessionManager } = makeContext({ sandbox });
+    const handle = makeFakeHandle();
+    const session = await ptySessionManager.create("chat-1", {
+      createHandle: async () => handle,
+      cols: 120,
+      rows: 30,
+    });
+    try {
+      handle.emit(
+        new TextEncoder().encode(
+          "IMPORTANT_OLD_DETAIL\r\n" + "log line\r\n".repeat(1300),
+        ),
+      );
+      const tool = createInteractTerminalSession(context);
+      const result = (await runTool(tool, {
+        action: "wait",
+        session: session.sessionId,
+        timeout: 0,
+      })) as any;
+      const projection = await tool.toModelOutput!({
+        output: result,
+        input: { action: "wait", session: session.sessionId, brief: "Poll" },
+        toolCallId: "poll",
+      });
+      const model = JSON.parse((projection as { value: string }).value).result;
+      expect(model.sessionSnapshot).toBe(result.result.sessionSnapshot);
+      expect(model.sessionSnapshot).toContain("IMPORTANT_OLD_DETAIL");
+      expect(model.scrollback).toBeUndefined();
+      expect(model.rawSnapshot).toBeUndefined();
+      expect(result.result.rawSnapshot).toContain("IMPORTANT_OLD_DETAIL");
+    } finally {
+      warn.mockRestore();
+      await ptySessionManager.close("chat-1", session.sessionId);
+    }
+  });
+});
+
+test("initial interactive command uses the same compact model projection and preserves raw UI data", async () => {
+  const sandbox = makeFakeE2BSandbox();
+  const { context, ptySessionManager, writerWrites } = makeContext({ sandbox });
+  const handle = makeFakeHandle();
+  const raw = "ORIGINAL_DETAIL\r\n" + "x1 y2 z3\r\n".repeat(1500) + "Prompt>";
+  (handle.sendInput as jest.Mock).mockImplementation(async () =>
+    handle.emit(new TextEncoder().encode(raw)),
+  );
+  mockCreateE2BPtyHandle.mockResolvedValue(handle);
+  const tool = createRunTerminalCmd(context);
+  const input = {
+    command: "fixture-only",
+    brief: "Start fixture",
+    interactive: true,
+    timeout: 1,
+  };
+  const result = (await runExecTool(tool, input)) as any;
+  try {
+    const projected = await tool.toModelOutput!({
+      output: result,
+      input,
+      toolCallId: "start",
+    });
+    const model = JSON.parse((projected as { value: string }).value).result;
+    expect(model.screen).toContain("Prompt>");
+    expect(model.sessionSnapshot).toBeUndefined();
+    expect(model.session).toBe(result.result.session);
+    expect(model.pid).toBe(result.result.pid);
+    expect(result.result.rawSnapshot).toBe(raw);
+    expect(result.result.sessionSnapshot).toContain("ORIGINAL_DETAIL");
+    expect(sandbox.files.write).toHaveBeenCalledWith(
+      model.scrollback.path,
+      result.result.sessionSnapshot,
+    );
+    expect(JSON.stringify(writerWrites)).toContain("ORIGINAL_DETAIL");
+  } finally {
+    await ptySessionManager.close("chat-1", result.result.session);
+  }
+});
+
+test.each([
+  "oversized input",
+  "send transport failure",
+  "exit race",
+  "guardrail rejection",
+])(
+  "%s leaves unread terminal evidence available to the next poll",
+  async (failure) => {
+    const { context, ptySessionManager } = makeContext({
+      sandbox: makeFakeE2BSandbox(),
+    });
+    const handle = makeFakeHandle();
+    const session = await ptySessionManager.create("chat-1", {
+      createHandle: async () => handle,
+      cols: 120,
+      rows: 30,
+    });
+    try {
+      handle.emit(new TextEncoder().encode("UNREAD_BEFORE_FAILED_SEND\r\n"));
+      if (failure === "send transport failure")
+        (handle.sendInput as jest.Mock).mockRejectedValueOnce(
+          new Error("fixture send failure"),
+        );
+      if (failure === "exit race")
+        (handle.sendInput as jest.Mock).mockImplementationOnce(async () => {
+          handle.resolveExit(0);
+          throw new Error("exited");
+        });
+      const tool = createInteractTerminalSession(context);
+      const failed = (await runTool(tool, {
+        action: "send",
+        session: session.sessionId,
+        input:
+          failure === "oversized input"
+            ? "a".repeat(9000)
+            : failure === "guardrail rejection"
+              ? "rm -rf /\n"
+              : "hello\n",
+      })) as any;
+      expect(failed.result.error).toBeDefined();
+      expect(session.readCursor).toBe(0);
+      const poll = (await runTool(tool, {
+        action: "wait",
+        session: session.sessionId,
+        timeout: 0,
+      })) as any;
+      expect(poll.result.output).toContain("UNREAD_BEFORE_FAILED_SEND");
+    } finally {
+      await ptySessionManager.close("chat-1", session.sessionId);
+    }
+  },
+);

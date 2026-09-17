@@ -74,7 +74,7 @@ const BillingFrequencySelector: React.FC<BillingFrequencySelectorProps> = ({
         onKeyDown={handleKeyDown}
       >
         <div
-          className="absolute top-1 bottom-1 rounded-full border border-border bg-muted/60 transition-all duration-300 ease-out"
+          className="absolute top-1 bottom-1 rounded-full border border-border bg-muted/60 transition-[left,width] duration-300 ease-(--ease-out)"
           style={{ left: `${indicatorLeft}px`, width: `${indicatorWidth}px` }}
         />
         <label

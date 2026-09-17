@@ -1,0 +1,11 @@
+{
+  "runId": "run_06ga8dmlvucr4runk0ncl7nj01",
+  "status": "COMPLETED",
+  "workerVersion": "20260915.11",
+  "cleanup": {
+    "confirmed": true,
+    "verified": true
+  },
+  "claimMatches": true,
+  "claimPhase": "released"
+}

@@ -1,0 +1,74 @@
+const stats = (window.fixtureStats = {
+  created: 0,
+  detached: 0,
+  inputs: [],
+  resizes: [],
+  acks: 0,
+  inFlight: 0,
+  maxInFlight: 0,
+  bytes: 0,
+  done: false,
+  frames: [],
+  frameSamples: [],
+});
+let callbacks;
+export const createDesktopProfileTerminalSessionId = (id) => "desktop-" + id;
+export async function createDesktopProfileTerminal(options) {
+  stats.created++;
+  callbacks = options.callbacks;
+  return {
+    session: {
+      sessionId: options.sessionId,
+      pid: 12345,
+      cwd: "/fixture",
+      profile: "shell",
+    },
+  };
+}
+export const detachDesktopProfileTerminal = async () => {
+  stats.detached++;
+};
+export const resizeDesktopProfileTerminal = async (id, cols, rows) => {
+  stats.resizes.push({ cols, rows });
+};
+export const sendDesktopProfileTerminalInput = async (id, input) => {
+  stats.inputs.push(input);
+};
+window.fixtureBurst = async (count = 640) => {
+  const line = "RIFT Türkçe λ 🙂 " + "readable-output ".repeat(7) + "\r\n";
+  const body = line.repeat(150);
+  const start = performance.now();
+  let previous = start;
+  let recording = true;
+  const frame = (now) => {
+    if (!recording) return;
+    stats.frames.push(now - previous);
+    stats.frameSamples.push({
+      at: now - start,
+      delta: now - previous,
+      acks: stats.acks,
+    });
+    previous = now;
+    requestAnimationFrame(frame);
+  };
+  requestAnimationFrame(frame);
+  for (let i = 0; i < count; i++) {
+    const text =
+      i === count - 1 ? body + "RIFT_END_" + (count - 1) + "\r\n" : body;
+    stats.bytes += new TextEncoder().encode(text).length;
+    stats.inFlight++;
+    stats.maxInFlight = Math.max(stats.maxInFlight, stats.inFlight);
+    await new Promise((resolve) =>
+      callbacks.onOutput(text, () => {
+        stats.inFlight--;
+        stats.acks++;
+        resolve();
+      }),
+    );
+    await new Promise((resolve) => setTimeout(resolve, 8));
+  }
+  callbacks.onExit(0);
+  stats.duration = performance.now() - start;
+  recording = false;
+  stats.done = true;
+};

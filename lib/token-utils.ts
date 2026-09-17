@@ -4,9 +4,18 @@ import {
   encode as encodeGptTokens,
   decode,
 } from "gpt-tokenizer";
-import type { SubscriptionTier } from "@/types";
 import type { Id } from "@/convex/_generated/dataModel";
-import { FREE_MAX_CONTEXT_TOKENS } from "@/lib/rate-limit/free-config";
+import { MAX_TOKENS_PAID } from "@/lib/token-limits";
+
+export {
+  FILE_TOKEN_PERCENT,
+  getMaxFileTokens,
+  getMaxTokensForSubscription,
+  getMaxInputTokensForSubscription,
+  getMessageTokenBudget,
+  MAX_TOKENS_FREE,
+  MAX_TOKENS_PAID,
+} from "@/lib/token-limits";
 
 const DISALLOWED_SPECIAL_TOKEN_MESSAGE = "Disallowed special token";
 const TOKENIZE_SPECIAL_TOKENS_AS_TEXT: NonNullable<
@@ -55,35 +64,6 @@ const safeEncode = (content: string): ReturnType<typeof encodeGptTokens> => {
   }
 };
 
-export const MAX_TOKENS_FREE = FREE_MAX_CONTEXT_TOKENS;
-export const MAX_TOKENS_PAID = 200000;
-/**
- * Percentage of context window budget allocated to file uploads in Ask mode.
- * Leaves remaining budget for conversation history, system prompt, and model output.
- */
-export const FILE_TOKEN_PERCENT = 0.5;
-
-export const getMaxTokensForSubscription = (
-  subscription?: SubscriptionTier,
-  _opts?: { mode?: import("@/types").ChatMode },
-): number => {
-  if (subscription === "free") return MAX_TOKENS_FREE;
-  return MAX_TOKENS_PAID;
-};
-
-/**
- * Maximum total tokens allowed across all uploaded files in Ask mode.
- * Scales with the subscription's context window budget.
- */
-export const getMaxFileTokens = (
-  subscription: SubscriptionTier,
-  opts?: { mode?: import("@/types").ChatMode },
-): number => {
-  return Math.floor(
-    getMaxTokensForSubscription(subscription, opts) * FILE_TOKEN_PERCENT,
-  );
-};
-
 // Token limits for different contexts
 export const STREAM_MAX_TOKENS = 4096;
 export const TOOL_DEFAULT_MAX_TOKENS = 4096;
@@ -127,16 +107,20 @@ const countPartTokens = (
   }
 
   // For other part types, exclude provider metadata (e.g., OpenRouter reasoning_details)
-  const partAny = part as any;
-  const hasMetadata = partAny.providerMetadata || partAny.callProviderMetadata;
-
-  if (hasMetadata) {
-    const { providerMetadata, callProviderMetadata, ...partWithoutMetadata } =
-      partAny;
-    return safeCountTokens(JSON.stringify(partWithoutMetadata));
-  }
-
-  return safeCountTokens(JSON.stringify(part));
+  const {
+    providerMetadata,
+    callProviderMetadata,
+    resultProviderMetadata,
+    ...content
+  } = part as typeof part & {
+    providerMetadata?: unknown;
+    callProviderMetadata?: unknown;
+    resultProviderMetadata?: unknown;
+  };
+  // Result metadata carries the same opaque provider signatures as call
+  // metadata. Count semantic content only; leave the original message intact
+  // so the provider can still validate its signed reasoning on the next step.
+  return safeCountTokens(JSON.stringify(content));
 };
 
 /**

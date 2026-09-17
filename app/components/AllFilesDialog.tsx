@@ -10,7 +10,7 @@ import { useFileUrlCacheContext } from "@/app/contexts/FileUrlCacheContext";
 import type { FilePart } from "@/types/file";
 import JSZip from "jszip";
 import { toast } from "sonner";
-import { isTauriEnvironment, openDownloadsFolder } from "@/app/hooks/useTauri";
+import { downloadBlob, downloadFromUrl } from "@/lib/utils/file-download";
 
 interface AllFilesDialogProps {
   open: boolean;
@@ -48,26 +48,7 @@ const FileItem = ({
     if (!fileUrl) return;
 
     try {
-      const response = await fetch(fileUrl);
-      const blob = await response.blob();
-      const blobUrl = URL.createObjectURL(blob);
-      const link = document.createElement("a");
-      link.href = blobUrl;
-      link.download = fileName;
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
-      URL.revokeObjectURL(blobUrl);
-
-      if (isTauriEnvironment()) {
-        toast.success(`Downloaded ${fileName}`, {
-          description: "Saved to Downloads folder",
-          action: {
-            label: "Show in folder",
-            onClick: () => openDownloadsFolder(),
-          },
-        });
-      }
+      await downloadFromUrl({ url: fileUrl, filename: fileName });
     } catch (error) {
       console.error("Error downloading file:", error);
       toast.error("Failed to download file");
@@ -101,8 +82,8 @@ const FileItem = ({
         </Button>
       )}
 
-      <div className="relative flex items-center justify-center w-10 h-10 rounded-lg bg-surface-3">
-        <File className="w-6 h-6 text-muted-foreground" />
+      <div className="relative flex items-center justify-center w-10 h-10 rounded-lg bg-[#FF5588]">
+        <File className="w-6 h-6 text-white" />
       </div>
 
       <div className="flex flex-col gap-1 flex-grow flex-1 min-w-0">
@@ -125,9 +106,9 @@ const FileItem = ({
           onClick={handleDownload}
           variant="ghost"
           size="icon"
-          className="h-6 w-6 p-0 opacity-0 group-hover:opacity-100 transition-opacity"
+          className="h-6 w-6 p-0 opacity-100 transition-opacity pointer-fine:opacity-0 group-hover:opacity-100 focus-visible:opacity-100 pointer-coarse:size-11 [@media(hover:none)]:opacity-100"
           type="button"
-          aria-label="Download file"
+          aria-label={`Download ${fileName}`}
         >
           <Download className="w-4 h-4 text-muted-foreground" />
         </Button>
@@ -272,9 +253,12 @@ const AllFilesDialog = ({
     try {
       const zip = new JSZip();
 
-      // Use already fetched URLs or fetch missing ones
-      await Promise.all(
+      // Fetch every selected file before constructing a ZIP. One missing file
+      // must fail the export rather than silently produce a partial archive.
+      const downloadedFiles = await Promise.all(
         filesToDownload.map(async ({ file, index }) => {
+          const fileName =
+            file.part.name || file.part.filename || `file-${file.partIndex}`;
           try {
             let url = fileUrls.get(index) || file.part.url;
 
@@ -293,28 +277,21 @@ const AllFilesDialog = ({
               }
             }
 
-            if (url) {
-              const response = await fetch(url);
-              const blob = await response.blob();
-              const fileName =
-                file.part.name ||
-                file.part.filename ||
-                `file-${file.partIndex}`;
-              zip.file(fileName, blob);
-            }
-          } catch (error) {
-            console.error(`Error adding ${file.part.name} to ZIP:`, error);
+            if (!url) throw new Error("Download URL unavailable");
+            const response = await fetch(url);
+            if (!response.ok) throw new Error(`HTTP ${response.status}`);
+            return { fileName, blob: await response.blob() };
+          } catch {
+            throw new Error(`Could not download ${fileName}. Try again.`);
           }
         }),
       );
+      for (const { fileName, blob } of downloadedFiles) {
+        zip.file(fileName, blob);
+      }
 
       // Generate the ZIP file
       const zipBlob = await zip.generateAsync({ type: "blob" });
-
-      // Download the ZIP file
-      const blobUrl = URL.createObjectURL(zipBlob);
-      const link = document.createElement("a");
-      link.href = blobUrl;
 
       // Create filename from chat title or use fallback
       let fileName = "chat-files";
@@ -330,38 +307,22 @@ const AllFilesDialog = ({
         fileName = `chat-files-${timestamp}`;
       }
 
-      link.download = `${fileName}.zip`;
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
-      URL.revokeObjectURL(blobUrl);
-
-      if (isTauriEnvironment()) {
-        toast.success(`Downloaded ${filesToDownload.length} files`, {
-          description: `Saved as ${fileName}.zip to Downloads folder`,
-          action: {
-            label: "Show in folder",
-            onClick: () => openDownloadsFolder(),
-          },
-        });
-      } else {
-        toast.success(
-          `Downloaded ${filesToDownload.length} files as ${fileName}.zip`,
-        );
-      }
+      await downloadBlob({ filename: `${fileName}.zip`, blob: zipBlob });
+      handleCancelSelection();
     } catch (error) {
       console.error("Error creating ZIP file:", error);
-      toast.error("Failed to create ZIP file");
+      toast.error(
+        error instanceof Error
+          ? error.message
+          : "Could not create ZIP file. Try again.",
+      );
     }
-
-    // Exit selection mode after download
-    handleCancelSelection();
   };
 
   return (
     <Dialog open={open} onOpenChange={handleOpenChange}>
       <DialogContent
-        className="bg-background rounded-xl border border-border fixed left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 max-w-[95%] max-h-[95%] overflow-auto h-[680px] flex flex-col p-0"
+        className="bg-background rounded-[20px] border border-border fixed left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 max-w-[95%] max-h-[95%] overflow-auto h-[680px] flex flex-col p-0"
         style={{ width: "600px" }}
         showCloseButton={false}
       >

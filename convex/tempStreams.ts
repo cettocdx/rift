@@ -1,3 +1,4 @@
+import { cancelCurrentOwnedClaim } from "./lib/agentClaimCancellation";
 import { query, mutation } from "./_generated/server";
 import { v, ConvexError } from "convex/values";
 import { internal } from "./_generated/api";
@@ -59,15 +60,18 @@ export const cancelTempStreamFromClient = mutation({
       .withIndex("by_chat_id", (q) => q.eq("chat_id", args.chatId))
       .first();
 
-    if (!row) return null;
-
-    if (row.user_id !== identity.subject.split("|")[0]) {
+    if (row && row.user_id !== identity.subject.split("|")[0]) {
       throw new ConvexError({
         code: "ACCESS_DENIED",
         message: "Unauthorized: Temp stream does not belong to user",
       });
     }
 
+    await cancelCurrentOwnedClaim(ctx, {
+      userId: identity.subject.split("|")[0],
+      chatId: args.chatId,
+    });
+    if (!row) return null;
     await ctx.db.delete(row._id);
 
     // Publish cancellation to Redis for instant backend notification

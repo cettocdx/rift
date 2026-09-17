@@ -1,0 +1,10 @@
+/* Keep the visual track compact; the actual button owns the whole touch area.
+   Reserving its box prevents a hit-area halo from covering adjacent controls. */
+@media (pointer: coarse) {
+  .root {
+    width: 44px;
+    min-width: 44px;
+    height: 44px;
+    min-height: 44px;
+  }
+}

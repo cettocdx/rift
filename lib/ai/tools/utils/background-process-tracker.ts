@@ -37,25 +37,36 @@ export class BackgroundProcessTracker {
    * Check if a process is still running
    */
   async checkProcessStatus(sandbox: AnySandbox, pid: number): Promise<boolean> {
+    if (!Number.isSafeInteger(pid) || pid <= 0)
+      throw new Error("Invalid process identifier");
+    let result: { exitCode?: number | null; stdout: string; stderr: string };
     try {
-      const result = await sandbox.commands.run(`ps -p ${pid}`, {});
-
-      const isRunning = result.stdout.includes(pid.toString());
-
-      if (!isRunning) {
-        this.removeProcess(pid);
-      }
-
-      return isRunning;
+      result = await sandbox.commands.run(`ps -p ${pid} -o pid=`, {});
     } catch (error) {
+      // A transport failure is not a negative process lookup. E2B throws
+      // nonzero command exits, so only its explicit exit receipt is inspected.
+      if (!(error instanceof Error) || error.name !== "CommandExitError")
+        throw error;
+      // Keep the SDK out of module initialization; this tracker is also used
+      // by local tools and only cloud exit receipts need the SDK class.
+      const { CommandExitError } = await import("@e2b/code-interpreter");
+      if (!(error instanceof CommandExitError)) throw error;
+      result = error;
+    }
+    const stdout = result.stdout?.trim();
+    const stderr = result.stderr?.trim();
+    if (result.exitCode === 0 && stdout === String(pid) && stderr === "")
+      return true;
+    if (result.exitCode === 1 && stdout === "" && stderr === "") {
       this.removeProcess(pid);
       return false;
     }
+    throw new Error("Background process status is unconfirmed");
   }
 
   /**
    * Check if any tracked processes are writing to the requested files
-   * Uses batch checking for efficiency
+   * Inspects only processes associated with the requested files
    */
   async hasActiveProcessesForFiles(
     sandbox: AnySandbox,
@@ -63,30 +74,21 @@ export class BackgroundProcessTracker {
   ): Promise<{ active: boolean; processes: BackgroundProcess[] }> {
     const activeProcesses: BackgroundProcess[] = [];
 
-    // Check each process individually
+    // Unrelated background work must not gate this file's availability.
     for (const [pid, process] of this.processes.entries()) {
-      const isRunning = await this.checkProcessStatus(sandbox, pid);
-
-      if (isRunning) {
-        const hasMatchingFile = process.outputFiles.some((outputFile) =>
-          filePaths.some((requestedFile) => {
-            const normalizedOutput = this.normalizePath(outputFile);
-            const normalizedRequested = this.normalizePath(requestedFile);
-
-            return (
-              normalizedOutput === normalizedRequested ||
-              normalizedOutput.endsWith("/" + normalizedRequested) ||
-              normalizedRequested.endsWith("/" + normalizedOutput) ||
-              normalizedOutput.endsWith(normalizedRequested) ||
-              normalizedRequested.endsWith(normalizedOutput)
-            );
-          }),
-        );
-
-        if (hasMatchingFile) {
-          activeProcesses.push(process);
-        }
-      }
+      const hasMatchingFile = process.outputFiles.some((outputFile) =>
+        filePaths.some((requestedFile) => {
+          const normalizedOutput = this.normalizePath(outputFile);
+          const normalizedRequested = this.normalizePath(requestedFile);
+          return (
+            normalizedOutput === normalizedRequested ||
+            normalizedOutput.endsWith("/" + normalizedRequested) ||
+            normalizedRequested.endsWith("/" + normalizedOutput)
+          );
+        }),
+      );
+      if (hasMatchingFile && (await this.checkProcessStatus(sandbox, pid)))
+        activeProcesses.push(process);
     }
 
     return {

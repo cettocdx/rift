@@ -1,6 +1,6 @@
 import { memo } from "react";
 import { UIMessage } from "@ai-sdk/react";
-import { WandSparkles } from "lucide-react";
+import { LoaderCircle, WandSparkles } from "lucide-react";
 import { Shimmer } from "@/components/ai-elements/shimmer";
 
 interface SummarizationHandlerProps {
@@ -26,16 +26,32 @@ export const SummarizationHandler = memo(function SummarizationHandler({
   part,
   partIndex,
 }: SummarizationHandlerProps) {
+  const isStarted = part.data.status === "started";
+
   return (
     <div
       key={`${message.id}-summarization-${partIndex}`}
-      className="mb-3 flex items-center gap-2"
+      role="status"
+      aria-live="polite"
+      className="flex min-h-[30px] items-center gap-1.5 px-0.5 py-1.5 text-[12px] leading-4"
     >
-      <WandSparkles className="w-4 h-4 text-muted-foreground" />
-      {part.data.status === "started" ? (
-        <Shimmer className="text-sm">{`${part.data.message}...`}</Shimmer>
+      {isStarted ? (
+        <LoaderCircle
+          className="size-3.5 shrink-0 text-muted-foreground motion-safe:animate-spin motion-reduce:animate-none"
+          aria-hidden="true"
+        />
       ) : (
-        <span className="text-sm text-muted-foreground">
+        <WandSparkles
+          className="size-3.5 shrink-0 text-muted-foreground/65"
+          aria-hidden="true"
+        />
+      )}
+      {isStarted ? (
+        <Shimmer className="text-[12px] text-[var(--cursor-text-secondary)]">
+          {part.data.message}
+        </Shimmer>
+      ) : (
+        <span className="text-[12px] text-[var(--cursor-text-secondary)]">
           {part.data.message}
         </span>
       )}

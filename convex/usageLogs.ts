@@ -1,3 +1,4 @@
+import { providerReceiptUsage } from "./lib/providerReceipt";
 import { mutation, query } from "./_generated/server";
 import { paginationOptsValidator } from "convex/server";
 import { v } from "convex/values";
@@ -5,6 +6,128 @@ import { validateServiceKey } from "./lib/utils";
 import { applyUnitEconomicsDelta, utcDay } from "./unitEconomicsLib";
 
 const typeValidator = v.union(v.literal("included"), v.literal("extra"));
+
+const settlementIdentity = {
+  serviceKey: v.string(),
+  user_id: v.string(),
+  run_id: v.string(),
+  attempt_id: v.string(),
+};
+function validateSettlementIdentity(args: {
+  serviceKey: string;
+  user_id: string;
+  run_id: string;
+  attempt_id: string;
+}) {
+  validateServiceKey(args.serviceKey);
+  for (const value of [args.user_id, args.run_id, args.attempt_id])
+    if (!value || value.trim() !== value || value.length > 256)
+      throw new Error("Invalid settlement identity");
+}
+
+/** Only the transaction which creates the intent can authorize an unkeyed debit.
+ * If its acknowledgment is lost, even an exact replay must not execute a debit. */
+export const beginSettlement = mutation({
+  args: {
+    ...settlementIdentity,
+    evidence: v.string(),
+    chat_id: v.optional(v.string()),
+    operation_id: v.optional(v.string()),
+    actual_points: v.optional(v.number()),
+  },
+  returns: v.boolean(),
+  handler: async (ctx, args) => {
+    validateSettlementIdentity(args);
+    if (
+      args.chat_id !== undefined &&
+      (!args.chat_id.trim() || args.chat_id.length > 200)
+    )
+      throw new Error("Invalid settlement chat");
+    if (
+      args.operation_id !== undefined &&
+      !/^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,199}$/.test(args.operation_id)
+    )
+      throw new Error("Invalid settlement operation");
+    if (
+      args.actual_points !== undefined &&
+      (!Number.isSafeInteger(args.actual_points) || args.actual_points < 0)
+    )
+      throw new Error("Invalid settlement points");
+    if (args.evidence.length > 16_384)
+      throw new Error("Settlement evidence too large");
+    const parsed = JSON.parse(args.evidence);
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed))
+      throw new Error("Invalid settlement evidence");
+    const rows = await ctx.db
+      .query("usage_settlements")
+      .withIndex("by_user_run", (q) =>
+        q.eq("user_id", args.user_id).eq("run_id", args.run_id),
+      )
+      .take(2);
+    if (rows.length > 1) throw new Error("Ambiguous settlement");
+    if (rows[0]) {
+      if (
+        rows[0].evidence !== args.evidence ||
+        rows[0].actual_points !== args.actual_points ||
+        rows[0].chat_id !== args.chat_id ||
+        rows[0].operation_id !== args.operation_id
+      )
+        throw new Error("Conflicting settlement evidence");
+      return false;
+    }
+    const { serviceKey: _key, ...record } = args;
+    await ctx.db.insert("usage_settlements", {
+      ...record,
+      state: "pending",
+      created_at: Date.now(),
+    });
+    return true;
+  },
+});
+
+export const finishSettlement = mutation({
+  args: {
+    ...settlementIdentity,
+    state: v.union(v.literal("acknowledged"), v.literal("uncertain")),
+  },
+  returns: v.boolean(),
+  handler: async (ctx, args) => {
+    validateSettlementIdentity(args);
+    const rows = await ctx.db
+      .query("usage_settlements")
+      .withIndex("by_user_run", (q) =>
+        q.eq("user_id", args.user_id).eq("run_id", args.run_id),
+      )
+      .take(2);
+    const row = rows[0];
+    if (rows.length !== 1 || row.attempt_id !== args.attempt_id)
+      throw new Error("Settlement ownership mismatch");
+    if (row.state === args.state) return true;
+    if (row.state !== "pending")
+      throw new Error("Conflicting settlement outcome");
+    await ctx.db.patch(row._id, {
+      state: args.state,
+      completed_at: Date.now(),
+    });
+    return true;
+  },
+});
+
+/** Operational recovery inventory, not an automatic collection queue. */
+export const listUnresolvedSettlements = query({
+  args: {
+    serviceKey: v.string(),
+    state: v.union(v.literal("pending"), v.literal("uncertain")),
+    paginationOpts: paginationOptsValidator,
+  },
+  handler: async (ctx, args) => {
+    validateServiceKey(args.serviceKey);
+    return ctx.db
+      .query("usage_settlements")
+      .withIndex("by_state_created", (q) => q.eq("state", args.state))
+      .paginate(args.paginationOpts);
+  },
+});
 
 const cleanModelName = (model: string): string =>
   model
@@ -24,7 +147,12 @@ export const logUsage = mutation({
     organization_id: v.optional(v.string()),
     chat_id: v.optional(v.string()),
     endpoint: v.optional(
-      v.union(v.literal("/api/chat"), v.literal("/api/agent-long")),
+      v.union(
+        v.literal("/api/chat"),
+        v.literal("/api/agent-long"),
+        v.literal("/api/hack-long"),
+        v.literal("/api/console/model"),
+      ),
     ),
     mode: v.optional(v.union(v.literal("ask"), v.literal("agent"))),
     subscription: v.optional(v.string()),
@@ -199,5 +327,90 @@ export const getUserUsageLogs = query({
         cost_source: log.cost_source,
       })),
     };
+  },
+});
+
+/** Append immutable evidence. An acknowledged replay cannot add a second row.
+ * This mutation never adjusts account credits or usage aggregates. */
+export const recordProviderReceipt = mutation({
+  args: {
+    serviceKey: v.string(),
+    receipt_id: v.string(),
+    user_id: v.string(),
+    run_id: v.string(),
+    chat_id: v.optional(v.string()),
+    model: v.string(),
+    usage: providerReceiptUsage,
+  },
+  returns: v.boolean(),
+  handler: async (ctx, args) => {
+    validateServiceKey(args.serviceKey);
+    for (const value of [
+      args.receipt_id,
+      args.user_id,
+      args.run_id,
+      args.model,
+      ...(args.chat_id === undefined ? [] : [args.chat_id]),
+    ]) {
+      if (!value || value.trim() !== value || value.length > 256)
+        throw new Error("Invalid usage receipt identity");
+    }
+    for (const [key, value] of Object.entries(args.usage)) {
+      if (
+        value !== undefined &&
+        (!Number.isFinite(value) ||
+          value < 0 ||
+          (key !== "cost_dollars" && !Number.isSafeInteger(value)))
+      )
+        throw new Error("Invalid usage receipt evidence");
+    }
+    const rows = await ctx.db
+      .query("provider_usage_receipts")
+      .withIndex("by_receipt_id", (q) => q.eq("receipt_id", args.receipt_id))
+      .take(2);
+    if (rows.length > 1) throw new Error("Ambiguous usage receipt");
+    if (rows[0]) {
+      const row = rows[0];
+      if (
+        row.user_id !== args.user_id ||
+        row.run_id !== args.run_id ||
+        row.chat_id !== args.chat_id ||
+        row.model !== args.model ||
+        [
+          ...new Set([...Object.keys(row.usage), ...Object.keys(args.usage)]),
+        ].some(
+          (key) =>
+            row.usage[key as keyof typeof row.usage] !==
+            args.usage[key as keyof typeof args.usage],
+        )
+      )
+        throw new Error("Conflicting usage receipt replay");
+      return true;
+    }
+    const { serviceKey: _serviceKey, ...receipt } = args;
+    await ctx.db.insert("provider_usage_receipts", {
+      ...receipt,
+      observed_at: Date.now(),
+    });
+    return true;
+  },
+});
+
+/** Recovery/admin reader. Ownership is explicit; no public list of other users. */
+export const getProviderReceiptsForRun = query({
+  args: {
+    serviceKey: v.string(),
+    user_id: v.string(),
+    run_id: v.string(),
+    paginationOpts: paginationOptsValidator,
+  },
+  handler: async (ctx, args) => {
+    validateServiceKey(args.serviceKey);
+    return ctx.db
+      .query("provider_usage_receipts")
+      .withIndex("by_user_run", (q) =>
+        q.eq("user_id", args.user_id).eq("run_id", args.run_id),
+      )
+      .paginate(args.paginationOpts);
   },
 });

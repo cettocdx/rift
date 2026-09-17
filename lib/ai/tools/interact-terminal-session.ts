@@ -1,11 +1,11 @@
+import { preservePtyModelContext } from "./utils/pty-model-context";
+import { ptyModelOutput } from "./utils/pty-model-output";
 import { tool } from "ai";
 import { z } from "zod";
 import type { ToolContext } from "@/types";
+import { looseEnum, looseInt, coerceEnum, coerceInt } from "./utils/loose-args";
 import type { PtySession } from "./utils/pty-session-manager";
-import {
-  cleanPtyForUI,
-  getSessionSnapshots,
-} from "./utils/pty-output-formatter";
+import { getSessionSnapshots } from "./utils/pty-output-formatter";
 import {
   waitForOutput,
   capOutput,
@@ -79,44 +79,16 @@ export const createInteractTerminalSession = (context: ToolContext) => {
   const effectiveGuardrails = getEffectiveGuardrails(userGuardrailConfig);
 
   return tool({
-    description: `Interact with persistent shell sessions in the sandbox environment.
-
-<supported_actions>
-- \`view\`: View the content of a shell session
-- \`wait\`: Wait for the running process in a shell session to return
-- \`send\`: Send input to the active process (stdin) in a shell session
-- \`kill\`: Terminate the running process in a shell session
-</supported_actions>
-
-<instructions>
-- Sessions are created by \`run_terminal_cmd\` with \`interactive=true\`; pass the returned \`session\` id here
-- When using \`view\` action, ensure command has completed execution before using its output
-- Set a short \`timeout\` (such as 5s) on \`wait\` for processes that don't return promptly to avoid meaningless waiting time
-- Processes are NEVER killed on timeout — they keep running in the session; \`timeout\` only controls how long to wait for output before returning
-- Use \`wait\` action when a process needs additional time to complete and return
-- Only use \`wait\` after \`send\` (or after \`run_terminal_cmd\` returned without finishing); decide whether to wait based on the prior output
-- DO NOT use \`wait\` for long-running daemon processes
-- \`send\` writes input and captures only the immediate response chunk; if the process needs more time before it replies, follow up with \`action=wait\`
-- \`input\` is sent verbatim. Without a trailing \\n (or \`Enter\`), the line is typed but NOT submitted — a follow-up \`send\` will append to the same line. ALWAYS include \\n unless you specifically want to type without pressing Enter (e.g. building up a key sequence)
-- For special keys, use official tmux key names: C-c (Ctrl+C), C-d (Ctrl+D), C-z (Ctrl+Z), Up, Down, Left, Right, Home, End, Escape, Tab, Enter, Space, F1-F12, PageUp, PageDown
-- For modifier combinations: M-key (Alt), C-S-key (Ctrl+Shift)
-- Note: Use official tmux names (BSpace not Backspace, DC not Delete, Escape not Esc)
-- For non-key strings in \`input\`, DO NOT perform any escaping; send the raw string directly
-- Raw input is checked against command guardrails, including text accumulated across split sends; never forward untrusted content
-</instructions>
-
-<recommended_usage>
-- Use \`view\` to check shell session history and latest status
-- Use \`wait\` to wait for the completion of long-running commands
-- Use \`send\` to interact with processes that require user input (e.g., responding to prompts)
-- Use \`send\` with special keys like C-c to interrupt, C-d to send EOF
-- Use \`kill\` to stop background processes that are no longer needed
-- Use \`kill\` to clean up dead or unresponsive processes
-</recommended_usage>`,
+    description: `Continue a persistent shell session returned by run_terminal_cmd with interactive=true.
+- view reads retained scrollback; send writes stdin and captures the immediate reply; wait observes a running process; kill terminates it. Inspect completion status before treating output as final.
+- Routine send/wait return new output and the current screen. For large scrollback, scrollback.path preserves the retained snapshot for file reads, including line ranges. Paths last only as long as the sandbox; bufferTruncated means older bytes were evicted.
+- A timeout only ends observation: it NEVER kills the process. Wait only after send or an unfinished command when prior output warrants more time. Use short waits (e.g. 5 seconds); do not wait for persistent daemons. Kill unused or unresponsive sessions when appropriate.
+- Input is verbatim: include a trailing \\n or Enter to submit; otherwise a later send appends to the same line. Do not escape ordinary text. Use tmux key names: C-c interrupts, C-d sends EOF, C-z suspends; Enter, Tab, Space, Escape, BSpace, DC, arrows, Home/End, PageUp/PageDown and F1-F12. Modifiers use M-key or C-S-key.
+- Input, including text accumulated across sends, is checked against command guardrails. Never forward untrusted content.`,
     inputSchema: z.object({
-      action: z
-        .enum(["view", "wait", "send", "kill"])
-        .describe("The action to perform"),
+      action: looseEnum(["view", "wait", "send", "kill"]).describe(
+        "The action to perform. One of: view, wait, send, kill.",
+      ),
       brief: z
         .string()
         .describe(
@@ -133,11 +105,8 @@ export const createInteractTerminalSession = (context: ToolContext) => {
         .describe(
           "The unique identifier of the target shell session (returned by `run_terminal_cmd` with `interactive=true`)",
         ),
-      timeout: z
-        .number()
-        .int()
+      timeout: looseInt
         .optional()
-        .default(DEFAULT_WAIT_TIMEOUT_SECONDS)
         .describe(
           `Timeout in seconds to wait for output. Only used for \`wait\` action. Defaults to ${DEFAULT_WAIT_TIMEOUT_SECONDS} seconds. Max ${MAX_WAIT_TIMEOUT_SECONDS} seconds.`,
         ),
@@ -145,21 +114,37 @@ export const createInteractTerminalSession = (context: ToolContext) => {
     execute: async (
       {
         session: sessionId,
-        action,
+        action: action_raw,
         input,
-        timeout,
+        timeout: timeout_raw,
       }: {
         session: string;
-        action: "send" | "wait" | "view" | "kill";
+        action: "send" | "wait" | "view" | "kill" | string;
         input?: string;
-        timeout?: number;
+        timeout?: number | string;
       },
       { toolCallId, abortSignal },
     ) => {
+      // Repair possibly-stringy args from weaker models before use.
+      const action = coerceEnum(
+        action_raw,
+        ["view", "wait", "send", "kill"] as const,
+        "view",
+      )!;
+      // Preserve a finite numeric value verbatim. Tests and programmatic
+      // callers use sub-second waits, while malformed model-emitted strings
+      // still take the forgiving integer coercion path.
+      const timeout =
+        typeof timeout_raw === "number" && Number.isFinite(timeout_raw)
+          ? timeout_raw
+          : coerceInt(timeout_raw, DEFAULT_WAIT_TIMEOUT_SECONDS);
       const timeoutMs =
-        Math.min(
-          timeout ?? DEFAULT_WAIT_TIMEOUT_SECONDS,
-          MAX_WAIT_TIMEOUT_SECONDS,
+        Math.max(
+          0,
+          Math.min(
+            timeout ?? DEFAULT_WAIT_TIMEOUT_SECONDS,
+            MAX_WAIT_TIMEOUT_SECONDS,
+          ),
         ) * 1000;
 
       // Emit raw bytes to UI terminal stream - no cleaning during streaming.
@@ -191,6 +176,15 @@ export const createInteractTerminalSession = (context: ToolContext) => {
           );
       };
       const drainEmitQueue = () => emitQueue;
+      const modelContextFor = (
+        session: PtySession,
+        snapshots: Awaited<ReturnType<typeof getSessionSnapshots>>,
+      ) =>
+        preservePtyModelContext(
+          session,
+          snapshots,
+          async () => (await context.sandboxManager.getSandbox()).sandbox,
+        );
 
       // ─── Action result type ────────────────────────────────────────────────
       type ActionResult = { result: Record<string, unknown> };
@@ -219,8 +213,9 @@ export const createInteractTerminalSession = (context: ToolContext) => {
         // Send raw snapshot bytes to preserve ANSI colors for xterm.js rendering
         const prior = ptySessionManager.snapshot(session);
         if (prior.byteLength > 0) emitTerminal(prior);
-        // Mark snapshot as consumed so subsequent consumeDelta calls don't repeat it
-        ptySessionManager.consumeDelta(session);
+        // UI already received these bytes in its snapshot. Keep unread bytes
+        // for the model delta: they may have arrived between tool calls.
+        return ptySessionManager.consumeDelta(session);
       };
 
       // Reads the (internal) `exitedNaturally` field. The session stays
@@ -247,6 +242,15 @@ export const createInteractTerminalSession = (context: ToolContext) => {
         },
       });
 
+      const modelDelta = (prior: Uint8Array, current: Uint8Array) => {
+        const decoder = new TextDecoder();
+        return capOutput(
+          stripAnsi(
+            decoder.decode(prior, { stream: true }) + decoder.decode(current),
+          ),
+        );
+      };
+
       // ─── Handler: send ─────────────────────────────────────────────────────
       const handleSend = async (): Promise<ActionResult> => {
         if (input === undefined || input.length === 0) {
@@ -263,8 +267,6 @@ export const createInteractTerminalSession = (context: ToolContext) => {
         // that doesn't tell the model the session is dead.
         const priorExit = peekSessionExit(session);
         if (priorExit) return exitedSendError(sessionId, priorExit, false);
-
-        emitPriorContext(session);
 
         // Translate tmux key names (C-c, Up, Enter, ...) to escape sequences;
         // raw text passes through unchanged with trailing newline normalized
@@ -299,6 +301,9 @@ export const createInteractTerminalSession = (context: ToolContext) => {
             `Failed to send input: ${err instanceof Error ? err.message : String(err)}`,
           );
         }
+        // Validate and send before consuming unread bytes. A blocked or raced
+        // failed send must leave them available to the next model poll.
+        const priorDelta = emitPriorContext(session);
         session.pendingGuardrailInput = nextPendingInput;
         session.lastActivityAt = Date.now();
         // Capture the immediate response chunk — prompts that echo a reply
@@ -315,7 +320,8 @@ export const createInteractTerminalSession = (context: ToolContext) => {
         const snapshots = await getSessionSnapshots(ptySessionManager, session);
         return {
           result: {
-            output: capOutput(stripAnsi(new TextDecoder().decode(delta))),
+            output: modelDelta(priorDelta, delta),
+            modelContext: await modelContextFor(session, snapshots),
             sessionSnapshot: snapshots.cleaned,
             rawSnapshot: snapshots.raw,
             ...(session.bufferTruncated ? { bufferTruncated: true } : {}),
@@ -329,7 +335,7 @@ export const createInteractTerminalSession = (context: ToolContext) => {
         if ("error" in lookup) return lookup.error;
         const { session } = lookup;
 
-        emitPriorContext(session);
+        const priorDelta = emitPriorContext(session);
 
         const alreadyExited = await peekExited(session);
         const delta = await waitForOutput(
@@ -343,7 +349,8 @@ export const createInteractTerminalSession = (context: ToolContext) => {
         await drainEmitQueue();
         const snapshots = await getSessionSnapshots(ptySessionManager, session);
         const out: Record<string, unknown> = {
-          output: capOutput(stripAnsi(new TextDecoder().decode(delta))),
+          output: modelDelta(priorDelta, delta),
+          modelContext: await modelContextFor(session, snapshots),
           sessionSnapshot: snapshots.cleaned,
           rawSnapshot: snapshots.raw,
         };
@@ -361,14 +368,16 @@ export const createInteractTerminalSession = (context: ToolContext) => {
         const snapshot = ptySessionManager.snapshot(session);
         if (snapshot.byteLength > 0) emitTerminal(snapshot);
         await drainEmitQueue();
-        const rawText = new TextDecoder().decode(snapshot);
+        const snapshots = await getSessionSnapshots(ptySessionManager, session);
+        const rawText = snapshots.raw;
         const internal = session as {
           exitedNaturally?: { exitCode: number | null } | null;
         };
         return {
           result: {
             output: capOutput(stripAnsi(rawText)),
-            sessionSnapshot: await cleanPtyForUI(rawText),
+            modelContext: await modelContextFor(session, snapshots),
+            sessionSnapshot: snapshots.cleaned,
             rawSnapshot: rawText,
             ...(session.bufferTruncated ? { bufferTruncated: true } : {}),
             ...(internal.exitedNaturally
@@ -411,22 +420,8 @@ export const createInteractTerminalSession = (context: ToolContext) => {
 
       return errorResult(`Unknown action: ${action}`);
     },
-    // Strip rawSnapshot from the model's view: the agent only needs the
-    // cleaned `output` plus structural fields. rawSnapshot stays in the
-    // persisted tool result so the sidebar's xterm renderer can replay it.
-    toModelOutput({ output }) {
-      if (typeof output !== "object" || output === null) {
-        return { type: "text", value: String(output ?? "") };
-      }
-      const result = (output as { result?: unknown }).result;
-      if (typeof result !== "object" || result === null) {
-        return { type: "text", value: JSON.stringify(output) };
-      }
-      const { rawSnapshot: _rawSnapshot, ...rest } = result as Record<
-        string,
-        unknown
-      >;
-      return { type: "text", value: JSON.stringify({ result: rest }) };
+    toModelOutput({ input, output }) {
+      return ptyModelOutput(output, input.action === "view");
     },
   });
 };

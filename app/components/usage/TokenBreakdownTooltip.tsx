@@ -67,7 +67,7 @@ const TokenBreakdownTooltip = ({
             </tr>
             <tr>
               <td className="px-3 py-1.5 font-medium">Total</td>
-              <td className="px-3 py-1.5 text-right font-semibold">
+              <td className="px-3 py-1.5 text-right font-medium">
                 {totalTokens.toLocaleString()}
               </td>
             </tr>

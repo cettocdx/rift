@@ -16,6 +16,21 @@ import { convexLogger } from "./lib/logger";
 const MAX_STORAGE_BYTES = 10 * 1024 * 1024 * 1024; // 10737418240 bytes
 
 /**
+ * Generate a Convex built-in storage upload URL. Used as the upload backend
+ * when S3 isn't configured (see s3Actions.generateS3UploadUrlAction). The
+ * client POSTs the file to this URL and receives a `{ storageId }` it then
+ * passes to fileActions.saveFile. Internal — called from the (Node) action,
+ * which has already authenticated + rate-limited the caller.
+ */
+export const generateConvexUploadUrl = internalMutation({
+  args: {},
+  returns: v.string(),
+  handler: async (ctx) => {
+    return await ctx.storage.generateUploadUrl();
+  },
+});
+
+/**
  * Get download URL for a file by storageId (on-demand for non-image files)
  */
 export const getFileDownloadUrl = query({
@@ -328,6 +343,15 @@ export const getFileById = internalQuery({
       file_token_size: v.number(),
       content: v.optional(v.string()),
       is_attached: v.boolean(),
+      generation: v.optional(v.object({
+        prompt: v.string(),
+        model: v.string(),
+        surface: v.optional(v.string()),
+        settings: v.optional(v.any()),
+        cost_dollars: v.optional(v.number()),
+        run_id: v.optional(v.string()),
+        created_at: v.number(),
+      })),
       _creationTime: v.number(),
     }),
     v.null(),
@@ -354,6 +378,15 @@ export const getFileByS3Key = internalQuery({
       file_token_size: v.number(),
       content: v.optional(v.string()),
       is_attached: v.boolean(),
+      generation: v.optional(v.object({
+        prompt: v.string(),
+        model: v.string(),
+        surface: v.optional(v.string()),
+        settings: v.optional(v.any()),
+        cost_dollars: v.optional(v.number()),
+        run_id: v.optional(v.string()),
+        created_at: v.number(),
+      })),
       _creationTime: v.number(),
     }),
     v.null(),
@@ -432,6 +465,14 @@ export const saveFileToDb = internalMutation({
     fileTokenSize: v.number(),
     content: v.optional(v.string()),
     trustedServiceGenerated: v.optional(v.boolean()),
+    generation: v.optional(v.object({
+      prompt: v.string(),
+      model: v.string(),
+      surface: v.optional(v.string()),
+      settings: v.optional(v.any()),
+      costDollars: v.optional(v.number()),
+      runId: v.optional(v.string()),
+    })),
   },
   returns: v.id("files"),
   handler: async (ctx, args) => {
@@ -494,6 +535,17 @@ export const saveFileToDb = internalMutation({
       file_token_size: args.fileTokenSize,
       content: args.content,
       is_attached: false,
+      generation: args.generation
+        ? {
+            prompt: args.generation.prompt,
+            model: args.generation.model,
+            surface: args.generation.surface,
+            settings: args.generation.settings,
+            cost_dollars: args.generation.costDollars,
+            run_id: args.generation.runId,
+            created_at: Date.now(),
+          }
+        : undefined,
     });
 
     const doc = await ctx.db.get(fileId);

@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useMemo } from "react";
 import { useQuery, useMutation } from "convex/react";
 import { ConvexError } from "convex/values";
 import { api } from "@/convex/_generated/api";
@@ -18,7 +18,8 @@ import { Save, ShieldAlert, ChevronDown, ChevronUp } from "lucide-react";
 import { toast } from "sonner";
 import { useGlobalState } from "@/app/contexts/GlobalState";
 import type { QueueBehavior } from "@/types/chat";
-import { SandboxSelector } from "@/app/components/SandboxSelector";
+import { AgentPetRoster } from "@/app/components/agents/AgentPetRoster";
+import { EffectivePolicyTable } from "@/app/components/settings/EffectivePolicyTable";
 import {
   type GuardrailConfigUI,
   getDefaultGuardrailsUI,
@@ -28,20 +29,14 @@ import {
 } from "@/lib/ai/tools/utils/guardrails";
 
 const severityColors: Record<GuardrailConfigUI["severity"], string> = {
-  critical: "text-red-500",
-  high: "text-orange-500",
-  medium: "text-yellow-500",
-  low: "text-blue-500",
+  critical: "text-destructive",
+  high: "text-warning",
+  medium: "text-muted-foreground",
+  low: "text-muted-foreground",
 };
 
 const AgentsTab = () => {
-  const {
-    queueBehavior,
-    setQueueBehavior,
-    subscription,
-    sandboxPreference,
-    setSandboxPreference,
-  } = useGlobalState();
+  const { queueBehavior, setQueueBehavior, subscription } = useGlobalState();
 
   const [guardrails, setGuardrails] = useState<GuardrailConfigUI[]>(
     getDefaultGuardrailsUI(),
@@ -126,116 +121,47 @@ const AgentsTab = () => {
     setGuardrails(getDefaultGuardrailsUI());
   };
 
+  // What the switches below actually add up to. Section 18.4 asks settings to
+  // show effective policy and its inheritance; the value alone does not answer
+  // "why can an agent do that, and where do I change it".
+  const guardrailOverrides = useMemo(() => {
+    const defaults = new Map(
+      getDefaultGuardrailsUI().map((entry) => [entry.id, entry.enabled]),
+    );
+    const overrides = new Map<string, boolean>();
+    for (const guardrail of guardrails) {
+      if (defaults.get(guardrail.id) !== guardrail.enabled) {
+        overrides.set(guardrail.id, guardrail.enabled);
+      }
+    }
+    return overrides;
+  }, [guardrails]);
+
   return (
     <div className="space-y-6">
-      {/* Execution Environment - Available to all users */}
-      <div className="space-y-4">
-        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between py-3 border-b gap-3">
-          <div className="flex-1">
-            <div className="font-medium">Default execution environment</div>
-            <div className="text-sm text-muted-foreground">
-              Choose the default sandbox environment for Agent mode
-            </div>
-          </div>
-          <div className="w-full sm:w-auto">
-            <SandboxSelector
-              value={sandboxPreference}
-              onChange={setSandboxPreference}
-              disabled={false}
-              size="md"
-            />
-          </div>
-        </div>
-      </div>
+      <AgentPetRoster />
 
-      {/* Caido proxy temporarily disabled for all users.
-          Kill switch lives in lib/api/chat-handler.ts (caidoEnabled forced false).
-      {subscription !== "free" && (
-        <div className="space-y-4">
-          <div className="flex items-center justify-between py-3 border-b">
-            <div className="flex-1 pr-4">
-              <Label
-                htmlFor="caido-proxy"
-                className="font-medium cursor-pointer"
-              >
-                Caido Proxy
-              </Label>
-              <p className="text-sm text-muted-foreground">
-                Intercept and inspect all HTTP/HTTPS traffic through Caido
-              </p>
-            </div>
-            <Switch
-              id="caido-proxy"
-              checked={userCustomization?.caido_enabled ?? false}
-              onCheckedChange={async (checked) => {
-                try {
-                  await saveCustomization({ caido_enabled: checked });
-                  toast.success(
-                    checked ? "Caido proxy enabled" : "Caido proxy disabled",
-                  );
-                } catch {
-                  toast.error("Failed to update Caido setting");
-                }
-              }}
-              aria-label="Toggle Caido proxy"
-            />
-          </div>
-          {(userCustomization?.caido_enabled ?? false) && (
-            <div className="flex items-center justify-between py-3 border-b pl-4">
-              <div className="flex-1 pr-4">
-                <Label
-                  htmlFor="caido-port"
-                  className="font-medium cursor-pointer"
-                >
-                  Custom Port
-                </Label>
-                <p className="text-sm text-muted-foreground">
-                  Connect to your own Caido instance (local sandbox only). Leave
-                  empty for default (48080).
-                </p>
-              </div>
-              <input
-                id="caido-port"
-                type="number"
-                min={1}
-                max={65535}
-                placeholder="48080"
-                className="w-24 rounded-md border border-input bg-background px-3 py-1.5 text-sm"
-                defaultValue={userCustomization?.caido_port ?? ""}
-                onBlur={async (e) => {
-                  const raw = e.target.value.trim();
-                  const port = raw ? Number(raw) : 0;
-                  if (
-                    raw &&
-                    (isNaN(port) ||
-                      !Number.isInteger(port) ||
-                      port < 1 ||
-                      port > 65535)
-                  ) {
-                    toast.error("Port must be an integer between 1 and 65535");
-                    return;
-                  }
-                  try {
-                    await saveCustomization({ caido_port: port || undefined });
-                    toast.success(
-                      port
-                        ? `Caido port set to ${port}`
-                        : "Caido port reset to default",
-                    );
-                  } catch {
-                    toast.error("Failed to update Caido port");
-                  }
-                }}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter") {
-                    (e.target as HTMLInputElement).blur();
-                  }
-                }}
-              />
-            </div>
-          )}
-        </div>
-      )}
+      <EffectivePolicyTable
+        userGuardrailOverrides={guardrailOverrides}
+        productGuardrailDefaults={getDefaultGuardrailsUI().map((entry) => ({
+          id: entry.id,
+          name: entry.name,
+          enabled: entry.enabled,
+        }))}
+      />
+
+      {/*
+        There is no Caido proxy panel here: lib/api/chat-handler.ts passes
+        caidoEnabled false unconditionally, so a control would toggle nothing.
+        The switch is that one call site; a panel has to be written against
+        whatever the schema looks like when it flips back on.
+
+        The Convex fields stay put. caido_enabled and caido_port are read in
+        lib/system-prompt.ts and declared in the return validators of both
+        getUserCustomization and getUserCustomizationForBackend, so dropping
+        them from the schema first breaks reads on existing rows. The order is
+        stop writing, then remove from args and validators, then migrate rows,
+        then defineTable.
       */}
 
       {/* Queue Messages - Only show for Pro/Ultra/Team users */}
@@ -243,7 +169,7 @@ const AgentsTab = () => {
         <div className="space-y-4">
           <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between py-3 border-b gap-3">
             <div className="flex-1">
-              <div className="font-medium">Queue Messages</div>
+              <div className="font-medium">Queue messages</div>
               <div className="text-sm text-muted-foreground">
                 Adjust the default behavior of sending a message while Agent is
                 streaming
@@ -281,7 +207,7 @@ const AgentsTab = () => {
         >
           <div className="flex items-center gap-2">
             <ShieldAlert className="h-4 w-4 text-muted-foreground" />
-            <h3 className="text-sm font-semibold">Security Guardrails</h3>
+            <h3 className="text-sm font-medium">Security guardrails</h3>
           </div>
           {guardrailsExpanded ? (
             <ChevronUp className="h-4 w-4 text-muted-foreground" />
@@ -292,16 +218,17 @@ const AgentsTab = () => {
 
         {guardrailsExpanded && (
           <div className="space-y-4">
-            <div className="flex items-start gap-2 p-3 bg-amber-500/10 rounded-lg text-xs">
-              <ShieldAlert className="h-4 w-4 text-amber-600 dark:text-amber-400 shrink-0 mt-0.5" />
-              <div className="text-amber-800 dark:text-amber-200">
+            <div className="flex items-start gap-2 rounded-md border border-border bg-muted/45 p-3 text-xs">
+              <ShieldAlert className="mt-0.5 h-4 w-4 shrink-0 text-warning" />
+              {/* The heading directly above already names these; the emphasis
+                  belongs on what they actually block. */}
+              <div className="text-foreground">
                 <span className="font-medium">
-                  Security guardrails protect against dangerous commands.
+                  These block destructive system commands, reverse shells, and
+                  other malicious patterns.
                 </span>{" "}
-                <span className="text-amber-700 dark:text-amber-300">
-                  These safeguards block destructive system commands, reverse
-                  shells, and other malicious patterns. Disable at your own
-                  risk.
+                <span className="text-muted-foreground">
+                  Disable at your own risk.
                 </span>
               </div>
             </div>
@@ -310,7 +237,7 @@ const AgentsTab = () => {
               {guardrails.map((guardrail) => (
                 <div
                   key={guardrail.id}
-                  className="flex items-center justify-between py-2 px-3 rounded-lg hover:bg-muted/50 transition-colors"
+                  className="flex items-center justify-between rounded-md px-3 py-2 transition-colors hover:bg-muted/50"
                 >
                   <div className="flex-1 pr-4">
                     <div className="flex items-center gap-2">
@@ -321,7 +248,7 @@ const AgentsTab = () => {
                         {guardrail.name}
                       </Label>
                       <span
-                        className={`text-[10px] font-medium uppercase ${severityColors[guardrail.severity]}`}
+                        className={`text-ui-caption font-medium uppercase ${severityColors[guardrail.severity]}`}
                       >
                         {guardrail.severity}
                       </span>
@@ -347,7 +274,7 @@ const AgentsTab = () => {
                 size="sm"
                 type="button"
               >
-                Reset to Defaults
+                Reset to defaults
               </Button>
               <Button
                 onClick={handleSaveGuardrails}
@@ -356,7 +283,7 @@ const AgentsTab = () => {
                 type="button"
               >
                 <Save className="h-4 w-4 mr-2" />
-                {isSavingGuardrails ? "Saving..." : "Save Guardrails"}
+                {isSavingGuardrails ? "Saving..." : "Save guardrails"}
               </Button>
             </div>
           </div>

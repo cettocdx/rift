@@ -1,15 +1,18 @@
+import { trackPostHogClientFlushes } from "@/lib/posthog/client-flush";
+import { getTelemetryContext } from "@/lib/posthog/context";
 import { PostHog } from "posthog-node";
 
-export default function PostHogClient() {
-  if (!process.env.NEXT_PUBLIC_POSTHOG_KEY) {
+/** @param {import("@/lib/posthog/context").TelemetryContext} [context] */
+export default function PostHogClient(context = getTelemetryContext()) {
+  if (!context.analyticsKey) {
     return null;
   }
 
-  const posthogClient = new PostHog(process.env.NEXT_PUBLIC_POSTHOG_KEY, {
-    host: process.env.NEXT_PUBLIC_POSTHOG_HOST ?? "https://us.i.posthog.com",
+  const posthogClient = new PostHog(context.analyticsKey, {
+    host: context.analyticsHost,
     flushAt: 20,
     flushInterval: 0,
   });
 
-  return posthogClient;
+  return trackPostHogClientFlushes(posthogClient);
 }

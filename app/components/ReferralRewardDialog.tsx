@@ -9,7 +9,6 @@ import {
   Gift,
   Link as LinkIcon,
   UserPlus,
-  Zap,
 } from "lucide-react";
 import { QRCodeSVG } from "qrcode.react";
 import { toast } from "sonner";
@@ -272,7 +271,7 @@ export function ReferralRewardDialog({
                   <ul className="flex flex-col gap-4">
                     <li className="flex items-center gap-3">
                       <span className="bg-muted text-foreground flex size-9 shrink-0 items-center justify-center rounded-lg">
-                        <Zap className="size-5" />
+                        <LinkIcon className="size-5" />
                       </span>
                       <span className="text-foreground text-base font-normal">
                         Share your invite link

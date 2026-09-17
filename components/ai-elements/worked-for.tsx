@@ -8,7 +8,7 @@ import {
 } from "@/components/ui/collapsible";
 import { STICKY_BOTTOM_ESCAPE_EVENT } from "@/lib/utils/scroll-events";
 import { cn } from "@/lib/utils";
-import { ChevronDownIcon, ChevronRightIcon } from "lucide-react";
+import { ChevronRightIcon } from "lucide-react";
 import {
   createContext,
   useCallback,
@@ -81,7 +81,6 @@ const getScrollableAncestor = (element: HTMLElement): HTMLElement | null => {
 };
 
 const now = () => Date.now();
-const AUTO_COLLAPSE_DELAY_MS = 700;
 const SCROLL_RESTORE_MS = 450;
 const BOTTOM_SCROLL_RESTORE_MS = 1_100;
 // Mobile browser chrome and smooth resize timing can make "at bottom" read
@@ -115,7 +114,6 @@ export function WorkedFor({
   });
   const scrollSnapshotRef = useRef<ScrollSnapshot | null>(null);
   const restoreTokenRef = useRef(0);
-  const wasTimingRef = useRef(isTiming);
   const autoCollapseTimeoutRef = useRef<number | null>(null);
 
   const clearAutoCollapseTimeout = useCallback(() => {
@@ -202,20 +200,15 @@ export function WorkedFor({
   );
 
   useEffect(() => {
-    const wasTiming = wasTimingRef.current;
-
+    // Keep the transcript open while working and after the run finishes.
+    // after the run finishes. Previously a 700ms timer collapsed the whole
+    // WorkedFor when timing stopped, so every reasoning + terminal step appeared
+    // to vanish the instant the final answer arrived. Now the steps stay as a
+    // persistent record (Hermes-style); the user can collapse them by hand.
     if (isTiming) {
       clearAutoCollapseTimeout();
       setIsOpen(true);
-    } else if (wasTiming) {
-      clearAutoCollapseTimeout();
-      autoCollapseTimeoutRef.current = window.setTimeout(() => {
-        autoCollapseTimeoutRef.current = null;
-        setIsOpen(false);
-      }, AUTO_COLLAPSE_DELAY_MS);
     }
-
-    wasTimingRef.current = isTiming;
   }, [clearAutoCollapseTimeout, isTiming, setIsOpen]);
 
   useEffect(() => clearAutoCollapseTimeout, [clearAutoCollapseTimeout]);
@@ -233,9 +226,11 @@ export function WorkedFor({
   return (
     <WorkedForContext.Provider value={contextValue}>
       <Collapsible
+        data-ui="work-log"
+        data-timing={isTiming ? "true" : "false"}
         open={hasWork ? !!isOpen : false}
         onOpenChange={hasWork ? handleOpenChange : undefined}
-        className={cn("not-prose w-full space-y-2", className)}
+        className={cn("not-prose w-full space-y-0", className)}
         {...props}
       >
         {children}
@@ -251,6 +246,8 @@ export type WorkedForTriggerProps = ComponentProps<
   startedAt?: number;
   label?: ReactNode;
   isTiming?: boolean;
+  /** Right-aligned run figures (tokens, cost), the way a TUI closes a run. */
+  trailing?: ReactNode;
 };
 
 export function WorkedForTrigger({
@@ -259,6 +256,7 @@ export function WorkedForTrigger({
   startedAt,
   isTiming = false,
   label,
+  trailing,
   onClick,
   onKeyDown,
   onPointerDown,
@@ -300,7 +298,7 @@ export function WorkedForTrigger({
   const text =
     label ??
     (isTiming
-      ? `Working for ${formatDuration(elapsedMs)}`
+      ? `Running for ${formatDuration(elapsedMs)}`
       : typeof durationMs === "number" && durationMs > 0
         ? `Worked for ${formatDuration(durationMs)}`
         : "Worked");
@@ -336,9 +334,11 @@ export function WorkedForTrigger({
 
   return (
     <CollapsibleTrigger
+      data-ui="work-summary"
+      data-running={isTiming ? "true" : "false"}
       disabled={!canToggle}
       className={cn(
-        "flex items-center gap-2 text-muted-foreground text-sm transition-colors border-b border-border pb-3 w-full",
+        "group/work flex min-h-6 w-full items-center gap-1 py-0.5 text-left text-[12px] leading-5 text-muted-foreground transition-colors focus-visible:outline-none",
         canToggle && "hover:text-foreground",
         !canToggle && "cursor-default",
         className,
@@ -349,13 +349,27 @@ export function WorkedForTrigger({
       onTouchStart={handleTouchStart}
       {...props}
     >
-      <span>{text}</span>
-      {canToggle &&
-        (isOpen ? (
-          <ChevronDownIcon className="size-4" />
-        ) : (
-          <ChevronRightIcon className="size-4" />
-        ))}
+      <span className="min-w-0 truncate font-normal text-[var(--cursor-text-secondary)] group-hover/work:text-foreground">
+        {text}
+      </span>
+      {trailing ? (
+        <span
+          data-ui="work-summary-figures"
+          className="ml-auto shrink-0 pl-3 font-mono text-[11px] tabular-nums text-muted-foreground"
+        >
+          {trailing}
+        </span>
+      ) : null}
+      {canToggle ? (
+        <ChevronRightIcon
+          data-ui="work-summary-chevron"
+          className={cn(
+            "size-3 shrink-0 text-muted-foreground/50",
+            isOpen && "rotate-90",
+          )}
+          aria-hidden="true"
+        />
+      ) : null}
     </CollapsibleTrigger>
   );
 }
@@ -379,7 +393,8 @@ export function WorkedForContent({
 
   return (
     <CollapsibleContent
-      className={cn("worked-for-content mt-2 space-y-3", className)}
+      data-ui="work-transcript"
+      className={cn("worked-for-content mt-0 space-y-0", className)}
       {...props}
     >
       {shouldRenderChildren

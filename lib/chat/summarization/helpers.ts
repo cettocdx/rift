@@ -7,18 +7,18 @@ import {
   ModelMessage,
 } from "ai";
 import { v4 as uuidv4 } from "uuid";
+import { countMessagesTokens, truncateContent } from "@/lib/token-utils";
 import {
-  getMaxTokensForSubscription,
-  countMessagesTokens,
-  truncateContent,
-} from "@/lib/token-utils";
+  getContextCompactionThreshold,
+  getOutputTokenReserve,
+  type ContextLimitOptions,
+} from "@/lib/token-limits";
 import { saveChatSummary } from "@/lib/db/actions";
 import { SubscriptionTier, ChatMode, Todo } from "@/types";
 import type { Id } from "@/convex/_generated/dataModel";
 
 import {
   MESSAGES_TO_KEEP_UNSUMMARIZED,
-  SUMMARIZATION_THRESHOLD_PERCENTAGE,
   SUMMARY_TODO_BLOCK_MAX_TOKENS,
   SUMMARY_TODO_CONTENT_MAX_TOKENS,
   SUMMARY_TODO_MAX_ITEMS,
@@ -62,9 +62,9 @@ export const isAboveTokenThreshold = (
   fileTokens: Record<Id<"files">, number>,
   systemPromptTokens: number = 0,
   providerInputTokens: number = 0,
+  context?: ContextLimitOptions,
 ): boolean => {
-  const maxTokens = getMaxTokensForSubscription(subscription);
-  const threshold = Math.floor(maxTokens * SUMMARIZATION_THRESHOLD_PERCENTAGE);
+  const threshold = getContextCompactionThreshold(subscription, context);
 
   // If the provider already reported input tokens exceeding the threshold,
   // trust that over our local gpt-tokenizer estimate (which misses tool
@@ -118,6 +118,7 @@ export const generateSummaryText = async (
   providerOptions?: Record<string, Record<string, unknown>>,
   abortSignal?: AbortSignal,
   modelMessages?: ModelMessage[],
+  subscription: SubscriptionTier = "pro",
 ): Promise<{ text: string; usage: SummarizationUsage }> => {
   const summarizationPrompt = getSummarizationPrompt(mode);
 
@@ -126,8 +127,8 @@ export const generateSummaryText = async (
     : "";
 
   // Tools are included solely to match the main streamText prefix for provider
-  // cache-hits. Execute functions are replaced with no-ops so that if the model
-  // attempts a tool call it gets an empty result and continues with text.
+  // cache-hits. Tool choice forbids calls; no-op executors also ensure a
+  // provider that ignores that choice cannot run conversation tools.
   const nopTools = tools
     ? Object.fromEntries(
         Object.entries(tools).map(([name, tool]) => [
@@ -143,8 +144,10 @@ export const generateSummaryText = async (
 
   const result = await generateText({
     model: languageModel,
+    maxOutputTokens: getOutputTokenReserve(subscription),
     system: chatSystemPrompt,
     tools: nopTools,
+    toolChoice: "none",
     abortSignal,
 
     providerOptions: providerOptions as any,
@@ -177,7 +180,11 @@ export const generateSummaryText = async (
       ...(details?.cacheWriteTokens
         ? { cacheWriteTokens: details.cacheWriteTokens }
         : undefined),
-      ...(providerCost ? { cost: providerCost } : undefined),
+      ...(typeof providerCost === "number" &&
+      Number.isFinite(providerCost) &&
+      providerCost >= 0
+        ? { cost: providerCost }
+        : undefined),
     },
   };
 };

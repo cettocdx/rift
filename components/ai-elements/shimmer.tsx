@@ -6,7 +6,6 @@ import {
   type ElementType,
   createElement,
   memo,
-  useMemo,
 } from "react";
 
 export interface TextShimmerProps {
@@ -14,35 +13,23 @@ export interface TextShimmerProps {
   as?: ElementType;
   className?: string;
   duration?: number;
+  /** Unused since the rainbow rework; kept so existing call sites compile. */
   spread?: number;
 }
 
+/** Shared neutral light sweep for transient work and context-compaction labels. */
 const ShimmerComponent = ({
   children,
   as: Component = "p",
   className,
   duration = 2,
-  spread = 2,
 }: TextShimmerProps) => {
-  const dynamicSpread = useMemo(
-    () => (children?.length ?? 0) * spread,
-    [children, spread],
-  );
-
   return createElement(
     Component,
     {
-      className: cn(
-        "relative inline-block bg-[length:250%_100%,auto] bg-clip-text text-transparent",
-        "[--bg:linear-gradient(90deg,#0000_calc(50%-var(--spread)),var(--color-background),#0000_calc(50%+var(--spread)))] [background-repeat:no-repeat,padding-box]",
-        "animate-text-shimmer",
-        className,
-      ),
+      className: cn("relative inline-block rift-thinking-shimmer", className),
       style: {
-        "--spread": `${dynamicSpread}px`,
         animationDuration: `${duration}s`,
-        backgroundImage:
-          "var(--bg), linear-gradient(var(--color-muted-foreground), var(--color-muted-foreground))",
       } as CSSProperties,
     },
     children,

@@ -1,0 +1,362 @@
+{
+  "package": "RIFT-Logo-Package-11",
+  "generator": {
+    "tauri": "2.11.2",
+    "sharp": "0.34.5",
+    "vips": "8.17.3"
+  },
+  "sources": {
+    "RIFT.svg": {
+      "packagePath": "SVG/Rift-AppIcon-Light.svg",
+      "sha256": "4262fbb686d91853a3923d80ec7b726d0c9c70fbb89f2f656f89e4042ff8d2ad"
+    },
+    "RIFT-mark.svg": {
+      "packagePath": "SVG/Rift-Symbol-Black.svg",
+      "sha256": "75f8339b5524cd74d6534277630c887d2151b46d1a893d21ff725762abeef5ba"
+    }
+  },
+  "files": {
+    "128x128.png": {
+      "sha256": "7a71a45ef49e6cc7c207b122fa98174b958f0e7a7ff350d0ca1cb851d10ad19b",
+      "width": 128,
+      "height": 128
+    },
+    "128x128@2x.png": {
+      "sha256": "926691546acd37f6d9e7a5ca498518371f5b500533eb6982da89d71b2a66261c",
+      "width": 256,
+      "height": 256
+    },
+    "32x32.png": {
+      "sha256": "53362acd8eed7d4ad0335e598a7e0f08c509d4d869094139874f104d0afb1525",
+      "width": 32,
+      "height": 32
+    },
+    "64x64.png": {
+      "sha256": "db76d704b28979de69f7f23cb3e44f9ee23990a69259bf4e5bd0651fea3f7a12",
+      "width": 64,
+      "height": 64
+    },
+    "Square107x107Logo.png": {
+      "sha256": "2f22d086c978b99c92a48433ad979bd1c5dc899b1bf405fab061ac403aea51d5",
+      "width": 107,
+      "height": 107
+    },
+    "Square142x142Logo.png": {
+      "sha256": "e0923ba0d4a59ad5b9b1572e6f5a8cf2610c174f1de47cacdab1c4e8b7d2a64c",
+      "width": 142,
+      "height": 142
+    },
+    "Square150x150Logo.png": {
+      "sha256": "c687c578818376d4012ced37bdfb480c19a99da21ab73901956a4573dc932b23",
+      "width": 150,
+      "height": 150
+    },
+    "Square284x284Logo.png": {
+      "sha256": "46540d3ceb69ce804f8ebcdd1210026547fd006385c02fb66f7254e8b630ad6e",
+      "width": 284,
+      "height": 284
+    },
+    "Square30x30Logo.png": {
+      "sha256": "531ee622fa7074b48e5586b9c7e625eb2de104f6ab8eb4b2f3d79ba96ae097b5",
+      "width": 30,
+      "height": 30
+    },
+    "Square310x310Logo.png": {
+      "sha256": "643548564fe8fbee4732d89704b4025dce96a735f9aa55ce7523635dfc2b3914",
+      "width": 310,
+      "height": 310
+    },
+    "Square44x44Logo.png": {
+      "sha256": "9457a010faefd1a9eb9d3e3ddf8a24ab60a070eea8f91e44e3620fce7f7aa9d8",
+      "width": 44,
+      "height": 44
+    },
+    "Square71x71Logo.png": {
+      "sha256": "22ff5adc77c2bcb59ff024f060143f744202c7956a555f67d09fb1e12d0392d2",
+      "width": 71,
+      "height": 71
+    },
+    "Square89x89Logo.png": {
+      "sha256": "6ca1599d24a71b1457bbd8556ddcea38c3cad61ddce6bbfaa62570427fa12a5e",
+      "width": 89,
+      "height": 89
+    },
+    "StoreLogo.png": {
+      "sha256": "259164627798b409490e728b15d978c76d5caf4ce01cb78d808c6b8abd2f44a0",
+      "width": 50,
+      "height": 50
+    },
+    "android/mipmap-anydpi-v26/ic_launcher.xml": {
+      "sha256": "ce553c32faa1e9c49a27fae5a149881004c0cd52eb1d144b7b613067f50c6a17"
+    },
+    "android/mipmap-hdpi/ic_launcher.png": {
+      "sha256": "0bc411b22222fc7cd809d4768fa8d10bf928801a681be2c2dc435011293276e1",
+      "width": 72,
+      "height": 72
+    },
+    "android/mipmap-hdpi/ic_launcher_foreground.png": {
+      "sha256": "a15aebc6a6128a06303620d67224dc04808153b7901b30a857abe9c80b2483f8",
+      "width": 162,
+      "height": 162
+    },
+    "android/mipmap-hdpi/ic_launcher_monochrome.png": {
+      "sha256": "a15aebc6a6128a06303620d67224dc04808153b7901b30a857abe9c80b2483f8",
+      "width": 162,
+      "height": 162
+    },
+    "android/mipmap-hdpi/ic_launcher_round.png": {
+      "sha256": "eca945f440157236a1b1892fd22d84c6befaebdd225951f141b6a4ab760613ea",
+      "width": 72,
+      "height": 72
+    },
+    "android/mipmap-mdpi/ic_launcher.png": {
+      "sha256": "98d4e2e779c972ace1fc53f308d0409340cc9af98f7da376e96b1526d7efc8d6",
+      "width": 48,
+      "height": 48
+    },
+    "android/mipmap-mdpi/ic_launcher_foreground.png": {
+      "sha256": "ac29de4e366fefef7796c147ff010561b4d980ef4ce0279e8071e9bdf0c8e299",
+      "width": 108,
+      "height": 108
+    },
+    "android/mipmap-mdpi/ic_launcher_monochrome.png": {
+      "sha256": "ac29de4e366fefef7796c147ff010561b4d980ef4ce0279e8071e9bdf0c8e299",
+      "width": 108,
+      "height": 108
+    },
+    "android/mipmap-mdpi/ic_launcher_round.png": {
+      "sha256": "9b0fd8c9744f5804368467f2d34eaf3818344d34712712c4629a92d4041263e6",
+      "width": 48,
+      "height": 48
+    },
+    "android/mipmap-xhdpi/ic_launcher.png": {
+      "sha256": "c8cc534b44fb34cbfd207cb7dfadab50ff38d86d6cb9693bd6f1b5a79b4e9e07",
+      "width": 96,
+      "height": 96
+    },
+    "android/mipmap-xhdpi/ic_launcher_foreground.png": {
+      "sha256": "311fd7115d93b9b32195a57f77402d2d9ca9637ae46d702c6d8feecf2b0d4156",
+      "width": 216,
+      "height": 216
+    },
+    "android/mipmap-xhdpi/ic_launcher_monochrome.png": {
+      "sha256": "311fd7115d93b9b32195a57f77402d2d9ca9637ae46d702c6d8feecf2b0d4156",
+      "width": 216,
+      "height": 216
+    },
+    "android/mipmap-xhdpi/ic_launcher_round.png": {
+      "sha256": "2d16d84ea64b719bba3441badd1f694e38a2a817ced83edf075937b540a1b27c",
+      "width": 96,
+      "height": 96
+    },
+    "android/mipmap-xxhdpi/ic_launcher.png": {
+      "sha256": "0ef9c7cc39c3edf92085e078896a33b58e894a052058b6b25bcf7d1fc698b48b",
+      "width": 144,
+      "height": 144
+    },
+    "android/mipmap-xxhdpi/ic_launcher_foreground.png": {
+      "sha256": "2e8522ff3ba2fdc343734fdc9bd52047d565a325229608eea99c1839d4e3b8c4",
+      "width": 324,
+      "height": 324
+    },
+    "android/mipmap-xxhdpi/ic_launcher_monochrome.png": {
+      "sha256": "2e8522ff3ba2fdc343734fdc9bd52047d565a325229608eea99c1839d4e3b8c4",
+      "width": 324,
+      "height": 324
+    },
+    "android/mipmap-xxhdpi/ic_launcher_round.png": {
+      "sha256": "e0502c08b3fb519c5e2fab72488ca3602ce0c1df0d2352e44bd8af9203b2066f",
+      "width": 144,
+      "height": 144
+    },
+    "android/mipmap-xxxhdpi/ic_launcher.png": {
+      "sha256": "d28f9b0d2a6941ed83038e90a1666638c0e188e1ade8ee24475b1d0a8230d48a",
+      "width": 192,
+      "height": 192
+    },
+    "android/mipmap-xxxhdpi/ic_launcher_foreground.png": {
+      "sha256": "01b072b29cecb2c8a1bfc0622e03341adeedf8c65a16281137d82de8ef1251d0",
+      "width": 432,
+      "height": 432
+    },
+    "android/mipmap-xxxhdpi/ic_launcher_monochrome.png": {
+      "sha256": "01b072b29cecb2c8a1bfc0622e03341adeedf8c65a16281137d82de8ef1251d0",
+      "width": 432,
+      "height": 432
+    },
+    "android/mipmap-xxxhdpi/ic_launcher_round.png": {
+      "sha256": "6d0f10a4d0dcc19e15548373e05ce89dbe8a208f9c838bc818ee5172bc67040b",
+      "width": 192,
+      "height": 192
+    },
+    "android/values/ic_launcher_background.xml": {
+      "sha256": "8bed13fafadd67a52aedc0dd9d6250f99feb378878203adc9a06abc96f8f085e"
+    },
+    "icon.icns": {
+      "sha256": "8c593422c06ca411da734f2607da99a4ce76380273e893fde03ef525a9d57201"
+    },
+    "icon.ico": {
+      "sha256": "7d4eb955c346df6ef025b89c65bbaa62852337c98c20e6053d2c4341ce5a5832"
+    },
+    "icon.iconset/icon_1024x1024.png": {
+      "sha256": "4599c7aea738a37a9d61a090578e250591921229c736f903b02aa13d5a0219b1",
+      "width": 1024,
+      "height": 1024
+    },
+    "icon.iconset/icon_128x128.png": {
+      "sha256": "2cc5aebe9e239338dd23a0d09e1bd31a55c226102f216a89872a3bdc44e2d18b",
+      "width": 128,
+      "height": 128
+    },
+    "icon.iconset/icon_128x128@2x.png": {
+      "sha256": "1fdc5400f97d3cce829269fc8c52e920b11c2cb76f71c019c3c6d65e17539404",
+      "width": 256,
+      "height": 256
+    },
+    "icon.iconset/icon_16x16.png": {
+      "sha256": "70d59f4963e2863500288c1d48f9ae12801e0da7c3af4a2bb1b84463713feddd",
+      "width": 16,
+      "height": 16
+    },
+    "icon.iconset/icon_16x16@2x.png": {
+      "sha256": "df019dc8130ce3649cca1bb5e59426cc470eb4df26c65401c0875a3e7e3e5984",
+      "width": 32,
+      "height": 32
+    },
+    "icon.iconset/icon_256x256.png": {
+      "sha256": "1fdc5400f97d3cce829269fc8c52e920b11c2cb76f71c019c3c6d65e17539404",
+      "width": 256,
+      "height": 256
+    },
+    "icon.iconset/icon_256x256@2x.png": {
+      "sha256": "f8a319fbc77ed5e6c648d6f1e1c60e1ba045af9cdaf3f97785db508712e7a7a2",
+      "width": 512,
+      "height": 512
+    },
+    "icon.iconset/icon_32x32.png": {
+      "sha256": "df019dc8130ce3649cca1bb5e59426cc470eb4df26c65401c0875a3e7e3e5984",
+      "width": 32,
+      "height": 32
+    },
+    "icon.iconset/icon_32x32@2x.png": {
+      "sha256": "d943e903cdc67130b5a56d4a06089c7b9479b5ee8cfe0ff77feb8695a8d1aad5",
+      "width": 64,
+      "height": 64
+    },
+    "icon.iconset/icon_512x512.png": {
+      "sha256": "f8a319fbc77ed5e6c648d6f1e1c60e1ba045af9cdaf3f97785db508712e7a7a2",
+      "width": 512,
+      "height": 512
+    },
+    "icon.iconset/icon_512x512@2x.png": {
+      "sha256": "4599c7aea738a37a9d61a090578e250591921229c736f903b02aa13d5a0219b1",
+      "width": 1024,
+      "height": 1024
+    },
+    "icon.iconset/icon_64x64.png": {
+      "sha256": "d943e903cdc67130b5a56d4a06089c7b9479b5ee8cfe0ff77feb8695a8d1aad5",
+      "width": 64,
+      "height": 64
+    },
+    "icon.iconset/icon_64x64@2x.png": {
+      "sha256": "2cc5aebe9e239338dd23a0d09e1bd31a55c226102f216a89872a3bdc44e2d18b",
+      "width": 128,
+      "height": 128
+    },
+    "icon.png": {
+      "sha256": "0a41331652b45c420db65b6fa65e2b7fab49fe07f197b9d0144d701dd638f4c4",
+      "width": 512,
+      "height": 512
+    },
+    "ios/AppIcon-20x20@1x.png": {
+      "sha256": "4dd27590ba078fcdac1a9ffd5c77f70594cdb87c0f2d0bb944c389598dfb565f",
+      "width": 20,
+      "height": 20
+    },
+    "ios/AppIcon-20x20@2x-1.png": {
+      "sha256": "0a5780fb5bb9c74ae406b0a852b0435cc1913772fda13ae716ff61668eee7687",
+      "width": 40,
+      "height": 40
+    },
+    "ios/AppIcon-20x20@2x.png": {
+      "sha256": "0a5780fb5bb9c74ae406b0a852b0435cc1913772fda13ae716ff61668eee7687",
+      "width": 40,
+      "height": 40
+    },
+    "ios/AppIcon-20x20@3x.png": {
+      "sha256": "41b1bfa942f9ab8ba7976f9f0bf622b38ab451bf88d903a621dd0d420df4e9c8",
+      "width": 60,
+      "height": 60
+    },
+    "ios/AppIcon-29x29@1x.png": {
+      "sha256": "566de4ef2ea8b369611f92a559e4e979cef13720b767de68ef759a0d776ea0a8",
+      "width": 29,
+      "height": 29
+    },
+    "ios/AppIcon-29x29@2x-1.png": {
+      "sha256": "654d70ff511525f131cfdb6405cb1fcc4db263dd979eb84a27823a23f0fdbf1c",
+      "width": 58,
+      "height": 58
+    },
+    "ios/AppIcon-29x29@2x.png": {
+      "sha256": "654d70ff511525f131cfdb6405cb1fcc4db263dd979eb84a27823a23f0fdbf1c",
+      "width": 58,
+      "height": 58
+    },
+    "ios/AppIcon-29x29@3x.png": {
+      "sha256": "68d2660684b82e3f1f5d4a538117e692dd3d9c0a9afccd3ed088c7f2c4470523",
+      "width": 87,
+      "height": 87
+    },
+    "ios/AppIcon-40x40@1x.png": {
+      "sha256": "0a5780fb5bb9c74ae406b0a852b0435cc1913772fda13ae716ff61668eee7687",
+      "width": 40,
+      "height": 40
+    },
+    "ios/AppIcon-40x40@2x-1.png": {
+      "sha256": "5af10ebf2742dca7b5a129de73124788dd06f8baf94b25f8ac9989d0004db578",
+      "width": 80,
+      "height": 80
+    },
+    "ios/AppIcon-40x40@2x.png": {
+      "sha256": "5af10ebf2742dca7b5a129de73124788dd06f8baf94b25f8ac9989d0004db578",
+      "width": 80,
+      "height": 80
+    },
+    "ios/AppIcon-40x40@3x.png": {
+      "sha256": "0410015787b2a6617c6185ad6c078633b971944b3d1f5d78b63173aa4405a5c4",
+      "width": 120,
+      "height": 120
+    },
+    "ios/AppIcon-512@2x.png": {
+      "sha256": "15aaabcfb86a8b4ea99dc8db7d8f736253333de6d39f24c02a463a8663498f30",
+      "width": 1024,
+      "height": 1024
+    },
+    "ios/AppIcon-60x60@2x.png": {
+      "sha256": "0410015787b2a6617c6185ad6c078633b971944b3d1f5d78b63173aa4405a5c4",
+      "width": 120,
+      "height": 120
+    },
+    "ios/AppIcon-60x60@3x.png": {
+      "sha256": "d82ba0e975840186f8eed640d030cbb7d99773f17e80463dc2e05f2e0069b778",
+      "width": 180,
+      "height": 180
+    },
+    "ios/AppIcon-76x76@1x.png": {
+      "sha256": "2577769873bc4d17deaf5f4bfa01da4da69737f057068673f1442f3bd54f6414",
+      "width": 76,
+      "height": 76
+    },
+    "ios/AppIcon-76x76@2x.png": {
+      "sha256": "f65254345c1ad730b17c630fb709faa4dd7a523c836f18b0861e693ff1aebfb6",
+      "width": 152,
+      "height": 152
+    },
+    "ios/AppIcon-83.5x83.5@2x.png": {
+      "sha256": "1a599b405c452c8fd62fae3efd60fc147f8343d79e46654cddf28cb16a31a3e1",
+      "width": 167,
+      "height": 167
+    }
+  }
+}

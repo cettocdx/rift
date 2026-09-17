@@ -1,4 +1,4 @@
-import { useRef, useState, useCallback } from "react";
+import { useRef, useState, useCallback, useSyncExternalStore } from "react";
 import { toast } from "sonner";
 import { useMutation, useAction } from "convex/react";
 import { ConvexError } from "convex/values";
@@ -12,13 +12,14 @@ import {
   isImageFile,
   RateLimitInfo,
 } from "@/lib/utils/file-utils";
-import { getMaxFileTokens } from "@/lib/token-utils";
+import { getMaxFileTokens } from "@/lib/token-limits";
 import {
   FileProcessingResult,
   FileSource,
   LocalDesktopFile,
+  UploadedFileState,
 } from "@/types/file";
-import type { ChatMode } from "@/types/chat";
+import type { ChatMode, SandboxPreference } from "@/types/chat";
 import { useGlobalState } from "../contexts/GlobalState";
 import { Id } from "@/convex/_generated/dataModel";
 import { isAgentMode } from "@/lib/utils/mode-helpers";
@@ -81,18 +82,74 @@ const fileFromBase64 = (
   });
 };
 
-export const useFileUpload = (mode: ChatMode = "ask") => {
+/** A session owns its uploads even when its composer has unmounted. */
+export interface FileUploadStore {
+  subscribe(listener: () => void): () => void;
+  getSnapshot(): UploadedFileState[];
+  add(file: UploadedFileState): string;
+  update(id: string, updates: Partial<UploadedFileState>): void;
+  remove(id: string): void;
+  idOf(file: UploadedFileState): string | undefined;
+  clear(): void;
+  getTotalTokens(): number;
+}
+
+const emptyUploads: UploadedFileState[] = [];
+const emptySnapshot = () => emptyUploads;
+const subscribeToNothing = () => () => {};
+
+export const useFileUpload = (
+  mode: ChatMode = "ask",
+  options?: { store?: FileUploadStore; sandboxPreference?: SandboxPreference },
+) => {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const maxFilesLimit = getMaxFilesLimitForMode(mode);
   const {
-    uploadedFiles,
-    addUploadedFile,
-    updateUploadedFile,
-    removeUploadedFile,
+    uploadedFiles: globalUploadedFiles,
+    addUploadedFile: addGlobalFile,
+    updateUploadedFile: updateGlobalFile,
+    removeUploadedFile: removeGlobalFile,
+    clearUploadedFiles: clearGlobalFiles,
+    getTotalTokens: getGlobalTokens,
     subscription,
-    getTotalTokens,
-    sandboxPreference,
+    sandboxPreference: globalSandboxPreference,
   } = useGlobalState();
+  const store = options?.store;
+  const scopedUploads = useSyncExternalStore(
+    store?.subscribe ?? subscribeToNothing,
+    store?.getSnapshot ?? emptySnapshot,
+    store?.getSnapshot ?? emptySnapshot,
+  );
+  const uploadedFiles = store ? scopedUploads : globalUploadedFiles;
+  const sandboxPreference =
+    options?.sandboxPreference ?? globalSandboxPreference;
+  const addUploadedFile = useCallback(
+    (file: UploadedFileState) =>
+      store ? store.add(file) : addGlobalFile(file),
+    [store, addGlobalFile],
+  );
+  const updateUploadedFile = useCallback(
+    (id: string | number, updates: Partial<UploadedFileState>) => {
+      if (store && typeof id === "string") store.update(id, updates);
+      else if (!store && typeof id === "number") updateGlobalFile(id, updates);
+    },
+    [store, updateGlobalFile],
+  );
+  const removeUploadedFile = useCallback(
+    (id: string | number) => {
+      if (store && typeof id === "string") store.remove(id);
+      else if (!store && typeof id === "number") removeGlobalFile(id);
+    },
+    [store, removeGlobalFile],
+  );
+  const clearUploadedFiles = useCallback(
+    () => (store ? store.clear() : clearGlobalFiles()),
+    [store, clearGlobalFiles],
+  );
+  const getTotalTokens = useCallback(
+    () => (store ? store.getTotalTokens() : getGlobalTokens()),
+    [store, getGlobalTokens],
+  );
 
   // Drag and drop state
   const [isDragOver, setIsDragOver] = useState(false);
@@ -245,7 +302,7 @@ export const useFileUpload = (mode: ChatMode = "ask") => {
   const uploadFileToS3 = useCallback(
     async (
       file: File,
-      uploadIndex: number,
+      uploadIndex: string | number,
       options: {
         fallbackLocalFile?: LocalDesktopFile & { path: string };
       } = {},
@@ -257,42 +314,67 @@ export const useFileUpload = (mode: ChatMode = "ask") => {
           sandboxPreference,
         });
 
-        // Step 1: Generate presigned S3 upload URL
-        const { uploadUrl, s3Key, rateLimit } = await generateS3UploadUrlAction(
-          {
-            fileName: file.name,
-            contentType: file.type || "application/octet-stream",
-            size: file.size,
-            mode,
-          },
-        );
-
-        // Show warning if approaching rate limit
-        if (rateLimit) {
-          showRateLimitWarning(rateLimit);
-        }
-
-        // Step 2: Upload file to S3 using presigned URL
-        const uploadResponse = await fetch(uploadUrl, {
-          method: "PUT",
-          body: file,
-          headers: { "Content-Type": file.type || "application/octet-stream" },
-        });
-
-        if (!uploadResponse.ok) {
-          throw new Error(
-            `Failed to upload file ${file.name}: ${uploadResponse.statusText}`,
-          );
-        }
-
-        // Step 3: Save file metadata to database with S3 key
-        const { url, fileId, tokens } = await saveFile({
-          s3Key,
-          name: file.name,
-          mediaType: file.type,
+        // Step 1: Ask the backend for an upload target. Returns an S3 presigned
+        // PUT URL when S3 is configured, otherwise a Convex built-in storage
+        // POST URL (no external setup needed).
+        const target = await generateS3UploadUrlAction({
+          fileName: file.name,
+          contentType: file.type || "application/octet-stream",
           size: file.size,
           mode,
         });
+
+        // Show warning if approaching rate limit
+        if (target.rateLimit) {
+          showRateLimitWarning(target.rateLimit);
+        }
+
+        const contentType = file.type || "application/octet-stream";
+
+        // Step 2 + 3: Upload the bytes, then save metadata with the right
+        // storage reference (Convex storageId vs S3 key).
+        let saved: { url: string; fileId: string; tokens: number };
+        if (target.backend === "convex") {
+          const uploadResponse = await fetch(target.uploadUrl, {
+            method: "POST",
+            body: file,
+            headers: { "Content-Type": contentType },
+          });
+          if (!uploadResponse.ok) {
+            throw new Error(
+              `Failed to upload file ${file.name}: ${uploadResponse.statusText}`,
+            );
+          }
+          const { storageId } = (await uploadResponse.json()) as {
+            storageId: string;
+          };
+          saved = await saveFile({
+            storageId: storageId as Id<"_storage">,
+            name: file.name,
+            mediaType: file.type,
+            size: file.size,
+            mode,
+          });
+        } else {
+          const uploadResponse = await fetch(target.uploadUrl, {
+            method: "PUT",
+            body: file,
+            headers: { "Content-Type": contentType },
+          });
+          if (!uploadResponse.ok) {
+            throw new Error(
+              `Failed to upload file ${file.name}: ${uploadResponse.statusText}`,
+            );
+          }
+          saved = await saveFile({
+            s3Key: target.s3Key,
+            name: file.name,
+            mediaType: file.type,
+            size: file.size,
+            mode,
+          });
+        }
+        const { url, fileId, tokens } = saved;
 
         // Only check token limit for "ask" mode
         // In "agent" mode, files are accessed in sandbox, no token limit applies
@@ -398,14 +480,14 @@ export const useFileUpload = (mode: ChatMode = "ask") => {
 
       files.forEach((file, index) => {
         // Add file as "uploading" state immediately
-        addUploadedFile({
+        const uploadId = addUploadedFile({
           file,
           uploading: true,
           uploaded: false,
         });
 
         // Start upload in background with correct index
-        uploadFileToS3(file, startingIndex + index);
+        uploadFileToS3(file, uploadId ?? startingIndex + index);
       });
     },
     [uploadedFiles.length, addUploadedFile, uploadFileToS3],
@@ -429,13 +511,13 @@ export const useFileUpload = (mode: ChatMode = "ask") => {
 
       files.forEach((entry, index) => {
         if (entry.storage === "s3") {
-          addUploadedFile({
+          const uploadId = addUploadedFile({
             file: entry.file,
             uploading: true,
             uploaded: false,
             storage: "s3",
           });
-          uploadFileToS3(entry.file, startingIndex + index, {
+          uploadFileToS3(entry.file, uploadId ?? startingIndex + index, {
             fallbackLocalFile: entry.fallbackLocalFile,
           });
           return;
@@ -627,6 +709,9 @@ export const useFileUpload = (mode: ChatMode = "ask") => {
 
   const handleRemoveFile = async (indexToRemove: number) => {
     const uploadedFile = uploadedFiles[indexToRemove];
+    if (!uploadedFile) return;
+    const uploadId = store ? store.idOf(uploadedFile) : indexToRemove;
+    if (uploadId === undefined) return;
 
     // If the file was uploaded to Convex, delete it from storage
     if (uploadedFile?.fileId && uploadedFile.storage !== "local-desktop") {
@@ -641,7 +726,7 @@ export const useFileUpload = (mode: ChatMode = "ask") => {
     }
 
     // removeUploadedFile in GlobalState will automatically handle token removal
-    removeUploadedFile(indexToRemove);
+    removeUploadedFile(uploadId);
   };
 
   const handleAttachClick = () => {
@@ -774,6 +859,8 @@ export const useFileUpload = (mode: ChatMode = "ask") => {
   );
 
   return {
+    uploadedFiles,
+    clearUploadedFiles,
     fileInputRef,
     handleFileUploadEvent,
     handleRemoveFile,

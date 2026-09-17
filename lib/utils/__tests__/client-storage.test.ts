@@ -3,8 +3,11 @@ import {
   readSelectedModel,
   writeSelectedModel,
   clearSelectedModelFromStorage,
+  BUILD_REASONING_EFFORTS_STORAGE_KEY,
   hasAuthenticatedBefore,
   markHasAuthenticatedBefore,
+  readBuildReasoningEfforts,
+  writeBuildReasoningEfforts,
 } from "../client-storage";
 
 const STORAGE_KEY = "selected_model";
@@ -121,13 +124,65 @@ describe("client-storage selected model", () => {
       window.localStorage.setItem(STORAGE_KEY, "rift-pro");
       window.localStorage.setItem(LEGACY_ASK_KEY, "opus-4.6");
       window.localStorage.setItem(LEGACY_AGENT_KEY, "kimi-k2.6");
+      window.localStorage.setItem(
+        BUILD_REASONING_EFFORTS_STORAGE_KEY,
+        JSON.stringify({ "build-codex": "high" }),
+      );
 
       clearSelectedModelFromStorage();
 
       expect(window.localStorage.getItem(STORAGE_KEY)).toBeNull();
       expect(window.localStorage.getItem(LEGACY_ASK_KEY)).toBeNull();
       expect(window.localStorage.getItem(LEGACY_AGENT_KEY)).toBeNull();
+      expect(
+        window.localStorage.getItem(BUILD_REASONING_EFFORTS_STORAGE_KEY),
+      ).toBeNull();
     });
+  });
+});
+
+describe("client-storage Build reasoning effort", () => {
+  beforeEach(() => {
+    window.localStorage.clear();
+  });
+
+  it("persists independent valid preferences for each Build model", () => {
+    writeBuildReasoningEfforts({
+      "build-codex": "xhigh",
+      "build-grok": "low",
+      "build-kimi": "max",
+      "build-qwen": "on",
+    });
+
+    expect(readBuildReasoningEfforts()).toEqual({
+      "build-codex": "xhigh",
+      "build-grok": "low",
+      "build-kimi": "max",
+      "build-qwen": "on",
+    });
+  });
+
+  it("drops unsupported, unknown, and malformed stored values", () => {
+    window.localStorage.setItem(
+      BUILD_REASONING_EFFORTS_STORAGE_KEY,
+      JSON.stringify({
+        "build-codex": "max",
+        "build-retired": "max",
+        "build-grok": "xhigh",
+        "build-kimi": "high",
+        "build-qwen": "high",
+        "build-kimi-medium": "medium",
+        "build-imaginary": "low",
+      }),
+    );
+
+    expect(readBuildReasoningEfforts()).toEqual({
+      "build-codex": "max",
+      "build-kimi": "high",
+    });
+
+    window.localStorage.setItem(BUILD_REASONING_EFFORTS_STORAGE_KEY, "[");
+    expect(readBuildReasoningEfforts()).toEqual({});
   });
 });
 

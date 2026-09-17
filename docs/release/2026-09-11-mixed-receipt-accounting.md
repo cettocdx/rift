@@ -1,0 +1,13 @@
+# Preserve priced operations while estimating missing receipts
+
+The tracker previously chose between a reported subtotal and a full-token estimate for an entire run. A positive receipt followed by an unpriced step dropped the latter's cost; an explicit zero receipt followed by an unpriced step instead repriced the already-free input. Accepted summaries could also be omitted or estimated again depending on whether a main-model receipt existed.
+
+The tracker now keeps the token coverage of priced main-model and accepted-summary operations. It sums their finite, non-negative receipts (including zero), estimates only tokens without a receipt, and adds non-model spend once. Summary extraction preserves explicit zero and rejects negative/non-finite costs. `provider` identifies complete receipt coverage; any missing operation price uses the existing `token_estimate` label, including mixed totals. This is an estimate for missing prices, not an assertion that the provider charged list price or that its cache discount is known.
+
+Web and durable-worker settlement use the same resolved raw-dollar total as the usage record. Retail margin is still applied once by the existing settlement function. Free-allowance cost tracking, balance true-up and plan-credit true-up all receive that total. Historical accounts were not adjusted, no new spend cap or retail margin was introduced, and no backend schema change is required.
+
+The existing model-leg waiver is retained: fallback reset discards primary-leg billable model usage and now clears its reasoning/priced-token counters. This does not yet preserve the waived provider expenditure in a separate ledger. Missing fallback prices still use the existing selected-model pricing basis; title costs, rejected/blank summary attempts and a durable operation-level ledger remain open.
+
+Evidence: initial six new receipt cases failed against the old code. Seven focused tracker/summary/real-runner suites then passed 138 tests. Six additional boundary tests locate and execute each entry point's actual `deductAccumulatedUsage` closure with in-memory dependencies, covering account, balance and free paths; they assert matching telemetry totals, one margin and no repeated charge/non-model addition. These execute the production settlement closure but do not replace full authenticated HTTP/Trigger or database-failure acceptance tests. A read-only independent review found no new correctness regression and checked console's single-step caller separately.
+
+Local logs: /tmp/rift-mixed-receipts-red.log, /tmp/rift-mixed-receipts-green.log, /tmp/rift-settlement-wiring-green.log. Final normal commit hooks and production-preview verification follow this focused evidence.

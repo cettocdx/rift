@@ -1,3 +1,23 @@
+import { settleWithJournal } from "@/lib/api/usage-settlement-journal";
+import { persistProviderUsage } from "@/lib/api/provider-usage-journal";
+import { createHttpToolExecutionDrain } from "@/lib/hack/http-tool-execution-drain";
+import {
+  admitHackHttpExecution,
+  markHackHttpExecutionRunning,
+  readHackHttpExecution,
+  finishHackHttpExecution,
+  isHackHttpExecutionId,
+  type HackHttpExecutionBinding,
+} from "@/lib/hack/http-execution";
+import { runTrackedPreflight } from "@/lib/rate-limit/preflight";
+import { resolveChatRunFinalization } from "./chat-run-finalization";
+import { createChatStreamErrorHandler } from "./chat-stream-error";
+import {
+  parseWorkingFileContext,
+  appendWorkingFileSystemContext,
+} from "@/lib/desktop/working-file-context";
+import { parseApprovalMode } from "@/lib/ai/approval/policy";
+import { createToolApprovalGate } from "@/lib/ai/approval/server";
 import {
   convertToModelMessages,
   createUIMessageStream,
@@ -6,12 +26,26 @@ import {
   UIMessage,
 } from "ai";
 import { systemPrompt } from "@/lib/system-prompt";
+import { getLocalPlanPromptContext } from "@/lib/api/local-plan-prompt-context";
 import { getResumeSection } from "@/lib/system-prompt/resume";
 import { AGENT_MAX_STREAM_DURATION_MS } from "@/lib/chat/stop-conditions";
 import { createTools } from "@/lib/ai/tools";
+import { startRunRecord, finishRunRecord } from "@/lib/ai/runs/run-recorder";
+import { extractLatestUserRequest } from "@/lib/ai/tools/find-skills";
+import { loadUserMcpTools } from "@/lib/ai/mcp/load-user-mcp-tools";
+import { loadUserGithubToken } from "@/lib/github/load-user-github-token";
+import { prepareCloudProjectRepository } from "@/lib/github/prepare-project-repository";
+import {
+  injectSkillsIntoMessages,
+  loadEnabledSkillsForRuntime,
+} from "@/lib/ai/skills/inject-skills";
 import { ptySessionManager } from "@/lib/ai/tools/utils/pty-session-manager";
 import { generateTitleFromUserMessageWithWriter } from "@/lib/actions";
 import { getUserIDAndPro } from "@/lib/auth/get-user-id";
+import {
+  assertHackWorkbenchAccess,
+  assertHackWorkbenchPurposeRoute,
+} from "@/lib/auth/premium-access";
 import { assertUserCanMakeCostIncurringRequest } from "@/lib/suspensions";
 import type {
   ChatMode,
@@ -20,7 +54,14 @@ import type {
   SelectedModel,
   RateLimitInfo,
 } from "@/types";
-import { coerceSelectedModel } from "@/types";
+import {
+  coerceSelectedModel,
+  coerceChatPurpose,
+  resolveBuildReasoningEffort,
+  resolveImageModel,
+  resolveVideoModel,
+} from "@/types";
+import type { ChatPurpose } from "@/types";
 import { getBaseTodosForRequest } from "@/lib/utils/todo-utils";
 import {
   acquireFreeRunConcurrencyLock,
@@ -31,10 +72,7 @@ import {
   recordFreeMonthlyCost,
   UsageRefundTracker,
 } from "@/lib/rate-limit";
-import {
-  BudgetMonitor,
-  captureBudgetSnapshot,
-} from "@/lib/chat/budget-monitor";
+import { createRequestBudgetMonitor } from "@/lib/chat/budget-monitor";
 import { UsageTracker } from "@/lib/usage-tracker";
 import { getMaxTokensForSubscription } from "@/lib/token-utils";
 import { countTokens } from "gpt-tokenizer";
@@ -50,7 +88,6 @@ import {
 } from "@/lib/api/chat-logger";
 import {
   countFileAttachments,
-  stripImageAttachments,
   sendRateLimitWarnings,
   isProviderApiError,
   computeContextUsage,
@@ -64,6 +101,7 @@ import {
   estimatePreflightInputTokens,
   getRetryFallbackModel,
 } from "@/lib/api/chat-stream-helpers";
+import { getExtraUsageBalance } from "@/lib/extra-usage";
 import { geolocation } from "@vercel/functions";
 import { NextRequest } from "next/server";
 import {
@@ -115,9 +153,28 @@ import { isAgentMode } from "@/lib/utils/mode-helpers";
 import {
   createAgentStream,
   initAgentStreamState,
+  resetAgentProviderAttempt,
   type AgentStreamContext,
 } from "@/lib/api/agent-stream-runner";
+import { resolveForcedFirstToolName } from "@/lib/api/agent-step-tool-choice";
 import { FREE_RUN_LOCK_TTL_SECONDS } from "@/lib/rate-limit/free-config";
+import {
+  projectAgentAssignmentReminder,
+  projectGithubRepositoryReminder,
+  resolveProjectRuntimeContext,
+  resolveChatSandboxNamespace,
+} from "@/lib/projects/project-runtime";
+import { appendActiveGoalSystemContext } from "@/lib/api/active-goal-context";
+import { extractLatestUserImageReferenceUrls } from "@/lib/ai/media-references";
+import { resolveMediaRequest } from "@/lib/ai/media-intent";
+import { AGENT_LONG_HEARTBEAT_PART_TYPE } from "@/lib/chat/agent-long-heartbeat";
+import { resolveAgentAutoContinueReason } from "@/lib/chat/auto-continue-policy";
+import {
+  extractAgentRuntimeRequest,
+  renderActiveAgentWorkflowReminder,
+  resolveAgentRuntimePolicy,
+  resolveActiveAgentModelSelection,
+} from "@/lib/ai/agents/runtime-policy";
 
 function getStreamContext() {
   try {
@@ -129,12 +186,118 @@ function getStreamContext() {
 
 export { getStreamContext };
 
-export const createChatHandler = () => {
+export const createChatHandler = ({
+  grok45Canary = false,
+  hackWorkbenchOnly = false,
+  forcedPurpose,
+  studioSettings,
+  onProducerFinished,
+  agentPreemptiveTimeoutMs,
+  agentReportingReserveMs,
+  preemptiveTimeoutEndpoint = "/api/chat",
+}: {
+  grok45Canary?: boolean;
+  hackWorkbenchOnly?: boolean;
+  forcedPurpose?: ChatPurpose;
+  studioSettings?: import("@/lib/console/workspaces-contract").StudioSettings;
+  /** Trusted workspace hook, called after producer persistence and cleanup. */
+  onProducerFinished?: (status: "completed" | "failed") => Promise<void>;
+  /**
+   * Optional wall-clock lifecycle for agent requests. This is intentionally
+   * shorter than the route's platform ceiling so the normal abort/onFinish
+   * pipeline has time to persist output and reconcile credits.
+   */
+  agentPreemptiveTimeoutMs?: number;
+  /** Hack-only reporting time within the existing lifecycle deadline. */
+  agentReportingReserveMs?: number;
+  preemptiveTimeoutEndpoint?: "/api/chat" | "/api/hack-chat";
+} = {}) => {
   return async (req: NextRequest) => {
     const endpoint = "/api/chat" as const;
+    const requestStartedAt = Date.now();
     let preemptiveTimeout:
       | ReturnType<typeof createPreemptiveTimeout>
       | undefined;
+    let detachRequestAbort: (() => void) | undefined;
+    const userStopSignal = new AbortController();
+    let httpExecution: HackHttpExecutionBinding | undefined;
+    let initialPersistence: Promise<unknown> | undefined;
+    let earlyCancellation:
+      | Awaited<ReturnType<typeof createCancellationSubscriber>>
+      | undefined;
+    let subscriberStopped = false;
+    let executionFinished = false;
+    const httpPtyScope = (binding: HackHttpExecutionBinding) =>
+      JSON.stringify([binding.userId, binding.chatId, binding.executionId]);
+    const httpToolDrain = createHttpToolExecutionDrain({
+      runInScope: (callback) =>
+        httpExecution
+          ? ptySessionManager.withConfirmedScope(
+              httpPtyScope(httpExecution),
+              callback,
+            )
+          : callback(),
+    });
+    let httpDrainPromise: Promise<void> | undefined;
+    const drainHttpExecution = () => {
+      if (!httpExecution) return Promise.resolve();
+      const binding = httpExecution;
+      // SDK stream abort does not await every tool callback. Seal against new
+      // calls and join existing tools before saving results or acknowledging Stop.
+      return (httpDrainPromise ??= (async () => {
+        // A tool can be waiting for terminal exit. Initiate terminal shutdown
+        // while joining tools rather than deadlocking behind that tool promise.
+        const results = await Promise.allSettled([
+          httpToolDrain.closeAndWait(),
+          ptySessionManager.withConfirmedScope(httpPtyScope(binding), () =>
+            ptySessionManager.closeAllConfirmed(binding.chatId),
+          ),
+        ]);
+        const failed = results.find((result) => result.status === "rejected");
+        if (failed?.status === "rejected") throw failed.reason;
+        ptySessionManager.releaseConfirmedScope(httpPtyScope(binding));
+      })());
+    };
+    const assertHttpExecutionActive = async () => {
+      if (!httpExecution) return;
+      const status = await readHackHttpExecution(httpExecution);
+      if (
+        !status ||
+        status.stopped ||
+        (status.phase !== "admitted" && status.phase !== "running")
+      ) {
+        userStopSignal.abort();
+        throw new DOMException(
+          "The Hack execution is no longer active",
+          "AbortError",
+        );
+      }
+      userStopSignal.signal.throwIfAborted();
+    };
+    const finishHttpExecutionOnce = async () => {
+      if (!httpExecution || executionFinished) return;
+      // Initial message persistence may still be in flight after a preflight
+      // failure. Never release the execution head ahead of that write.
+      await drainHttpExecution();
+      await initialPersistence?.catch(() => {});
+      await earlyCancellation?.stop();
+      executionFinished = await finishHackHttpExecution(httpExecution);
+    };
+    const stoppedHttpResponse = (executionId: string) =>
+      createUIMessageStreamResponse({
+        stream: createUIMessageStream({
+          execute: ({ writer }) => {
+            writer.write({ type: "abort" });
+          },
+        }),
+        headers: { "x-rift-execution-id": executionId },
+      });
+
+    const clearLifecycleGuards = () => {
+      preemptiveTimeout?.clear();
+      detachRequestAbort?.();
+      detachRequestAbort = undefined;
+    };
 
     // Track usage deductions for refund on error
     const usageRefundTracker = new UsageRefundTracker();
@@ -143,6 +306,12 @@ export const createChatHandler = () => {
     let chatLogger: ChatLogger | undefined;
     let outerChatId: string | undefined;
     let releaseFreeRunLock: (() => Promise<void>) | undefined;
+    // MCP connector teardown. Assigned once the user's MCP servers connect
+    // inside execute(); closed at the same terminal points as the free-run lock
+    // so transports survive provider-fallback retry legs but are always torn
+    // down when the run truly ends. Idempotent + best-effort.
+    let closeMcpToolsOnce: () => Promise<void> = async () => {};
+    let verifiedAccess: Awaited<ReturnType<typeof getUserIDAndPro>> | undefined;
     const releaseFreeRunLockOnce = async () => {
       const release = releaseFreeRunLock;
       if (!release) return;
@@ -151,6 +320,15 @@ export const createChatHandler = () => {
     };
 
     try {
+      // Restricted routes authenticate and authorize before parsing the body or
+      // touching persistence, limits, tools, or model providers. The API
+      // repeats this check on every request so a direct POST or mid-session
+      // downgrade cannot bypass the page gate.
+      if (hackWorkbenchOnly) {
+        verifiedAccess = await getUserIDAndPro(req);
+        assertHackWorkbenchAccess(verifiedAccess.subscription);
+      }
+
       const {
         messages,
         mode,
@@ -160,8 +338,15 @@ export const createChatHandler = () => {
         temporary,
         sandboxPreference,
         selectedModel: rawSelectedModel,
+        reasoningEffort: rawReasoningEffort,
+        approvalMode: rawApprovalMode,
+        purpose: rawPurpose,
+        projectId: rawProjectId,
+        activeGoal: rawActiveGoal,
+        workingFile: rawWorkingFile,
         isAutoContinue,
         useClientMessagesForRegenerate,
+        executionId: rawExecutionId,
       }: {
         messages: UIMessage[];
         mode: ChatMode;
@@ -171,13 +356,34 @@ export const createChatHandler = () => {
         temporary?: boolean;
         sandboxPreference?: SandboxPreference;
         selectedModel?: string;
+        reasoningEffort?: unknown;
+        approvalMode?: unknown;
+        purpose?: string;
+        projectId?: unknown;
+        activeGoal?: unknown;
+        workingFile?: unknown;
         isAutoContinue?: boolean;
         useClientMessagesForRegenerate?: boolean;
+        executionId?: unknown;
       } = await req.json();
+      let approvalMode;
+      try {
+        approvalMode = parseApprovalMode(rawApprovalMode);
+      } catch {
+        return new Response("Invalid approval mode", { status: 400 });
+      }
+      let workingFile;
+      try {
+        workingFile = parseWorkingFileContext(rawWorkingFile);
+      } catch {
+        return new Response("Invalid working file selection", { status: 400 });
+      }
       outerChatId = chatId;
 
       const selectedModelOverride: SelectedModel | undefined =
         coerceSelectedModel(rawSelectedModel ?? null) ?? undefined;
+      const requestedPurpose: ChatPurpose =
+        forcedPurpose ?? coerceChatPurpose(rawPurpose ?? "app");
 
       chatLogger = createChatLogger({ chatId, endpoint });
       chatLogger.setRequestDetails({
@@ -186,31 +392,89 @@ export const createChatHandler = () => {
         isRegenerate: !!regenerate,
       });
 
-      const { userId, subscription, organizationId } =
-        await getUserIDAndPro(req);
+      const { userId, subscription, organizationId, pricingMargin } =
+        verifiedAccess ?? (await getUserIDAndPro(req));
+
+      if (hackWorkbenchOnly && !temporary) {
+        if (!isHackHttpExecutionId(rawExecutionId)) {
+          return new Response("Invalid execution identity", { status: 400 });
+        }
+        if (workingFile)
+          return new Response("Working files require Build mode", {
+            status: 400,
+          });
+        const binding = { userId, chatId, executionId: rawExecutionId };
+        const admission = await admitHackHttpExecution(binding);
+        if (!admission.admitted) {
+          if (admission.reason === "stopped" && admission.status?.canceled) {
+            return stoppedHttpResponse(binding.executionId);
+          }
+          return Response.json(
+            {
+              error: "A Hack execution is already active",
+              executionId: rawExecutionId,
+            },
+            { status: 409 },
+          );
+        }
+        httpExecution = binding;
+        earlyCancellation = await createCancellationSubscriber({
+          chatId,
+          execution: binding,
+          isTemporary: false,
+          abortController: userStopSignal,
+          onStop: () => {
+            subscriberStopped = true;
+          },
+        });
+        await assertHttpExecutionActive();
+      }
 
       // Parallelize the independent preflight reads — none depends on another's
       // result, yet they used to run serially (~30-80ms each) on the
       // first-token critical path. The suspension assert still throws first if
       // it rejects (Promise.all rejects fast); the two reads are cheap and
       // discarded if it does.
-      const [, userCustomization, fetched] = await Promise.all([
-        assertUserCanMakeCostIncurringRequest(userId),
-        getUserCustomization({ userId }),
-        getMessagesByChatId({
-          chatId,
-          userId,
-          subscription,
-          newMessages: messages,
-          regenerate,
-          isTemporary: temporary,
-          mode,
-          useClientMessagesForRegenerate,
-        }),
-      ]);
+      const contextBalancePromise =
+        subscription === "free"
+          ? getExtraUsageBalance(userId)
+          : Promise.resolve(null);
+      const [, userCustomization, fetched, extraUsageBalance] =
+        await Promise.all([
+          assertUserCanMakeCostIncurringRequest(userId),
+          getUserCustomization({ userId }),
+          contextBalancePromise.then((balance) =>
+            getMessagesByChatId({
+              chatId,
+              userId,
+              subscription,
+              newMessages: messages,
+              regenerate,
+              isTemporary: temporary,
+              mode,
+              useClientMessagesForRegenerate,
+              context: {
+                model: selectedModelOverride,
+                purpose: requestedPurpose,
+                hasPaidContext: (balance?.balancePoints ?? 0) > 0,
+              },
+            }),
+          ),
+          // Used only to decide whether the free-run concurrency lock applies.
+          contextBalancePromise,
+        ]);
 
       usageRefundTracker.setUser(userId, subscription, organizationId);
-      if (subscription === "free") {
+      // The free-run concurrency lock exists to cap concurrent free-allowance
+      // runs. Everyone is subscription "free" now, so gate it on actually
+      // relying on the free allowance: a user with a usable token balance is a
+      // paying user and must never hit "you already have a free request running".
+      // A positive token balance = a paying user. Do NOT also require the
+      // legacy extra_usage_enabled toggle — buying tokens never sets it, so
+      // requiring it would hard-lock paying users out of their own usage.
+      const hasUsableBalance =
+        !!extraUsageBalance && extraUsageBalance.balancePoints > 0;
+      if (subscription === "free" && !hasUsableBalance) {
         const lock = await acquireFreeRunConcurrencyLock(
           userId,
           FREE_RUN_LOCK_TTL_SECONDS,
@@ -234,21 +498,74 @@ export const createChatHandler = () => {
       });
 
       // Pre-emptive abort fires before Vercel's hard request timeout so we
-      // can flush logs and refund usage; agent mode uses elapsedTimeExceeds.
-      const userStopSignal = new AbortController();
-      if (!isAgentMode(mode)) {
+      // can flush logs, persist output, and reconcile usage. Most agent routes
+      // use elapsedTimeExceeds at step boundaries; routes that pass an explicit
+      // budget also get this wall-clock guard for a step/tool that never settles.
+      if (isAgentMode(mode) && agentPreemptiveTimeoutMs !== undefined) {
         preemptiveTimeout = createPreemptiveTimeout({
           chatId,
-          endpoint,
+          endpoint: preemptiveTimeoutEndpoint,
           abortController: userStopSignal,
+          maxStreamTimeMs: agentPreemptiveTimeoutMs,
+          startTime: requestStartedAt,
+        });
+      } else if (!isAgentMode(mode)) {
+        preemptiveTimeout = createPreemptiveTimeout({
+          chatId,
+          endpoint: preemptiveTimeoutEndpoint,
+          abortController: userStopSignal,
+          startTime: requestStartedAt,
         });
       }
 
-      const { chat, isNewChat, fileTokens } = fetched;
-      const truncatedMessages =
-        subscription === "free"
-          ? stripImageAttachments(fetched.truncatedMessages)
-          : fetched.truncatedMessages;
+      // Persistent chats deliberately survive a disconnected HTTP request so
+      // resumable streams can reconnect. Temporary chats cannot resume, so it
+      // is safe (and cheaper) to forward their request cancellation.
+      if (temporary) {
+        const abortFromRequest = () => {
+          if (!userStopSignal.signal.aborted) {
+            userStopSignal.abort(req.signal.reason);
+          }
+        };
+        req.signal.addEventListener("abort", abortFromRequest, { once: true });
+        detachRequestAbort = () =>
+          req.signal.removeEventListener("abort", abortFromRequest);
+        if (req.signal.aborted) {
+          abortFromRequest();
+        }
+      }
+
+      const { chat, isNewChat } = fetched;
+      let { fileTokens } = fetched;
+      const projectRuntime = await resolveProjectRuntimeContext({
+        userId,
+        chat,
+        requestedProject: rawProjectId,
+        requestedPurpose,
+      });
+      if (forcedPurpose && projectRuntime.purpose !== forcedPurpose) {
+        throw new ChatSDKError(
+          "forbidden:chat",
+          "The selected project is not available in this mode.",
+        );
+      }
+      const purpose: ChatPurpose = forcedPurpose ?? projectRuntime.purpose;
+      if (workingFile && purpose !== "app") {
+        return new Response("Working files require Build mode", {
+          status: 400,
+        });
+      }
+      assertHackWorkbenchPurposeRoute(
+        purpose,
+        hackWorkbenchOnly && forcedPurpose === "security",
+      );
+      // Image attachments are available to every signed-in user (the composer's
+      // attach button advertises this — no plan gate), matching the upload flow.
+      // Previously stripped for `subscription === "free"`, but since the
+      // subscription tier collapsed to "free" for everyone that stripped images
+      // for paying members too — the model then received the "attachment hidden"
+      // placeholder and replied "it's behind a paywall".
+      let truncatedMessages = fetched.truncatedMessages;
 
       const baseTodos: Todo[] = getBaseTodosForRequest(
         (chat?.todos as unknown as Todo[]) || [],
@@ -256,10 +573,95 @@ export const createChatHandler = () => {
         { isTemporary: !!temporary, regenerate },
       );
 
+      const extraUsageConfigPromise = buildExtraUsageConfig({
+        userId,
+        subscription,
+        userCustomization,
+        organizationId,
+      });
+      // Observe failure while model/profile preparation is still in flight.
+      void extraUsageConfigPromise.catch(() => {});
+
+      // PAYG: the daily-free vs prepaid-balance routing needs the input-token
+      // estimate + extra-usage config, so the rate-limit check runs once below
+      // (after token counting) for every tier — no separate free-ask pre-flight.
+      const uploadBasePath = isAgentMode(mode)
+        ? getUploadBasePath(sandboxPreference)
+        : undefined;
+      const requestTextForAgentPolicy = [
+        projectRuntime.agentMention,
+        extractAgentRuntimeRequest(truncatedMessages, isAutoContinue),
+      ]
+        .filter((value): value is string => Boolean(value))
+        .join(" ");
+      const enabledSkillsRuntimeLoad =
+        isAgentMode(mode) && purpose === "app"
+          ? await loadEnabledSkillsForRuntime(userId)
+          : undefined;
+      const enabledSkillsForAgentRuntime = enabledSkillsRuntimeLoad?.skills;
+      const agentRuntimePolicy = isAgentMode(mode)
+        ? resolveAgentRuntimePolicy(
+            enabledSkillsForAgentRuntime ?? [],
+            requestTextForAgentPolicy,
+            {
+              rosterAvailable:
+                enabledSkillsRuntimeLoad?.status !== "unavailable",
+              boundProfile: projectRuntime.botProfile,
+              boundSkills: projectRuntime.botSkills,
+              boundMeeting: projectRuntime.botMeeting,
+            },
+          )
+        : undefined;
+      const runtimeModelOverride = agentRuntimePolicy
+        ? resolveActiveAgentModelSelection(
+            agentRuntimePolicy,
+            selectedModelOverride,
+          )
+        : selectedModelOverride;
+
+      const contextModel = selectModel(
+        mode,
+        subscription,
+        runtimeModelOverride,
+        undefined,
+        purpose,
+        grok45Canary,
+      );
+      const resolvedContext = {
+        mode,
+        model: contextModel,
+        hasPaidContext: hasUsableBalance,
+      };
+      const fetchedContext = {
+        mode,
+        model: selectedModelOverride,
+        purpose,
+        hasPaidContext: hasUsableBalance,
+      };
+      if (
+        getMaxTokensForSubscription(subscription, resolvedContext) !==
+        getMaxTokensForSubscription(subscription, fetchedContext)
+      ) {
+        const retargeted = await getMessagesByChatId({
+          chatId,
+          userId,
+          subscription,
+          newMessages: messages,
+          regenerate,
+          isTemporary: temporary,
+          mode,
+          useClientMessagesForRegenerate,
+          context: resolvedContext,
+        });
+        truncatedMessages = retargeted.truncatedMessages;
+        fileTokens = retargeted.fileTokens;
+      }
+
       // Persistence (saveChat + saveMessage) and the extra-usage config read
       // are independent of model selection / token counting, so kick them off
       // now and let them overlap the message processing + rate-limit work below
       // instead of stacking their round-trips serially before the first token.
+      await assertHttpExecutionActive();
       const persistencePromise: Promise<unknown> = temporary
         ? Promise.resolve(undefined)
         : handleInitialChatAndUserMessage({
@@ -269,6 +671,8 @@ export const createChatHandler = () => {
             regenerate,
             chat,
             isHidden: isAutoContinue ? true : undefined,
+            purpose,
+            projectId: projectRuntime.projectId,
           });
       // Always observe the rejection at creation so that if an earlier preflight
       // await (rate-limit exhaustion, ownership throw, token estimation, …)
@@ -276,21 +680,8 @@ export const createChatHandler = () => {
       // orphaned promise can't surface as an UnhandledPromiseRejection and take
       // down the serverless function. The real await still re-throws on the
       // happy path, so error surfacing + ordering are preserved.
+      initialPersistence = persistencePromise;
       void persistencePromise.catch(() => {});
-
-      const extraUsageConfigPromise = buildExtraUsageConfig({
-        userId,
-        subscription,
-        userCustomization,
-        organizationId,
-      });
-
-      // PAYG: the daily-free vs prepaid-balance routing needs the input-token
-      // estimate + extra-usage config, so the rate-limit check runs once below
-      // (after token counting) for every tier — no separate free-ask pre-flight.
-      const uploadBasePath = isAgentMode(mode)
-        ? getUploadBasePath(sandboxPreference)
-        : undefined;
 
       let { processedMessages, selectedModel, sandboxFiles } =
         await processChatMessages({
@@ -299,12 +690,22 @@ export const createChatHandler = () => {
           userId,
           subscription,
           uploadBasePath,
-          modelOverride: selectedModelOverride,
+          modelOverride: runtimeModelOverride,
+          purpose,
+          grok45Canary,
           allowLocalDesktopFiles:
             isAgentMode(mode) && sandboxPreference === "desktop",
           // Run moderation concurrently with estimation + rate-limit below.
           deferModeration: true,
         });
+      const reasoningEffort =
+        purpose === "app"
+          ? resolveBuildReasoningEffort(
+              selectedModel,
+              agentRuntimePolicy?.activeProfile?.reasoningEffort ??
+                rawReasoningEffort,
+            )
+          : undefined;
 
       // Empty after processing → Gemini rejects with "must include at least one parts field".
       if (!processedMessages || processedMessages.length === 0) {
@@ -313,6 +714,15 @@ export const createChatHandler = () => {
           getEmptyProcessedMessagesCause(truncatedMessages),
         );
       }
+      const authoritativeUserRequest =
+        extractLatestUserRequest(processedMessages);
+      const mediaRequest = resolveMediaRequest({
+        purpose,
+        prompt: authoritativeUserRequest,
+        selectedModel: selectedModelOverride,
+      });
+      const mediaReferenceUrls =
+        extractLatestUserImageReferenceUrls(processedMessages);
 
       // Capture the moderation input synchronously now (single-threaded JS reads
       // the messages before the first await), then let the HTTPS round-trip
@@ -320,7 +730,11 @@ export const createChatHandler = () => {
       const moderationPromise = getModerationResult(
         processedMessages,
         subscription !== "free",
+        { signal: userStopSignal.signal },
       );
+
+      // Attach immediately: Stop may reject before preflight joins this promise.
+      void moderationPromise.catch(() => undefined);
 
       const memoryEnabled =
         (subscription !== "free" || isAgentMode(mode)) &&
@@ -328,6 +742,7 @@ export const createChatHandler = () => {
 
       const estimatedInputTokens = await estimatePreflightInputTokens({
         mode,
+        purpose,
         subscription,
         userId,
         selectedModel,
@@ -351,41 +766,42 @@ export const createChatHandler = () => {
 
       const extraUsageConfig = await extraUsageConfigPromise;
 
-      // Rate-limit (which performs the usage deduction), the free monthly-cost
-      // snapshot, and moderation are mutually independent — overlap their
-      // round-trips. checkRateLimit rejecting (limit exceeded) fast-fails the
-      // whole group; getModerationResult never rejects (it self-catches).
+      // All setup branches settle before errors reach the refund handler.
+      // A slower reservation must not charge after a parallel failure escaped.
+      await assertHttpExecutionActive();
       const [rateLimitInfo, freeMonthlyBudgetSnapshot, moderationResult] =
-        (await Promise.all([
-          checkRateLimit(
-            userId,
-            mode,
-            subscription,
-            estimatedInputTokens,
-            extraUsageConfig,
-            selectedModel,
-            organizationId,
-          ),
-          subscription === "free"
-            ? // Snapshot only — never throw. checkRateLimit already routes an
-              // exhausted month to the prepaid balance (servedFrom: balance);
-              // throwing here would block a funded PAYG user.
-              checkFreeMonthlyCostLimit(userId, { throwOnExhaustion: false })
-            : Promise.resolve(null),
-          moderationPromise,
-        ])) as [
-          RateLimitInfo,
-          Awaited<ReturnType<typeof checkFreeMonthlyCostLimit>> | null,
-          Awaited<typeof moderationPromise>,
-        ];
+        await runTrackedPreflight({
+          reserve: () =>
+            checkRateLimit(
+              userId,
+              mode,
+              subscription,
+              estimatedInputTokens,
+              extraUsageConfig,
+              selectedModel,
+              organizationId,
+              undefined,
+              undefined,
+              pricingMargin,
+            ),
+          snapshot: () =>
+            subscription === "free"
+              ? checkFreeMonthlyCostLimit(userId, { throwOnExhaustion: false })
+              : Promise.resolve(null),
+          moderation: moderationPromise,
+          tracker: usageRefundTracker,
+          agentMode: isAgentMode(mode),
+        });
 
       // Apply the moderation-gated authorization message before streaming so the
       // model sees it on the very first step (uncensor path must not race).
-      if (moderationResult?.shouldUncensorResponse) {
+      // ONLY for the security purpose — the uncensor/authorization preamble is
+      // offensive-security framing. Injecting it into image/app modes confuses
+      // the model (it starts talking about "pentest authorization" and skips the
+      // generate_image / build tools), so those benign purposes never get it.
+      if (purpose === "security" && moderationResult?.shouldUncensorResponse) {
         addAuthMessage(processedMessages, moderationResult.moderationText);
       }
-
-      usageRefundTracker.recordDeductions(rateLimitInfo);
 
       chatLogger.setRateLimit(
         {
@@ -413,15 +829,16 @@ export const createChatHandler = () => {
       }
 
       // Start cancellation subscriber (Redis pub/sub with fallback to polling)
-      let subscriberStopped = false;
-      const cancellationSubscriber = await createCancellationSubscriber({
-        chatId,
-        isTemporary: !!temporary,
-        abortController: userStopSignal,
-        onStop: () => {
-          subscriberStopped = true;
-        },
-      });
+      const cancellationSubscriber =
+        earlyCancellation ??
+        (await createCancellationSubscriber({
+          chatId,
+          isTemporary: !!temporary,
+          abortController: userStopSignal,
+          onStop: () => {
+            subscriberStopped = true;
+          },
+        }));
 
       const summarizationTracker = new SummarizationTracker();
 
@@ -430,28 +847,85 @@ export const createChatHandler = () => {
       // off near the top and has overlapped all the preflight work above, so by
       // now it is almost always already settled (near-zero added latency).
       await persistencePromise;
+      await assertHttpExecutionActive();
+      if (
+        httpExecution &&
+        !(await markHackHttpExecutionRunning(httpExecution))
+      ) {
+        await assertHttpExecutionActive();
+        throw new Error(
+          "Hack execution stream binding could not be established",
+        );
+      }
 
       chatLogger.startStream();
 
       const stream = createUIMessageStream({
-        onError: (error) => {
-          // Surface ChatSDKError causes (e.g., upload failures) to the client
-          // so MessageErrorState renders the user-actionable message.
-          if (error instanceof ChatSDKError) {
-            return typeof error.cause === "string"
-              ? error.cause
-              : error.message;
-          }
-          return getUserFriendlyProviderError(error);
-        },
+        onError: createChatStreamErrorHandler(chatLogger),
         execute: async ({ writer }) => {
           try {
+            await assertHttpExecutionActive();
+            // Prove the bounded request is alive before database/MCP/provider
+            // preflight. This moves useChat from "submitted" to "streaming"
+            // immediately and gives the user a real reasoning indicator even
+            // when provider setup is slow. The client already strips these
+            // transient heartbeat parts before the next model request.
+            writer.write({
+              type: AGENT_LONG_HEARTBEAT_PART_TYPE,
+              data: { at: Date.now() },
+            });
+
             sendRateLimitWarnings(writer, {
               subscription,
               mode,
               rateLimitInfo,
             });
 
+            // MCP registry only at startup; integrations connect during discovery.
+            // Fetch independent Git credentials concurrently for sandbox git.
+            const [mcpLoaded, githubConn] = await Promise.all([
+              loadUserMcpTools(
+                userId,
+                agentRuntimePolicy?.activeProfile?.mcpServerIds,
+                { lazy: true },
+              ),
+              loadUserGithubToken(userId),
+            ]);
+            let mcpClosed = false;
+            closeMcpToolsOnce = async () => {
+              if (mcpClosed) return;
+              mcpClosed = true;
+              await mcpLoaded.close();
+            };
+
+            // Opens the durable record of this run. Best-effort: if it cannot
+            // be opened the request runs exactly as before, just unrecorded.
+            const runRecorder = temporary
+              ? undefined
+              : await startRunRecord({
+                  runId: assistantMessageId,
+                  chatId,
+                  userId,
+                  mode,
+                  purpose,
+                  surface:
+                    purpose === "security"
+                      ? "hack"
+                      : purpose === "image"
+                        ? "studio"
+                        : "build",
+                  goal: authoritativeUserRequest,
+                  // The concrete model is resolved later; the run record is
+                  // updated with the outcome when it closes.
+                  messageId: assistantMessageId,
+                });
+
+            const approvalGate = createToolApprovalGate({
+              userId,
+              chatId,
+              runId: assistantMessageId,
+              mode: approvalMode,
+            });
             const {
               tools,
               getSandbox,
@@ -461,7 +935,9 @@ export const createChatHandler = () => {
               sandboxManager,
               getSandboxSessionCost,
               setCurrentModelName,
+              setProjectWorkingDirectory,
               getToolsForModel,
+              isAppBuildComplete,
             } = createTools(
               userId,
               chatId,
@@ -489,7 +965,75 @@ export const createChatHandler = () => {
               (info) => chatLogger?.setSandboxBoot(info),
               (info) => chatLogger?.setCaidoReady(info),
               selectedModel,
+              {
+                discover: mcpLoaded.discover,
+                all: mcpLoaded.tools,
+                planReadOnly: mcpLoaded.planReadOnlyTools,
+                byServerId: mcpLoaded.toolsByServerId,
+                planReadOnlyByServerId: mcpLoaded.planReadOnlyToolsByServerId,
+              },
+              // Media Studio picker selections are resolved against the
+              // product allowlist before entering either generation tool.
+              resolveImageModel(mediaRequest.selectedModel)?.model,
+              resolveVideoModel(mediaRequest.selectedModel)?.model,
+              githubConn?.token,
+              githubConn?.username,
+              resolveChatSandboxNamespace({
+                userId,
+                chatId,
+                chat,
+                projectNamespace: projectRuntime.sandboxNamespace,
+              }),
+              purpose,
+              authoritativeUserRequest,
+              mediaReferenceUrls,
+              agentRuntimePolicy,
+              runRecorder,
+              undefined,
+              approvalGate,
+              workingFile,
+              httpExecution ? assertHttpExecutionActive : undefined,
+              agentRuntimePolicy?.profileSkills
+                ? []
+                : enabledSkillsForAgentRuntime,
+              httpExecution ? httpToolDrain.wrap : undefined,
+              studioSettings,
             );
+
+            await assertHttpExecutionActive();
+            let preparedRepository;
+            if (isAgentMode(mode) && projectRuntime.githubRepository) {
+              try {
+                preparedRepository = await prepareCloudProjectRepository({
+                  repository: projectRuntime.githubRepository,
+                  sandboxNamespace: projectRuntime.sandboxNamespace,
+                  executionPreference: sandboxPreference,
+                  connection: githubConn,
+                  ensureSandbox,
+                  signal: userStopSignal.signal,
+                });
+                setProjectWorkingDirectory(preparedRepository?.path);
+              } catch (error) {
+                clearLifecycleGuards();
+                await usageRefundTracker.refund();
+                if (runRecorder) {
+                  await finishRunRecord({
+                    runId: runRecorder.runId,
+                    status: "failed",
+                    error:
+                      "The selected GitHub repository could not be prepared.",
+                    messageId: assistantMessageId,
+                    totalTokens: 0,
+                  });
+                }
+                if (error instanceof ChatSDKError) {
+                  chatLogger?.emitChatError(error);
+                } else {
+                  chatLogger?.emitUnexpectedError(error);
+                }
+                throw error;
+              }
+            }
 
             // Helper to send file metadata via stream for resumable stream clients
             // Uses accumulated metadata directly - no DB query needed!
@@ -513,8 +1057,33 @@ export const createChatHandler = () => {
               });
             };
 
-            // Get sandbox context for system prompt (only for local sandboxes)
-            let sandboxContext: string | null = null;
+            // Local Plan needs the selected computer's OS facts, but never
+            // Agent command instructions. This validates the existing runner;
+            // it does not execute tools or boot a Cloud sandbox for Plan.
+            let sandboxContext = await getLocalPlanPromptContext({
+              mode,
+              purpose,
+              preference: sandboxPreference,
+              manager: sandboxManager,
+              onUnavailable: async (error) => {
+                if (!(await usageRefundTracker.refund())) {
+                  phLogger.error(
+                    "Credit refund failed after local Plan connection error — credits not yet restored",
+                    usageRefundTracker.getDeductionSummary(),
+                  );
+                }
+                if (runRecorder) {
+                  await finishRunRecord({
+                    runId: runRecorder.runId,
+                    status: "failed",
+                    error: "The selected local runner is unavailable.",
+                    messageId: assistantMessageId,
+                    totalTokens: 0,
+                  });
+                }
+                chatLogger?.emitChatError(error);
+              },
+            });
             if (
               isAgentMode(mode) &&
               "getSandboxContextForPrompt" in sandboxManager
@@ -546,6 +1115,7 @@ export const createChatHandler = () => {
                   pathRewrites: [],
                 };
               try {
+                await assertHttpExecutionActive();
                 uploadResult = await uploadSandboxFiles(
                   sandboxFiles,
                   ensureSandbox,
@@ -563,8 +1133,13 @@ export const createChatHandler = () => {
                 // Errors thrown from execute are caught by createUIMessageStream's
                 // onError and never reach the outer catch, so refund / timeout
                 // clear / error logging must happen here. refund() is idempotent.
-                preemptiveTimeout?.clear();
-                await usageRefundTracker.refund();
+                clearLifecycleGuards();
+                if (!(await usageRefundTracker.refund())) {
+                  phLogger.error(
+                    "Credit refund failed after upload error — credits not yet restored",
+                    usageRefundTracker.getDeductionSummary(),
+                  );
+                }
                 chatLogger?.emitChatError(uploadError);
                 throw uploadError;
               }
@@ -575,15 +1150,26 @@ export const createChatHandler = () => {
             }
 
             // Generate title in parallel only for non-temporary new chats
+            await assertHttpExecutionActive();
             const titlePromise =
               isNewChat && !temporary
                 ? generateTitleFromUserMessageWithWriter(
                     processedMessages,
                     writer,
+                    { abortSignal: userStopSignal.signal },
                   )
                 : Promise.resolve(undefined);
 
-            const trackedProvider = createTrackedProvider();
+            let capacityPartId = "";
+            const trackedProvider = createTrackedProvider((progress) => {
+              if (progress.status === "waiting")
+                capacityPartId = `provider-capacity-${crypto.randomUUID()}`;
+              writer.write({
+                type: "data-provider-capacity",
+                id: capacityPartId,
+                data: progress,
+              });
+            });
 
             let currentSystemPrompt = await systemPrompt(
               userId,
@@ -593,6 +1179,16 @@ export const createChatHandler = () => {
               userCustomization,
               temporary,
               sandboxContext,
+              purpose,
+            );
+            currentSystemPrompt = appendActiveGoalSystemContext(
+              currentSystemPrompt,
+              rawActiveGoal,
+            );
+
+            currentSystemPrompt = appendWorkingFileSystemContext(
+              currentSystemPrompt,
+              workingFile,
             );
 
             const systemPromptTokens = countTokens(currentSystemPrompt);
@@ -600,7 +1196,11 @@ export const createChatHandler = () => {
             const contextUsageOn = isContextUsageEnabled(subscription, mode);
             const ctxSystemTokens = contextUsageOn ? systemPromptTokens : 0;
             const ctxMaxTokens = contextUsageOn
-              ? getMaxTokensForSubscription(subscription, { mode })
+              ? getMaxTokensForSubscription(subscription, {
+                  mode,
+                  model: selectedModel,
+                  hasPaidContext: hasUsableBalance,
+                })
               : 0;
             // finalMessages will be set in prepareStep if summarization is needed
             let finalMessages = processedMessages;
@@ -616,9 +1216,17 @@ export const createChatHandler = () => {
             }
 
             // Inject notes into messages instead of system prompt
-            // to keep the system prompt stable for prompt caching
+            // to keep the system prompt stable for prompt caching.
+            // SECURITY-ONLY: notes are pentest/OSINT findings — irrelevant to
+            // Build (app) & Image modes, and injecting that offensive-security
+            // content trips Anthropic's real-time content-filter on Claude
+            // upstreams (Bedrock/Vertex), which EMPTIES the response
+            // (finish_reason:"content-filter", 0 output tokens). That's exactly
+            // why Build-mode Claude Fable 5 returned blank. Keep notes to
+            // Security mode so Build stays clean and unfiltered.
             const shouldIncludeNotes =
-              userCustomization?.include_memory_entries ?? true;
+              purpose === "security" &&
+              (userCustomization?.include_memory_entries ?? true);
             const noteInjectionOpts = {
               userId,
               subscription,
@@ -629,6 +1237,38 @@ export const createChatHandler = () => {
               finalMessages,
               noteInjectionOpts,
             );
+
+            // Inject the user's enabled skills (loadable instruction packs) as a
+            // <system-reminder>, scoped to the current purpose. Non-fatal.
+            finalMessages = await injectSkillsIntoMessages(finalMessages, {
+              userId,
+              purpose,
+              requestText: authoritativeUserRequest,
+              enabledSkills: agentRuntimePolicy?.profileSkills
+                ? []
+                : enabledSkillsForAgentRuntime,
+            });
+            const repositoryReminder = projectGithubRepositoryReminder(
+              projectRuntime.githubRepository,
+              preparedRepository?.path,
+            );
+            if (repositoryReminder) {
+              finalMessages = appendSystemReminderToLastUserMessage(
+                finalMessages,
+                repositoryReminder,
+              );
+            }
+            const activeWorkflow = agentRuntimePolicy
+              ? renderActiveAgentWorkflowReminder(agentRuntimePolicy, {
+                  persistentMention: projectRuntime.agentMention,
+                })
+              : projectAgentAssignmentReminder(projectRuntime.agentMention);
+            if (activeWorkflow) {
+              finalMessages = appendSystemReminderToLastUserMessage(
+                finalMessages,
+                activeWorkflow,
+              );
+            }
 
             // Mutable stream state — updated in-place by the shared runner.
             const state = initAgentStreamState(
@@ -643,26 +1283,17 @@ export const createChatHandler = () => {
                 : { usedTokens: 0, maxTokens: 0 },
             );
 
-            // Mid-stream budget enforcement. Paid users use their subscription
-            // bucket; free users use an internal monthly cost cap.
-            const budgetSnapshot = captureBudgetSnapshot({
+            // Enforce actual funding even when this request has no monthly bucket.
+            const budgetMonitor = createRequestBudgetMonitor({
               rateLimitInfo,
               extraUsageConfig,
               subscription,
+              freeMonthlyBudgetSnapshot,
+              writer,
             });
-            const effectiveBudgetSnapshot =
-              budgetSnapshot ??
-              // When served from balance the monthly snapshot is exhausted
-              // (remaining 0, no cushion) — building a BudgetMonitor from it
-              // would spuriously abort a request the user is paying for.
-              (rateLimitInfo.servedFrom === "balance" ||
-              freeMonthlyBudgetSnapshot?.rateLimitSkipped
-                ? null
-                : freeMonthlyBudgetSnapshot);
-            const budgetMonitor = effectiveBudgetSnapshot
-              ? new BudgetMonitor(effectiveBudgetSnapshot, writer, subscription)
-              : null;
-            const isReasoningModel = isAgentMode(mode);
+            // Build exposes reasoning strength in both Plan/Ask and Agent.
+            // Other product surfaces preserve their prior Agent-only policy.
+            const isReasoningModel = purpose === "app" || isAgentMode(mode);
 
             const streamStartTime = Date.now();
             const configuredModelId =
@@ -675,135 +1306,227 @@ export const createChatHandler = () => {
               "agent-model",
               "agent-model-free",
             ].includes(selectedModel);
-            const fallbackModel = getRetryFallbackModel(selectedModel, mode);
+            const fallbackModel = getRetryFallbackModel(
+              selectedModel,
+              mode,
+              reasoningEffort,
+            );
             const fallbackModelId =
               trackedProvider.languageModel(fallbackModel).modelId;
 
             const usageTracker = new UsageTracker();
-            let hasRecordedUsage = false;
+            let usageSettlementPromise: Promise<void> | undefined;
+            // The run's cost/tokens, captured at the moment they are computed
+            // authoritatively for billing, so the Run record shows the same
+            // figure the usage log does rather than a second, drifting estimate.
+            let recordedRunCostDollars: number | undefined;
+            let recordedRunTotalTokens: number | undefined;
             // Snapshot cache tokens before fallback retry so we can isolate fallback-only metrics
             let preFallbackCacheRead = 0;
             let preFallbackCacheWrite = 0;
 
-            const deductAccumulatedUsage = async () => {
-              try {
-                if (hasRecordedUsage) return;
-                // Add E2B sandbox session cost (duration-based)
-                const sandboxCost = getSandboxSessionCost();
-                if (sandboxCost > 0) {
-                  usageTracker.providerCost += sandboxCost;
-                  usageTracker.nonModelCost += sandboxCost;
-                  chatLogger?.getBuilder().addToolCost(sandboxCost);
-                }
+            const deductAccumulatedUsage = (): Promise<void> => {
+              if (usageSettlementPromise) return usageSettlementPromise;
+              // Share the outcome, including rejection. A missing receipt does not
+              // prove that an unkeyed debit failed; replay could charge twice.
+              usageSettlementPromise = Promise.resolve().then(async () => {
+                try {
+                  // Add E2B sandbox session cost (duration-based)
+                  const sandboxCost = getSandboxSessionCost();
+                  if (sandboxCost > 0) {
+                    usageTracker.providerCost += sandboxCost;
+                    usageTracker.nonModelCost += sandboxCost;
+                    chatLogger?.getBuilder().addToolCost(sandboxCost);
+                  }
 
-                if (!usageTracker.hasUsage) {
-                  // No usage data reported — skip deduction
-                  return;
-                }
-                hasRecordedUsage = true;
-                const usageCostRecord = usageTracker.createUsageCostRecord({
-                  selectedModel,
-                  selectedModelOverride,
-                  responseModel: state.responseModel,
-                  configuredModelId,
-                  rateLimitInfo,
-                });
-
-                // Trust accumulated provider cost (sum of per-step usage.raw.cost) even on
-                // non-clean streams. Each completed step reports authoritative cost with
-                // cache discounts baked in, so summing them is more accurate than the
-                // token-based fallback (which ignores cache reads and overcharges).
-                // Gate on modelProviderCost (not providerCost) because providerCost also
-                // includes tool/sandbox spend — if the model never reported raw.cost,
-                // tool/sandbox cost alone would incorrectly suppress the token fallback
-                // and drop the model portion entirely.
-                const providerCost =
-                  usageTracker.modelProviderCost > 0
-                    ? usageTracker.providerCost
-                    : undefined;
-
-                if (
-                  subscription === "free" &&
-                  rateLimitInfo.servedFrom !== "balance"
-                ) {
-                  // Served within the daily free allowance — only track the
-                  // free monthly cost cap; no balance charge.
-                  await recordFreeMonthlyCost(
-                    userId,
-                    usageCostRecord.costDollars,
-                  );
-                } else if (rateLimitInfo.servedFrom === "balance") {
-                  // PAYG free user past the daily allowance: reconcile the
-                  // actual cost against the prepaid balance (input pre-charged).
-                  await deductBalanceUsage(
-                    userId,
-                    estimatedInputTokens,
-                    usageTracker.inputTokens,
-                    usageTracker.outputTokens,
-                    providerCost,
-                    selectedModel,
-                    usageTracker.nonModelCost,
-                  );
-                  usageTracker.log({
-                    userId,
-                    organizationId,
-                    chatId,
-                    endpoint,
-                    mode,
-                    subscription,
+                  if (!usageTracker.hasUsage) {
+                    // No usage data reported — skip deduction
+                    return;
+                  }
+                  const usageCostRecord = usageTracker.createUsageCostRecord({
                     selectedModel,
                     selectedModelOverride,
                     responseModel: state.responseModel,
                     configuredModelId,
                     rateLimitInfo,
                   });
-                } else {
-                  await deductUsage(
+                  recordedRunCostDollars = usageCostRecord.costDollars;
+                  recordedRunTotalTokens = usageCostRecord.totalTokens;
+
+                  // Settle the same resolved total that is logged: preserve reported
+                  // receipts and estimate only unpriced steps, with margin applied once.
+                  const resolvedCost = usageCostRecord.costDollars;
+                  await settleWithJournal(
+                    {
+                      userId,
+                      runId: usageJournalRunId,
+                      evidence: {
+                        version: 1,
+                        chatId,
+                        operationId: rawExecutionId,
+                        organizationId,
+                        subscription,
+                        usage: usageCostRecord,
+                        selectedModel,
+                        estimatedInputTokens,
+                        servedFrom: rateLimitInfo.servedFrom,
+                        pointsDeducted: rateLimitInfo.pointsDeducted,
+                        extraUsagePointsDeducted:
+                          rateLimitInfo.extraUsagePointsDeducted,
+                        pricingMargin:
+                          rateLimitInfo.pricingMargin ?? pricingMargin,
+                        extraUsageConfig,
+                      },
+                    },
+                    async () => {
+                      if (
+                        subscription === "free" &&
+                        rateLimitInfo.servedFrom !== "balance"
+                      ) {
+                        // Served within the daily free allowance — only track the
+                        // free monthly cost cap; no balance charge.
+                        await recordFreeMonthlyCost(
+                          userId,
+                          usageCostRecord.costDollars,
+                        );
+                      } else if (rateLimitInfo.servedFrom === "balance") {
+                        // PAYG free user past the daily allowance: reconcile the
+                        // actual cost against the prepaid balance (input pre-charged).
+                        await deductBalanceUsage(
+                          userId,
+                          estimatedInputTokens,
+                          usageTracker.inputTokens,
+                          usageTracker.outputTokens,
+                          resolvedCost,
+                          selectedModel,
+                          usageTracker.nonModelCost,
+                          pricingMargin,
+                        );
+                        usageTracker.log({
+                          userId,
+                          organizationId,
+                          chatId,
+                          endpoint,
+                          mode,
+                          subscription,
+                          selectedModel,
+                          selectedModelOverride,
+                          responseModel: state.responseModel,
+                          configuredModelId,
+                          rateLimitInfo,
+                        });
+                      } else {
+                        await deductUsage(
+                          userId,
+                          subscription,
+                          estimatedInputTokens,
+                          usageTracker.inputTokens,
+                          usageTracker.outputTokens,
+                          extraUsageConfig,
+                          resolvedCost,
+                          selectedModel,
+                          usageTracker.nonModelCost,
+                          organizationId,
+                          rateLimitInfo,
+                        );
+                        usageTracker.log({
+                          userId,
+                          organizationId,
+                          chatId,
+                          endpoint,
+                          mode,
+                          subscription,
+                          selectedModel,
+                          selectedModelOverride,
+                          responseModel: state.responseModel,
+                          configuredModelId,
+                          rateLimitInfo,
+                        });
+                      }
+                    },
+                  );
+                  captureUsageCost({
+                    posthog,
                     userId,
                     subscription,
-                    estimatedInputTokens,
-                    usageTracker.inputTokens,
-                    usageTracker.outputTokens,
-                    extraUsageConfig,
-                    providerCost,
-                    selectedModel,
-                    usageTracker.nonModelCost,
-                    organizationId,
-                  );
-                  usageTracker.log({
-                    userId,
                     organizationId,
                     chatId,
                     endpoint,
                     mode,
-                    subscription,
-                    selectedModel,
-                    selectedModelOverride,
-                    responseModel: state.responseModel,
-                    configuredModelId,
-                    rateLimitInfo,
+                    usage: usageCostRecord,
                   });
+                } finally {
+                  await releaseFreeRunLockOnce();
                 }
-                captureUsageCost({
-                  posthog,
-                  userId,
-                  subscription,
-                  organizationId,
-                  chatId,
-                  endpoint,
-                  mode,
-                  usage: usageCostRecord,
-                });
-              } finally {
-                await releaseFreeRunLockOnce();
-              }
+              });
+              return usageSettlementPromise;
+            };
+
+            const requestedForcedToolName = resolveForcedFirstToolName({
+              purpose,
+              mediaKind: purpose === "image" ? mediaRequest.kind : undefined,
+            });
+            const forcedToolName =
+              requestedForcedToolName && requestedForcedToolName in tools
+                ? requestedForcedToolName
+                : undefined;
+            const hasCompleteBuildLifecycle =
+              "verify_app" in tools && "expose_preview" in tools;
+            const hasLifecycleTimedOut = () =>
+              (preemptiveTimeout?.isPreemptive() ?? false) ||
+              (state.stoppedDueToElapsedTimeout &&
+                state.streamFinishReason === "timeout");
+            const getRunFinalization = (isAborted: boolean) =>
+              resolveChatRunFinalization({
+                isAborted,
+                hardTimedOut: hasLifecycleTimedOut(),
+                approvalStopped: approvalGate.isStopped?.() ?? false,
+                stoppedDueToElapsedTimeout: state.stoppedDueToElapsedTimeout,
+                hasProviderError: state.providerError !== undefined,
+                finishReason: state.streamFinishReason,
+              });
+            // Both the original stream and an earlier-admitted fallback must
+            // close the same run with the outcome of their final generation.
+            const finishRecordedRun = async (isAborted: boolean) => {
+              if (!runRecorder) return;
+              const { status, stopReason, finishReason } =
+                getRunFinalization(isAborted);
+              await finishRunRecord({
+                runId: runRecorder.runId,
+                status,
+                stopReason,
+                finishReason,
+                messageId: assistantMessageId,
+                costDollars: recordedRunCostDollars,
+                totalTokens: recordedRunTotalTokens,
+              });
             };
 
             // Shared runner context.
+            const usageJournalRunId = runRecorder?.runId ?? generateId();
             const streamCtx: AgentStreamContext = {
+              onProviderUsage: (usage, model) =>
+                persistProviderUsage({
+                  userId,
+                  chatId: temporary ? undefined : chatId,
+                  runId: usageJournalRunId,
+                  model,
+                  usage,
+                }),
+              isApprovalStopped: approvalGate.isStopped,
               trackedProvider,
               currentSystemPrompt,
               tools,
+              // Media Studio forces its selected output modality. Build forces
+              // read-only skill discovery when that tool remains inside an
+              // exact custom-profile allowlist.
+              forceFirstToolName: forcedToolName,
+              isAppBuildComplete:
+                purpose === "app" &&
+                mode === "agent" &&
+                hasCompleteBuildLifecycle
+                  ? isAppBuildComplete
+                  : undefined,
               mode,
               userId,
               subscription,
@@ -814,12 +1537,26 @@ export const createChatHandler = () => {
               systemPromptTokens,
               ctxSystemTokens,
               ctxMaxTokens,
+              hasPaidContext: hasUsableBalance,
               streamStartTime,
               contextUsageOn,
               isReasoningModel,
-              maxDurationMs: AGENT_MAX_STREAM_DURATION_MS,
+              reasoningEffort,
+              maxDurationMs:
+                agentPreemptiveTimeoutMs ?? AGENT_MAX_STREAM_DURATION_MS,
+              requestDeadlineMs:
+                agentPreemptiveTimeoutMs !== undefined
+                  ? requestStartedAt + agentPreemptiveTimeoutMs
+                  : undefined,
+              reportingReserveMs:
+                hackWorkbenchOnly && purpose === "security"
+                  ? agentReportingReserveMs
+                  : undefined,
               writer,
               abortController: userStopSignal,
+              onStepStarted: httpExecution
+                ? assertHttpExecutionActive
+                : undefined,
               summarizationTracker,
               usageTracker,
               budgetMonitor,
@@ -829,10 +1566,11 @@ export const createChatHandler = () => {
               chatLogger,
               usageRefundTracker,
               getHardTimeoutReason: () =>
-                preemptiveTimeout?.isPreemptive() ? "timeout" : null,
+                hasLifecycleTimedOut() ? "timeout" : null,
             };
 
-            const createStream = (modelName: string) => {
+            const createStream = async (modelName: string) => {
+              await assertHttpExecutionActive();
               streamCtx.tools = getToolsForModel(modelName);
               setCurrentModelName(modelName);
               return createAgentStream(modelName, streamCtx, state);
@@ -845,6 +1583,7 @@ export const createChatHandler = () => {
               // If provider returns error (e.g., INVALID_ARGUMENT from Gemini), retry with fallback.
               if (
                 isProviderApiError(error) &&
+                !state.stoppedDueToElapsedTimeout &&
                 !isRetryWithFallback &&
                 isAutoModel
               ) {
@@ -866,11 +1605,7 @@ export const createChatHandler = () => {
                 });
 
                 isRetryWithFallback = true;
-                state.lastStepInputTokens = 0;
-                state.stoppedDueToTokenExhaustion = false;
-                state.stoppedDueToElapsedTimeout = false;
-                state.stoppedDueToDoomLoop = false;
-                state.stoppedDueToBudgetExhaustion = false;
+                resetAgentProviderAttempt(state, userStopSignal.signal);
                 preFallbackCacheRead = usageTracker.cacheReadTokens;
                 preFallbackCacheWrite = usageTracker.cacheWriteTokens;
                 // Discard the failed primary leg's model usage so the user is
@@ -896,16 +1631,36 @@ export const createChatHandler = () => {
                   }
 
                   if (part.type === "finish") {
+                    // The tracker accumulates per step, so by the finish part it
+                    // holds the run's totals. Surfacing them here is what lets
+                    // the client show what the run actually cost instead of
+                    // sending the user to the usage page to find out.
+                    const runUsage = usageTracker.hasUsage
+                      ? usageTracker.createUsageCostRecord({
+                          selectedModel,
+                          selectedModelOverride,
+                          responseModel: state.responseModel,
+                          configuredModelId,
+                          rateLimitInfo,
+                        })
+                      : null;
+
                     return {
                       mode,
                       createdAt: streamStartTime,
                       generationStartedAt: streamStartTime,
                       generationTimeMs: Date.now() - streamStartTime,
+                      totalTokens: runUsage?.totalTokens,
+                      costDollars: runUsage?.costDollars,
+                      // What was actually sent to the model this turn — the
+                      // context window's fill, which cumulative burn is not.
+                      inputTokens: runUsage?.inputTokens,
                     };
                   }
                 },
                 onFinish: async ({ messages, isAborted }) => {
                   let retryScheduled = false;
+                  let producerSaved = false;
                   try {
                     // Check if stream finished with only step-start (indicates incomplete response)
                     const lastAssistantMessage = messages
@@ -935,13 +1690,14 @@ export const createChatHandler = () => {
                       );
 
                       // Retry with fallback model if not already retrying (only for auto models)
-                      if (!isRetryWithFallback && !isAborted && isAutoModel) {
+                      if (
+                        !isRetryWithFallback &&
+                        !isAborted &&
+                        !state.stoppedDueToElapsedTimeout &&
+                        isAutoModel
+                      ) {
                         isRetryWithFallback = true;
-                        state.lastStepInputTokens = 0;
-                        state.stoppedDueToTokenExhaustion = false;
-                        state.stoppedDueToElapsedTimeout = false;
-                        state.stoppedDueToDoomLoop = false;
-                        state.stoppedDueToBudgetExhaustion = false;
+                        resetAgentProviderAttempt(state, userStopSignal.signal);
                         const fallbackStartTime = Date.now();
                         preFallbackCacheRead = usageTracker.cacheReadTokens;
                         preFallbackCacheWrite = usageTracker.cacheWriteTokens;
@@ -952,7 +1708,13 @@ export const createChatHandler = () => {
                         usageTracker.resetModelLeg();
 
                         const retryResult = await createStream(fallbackModel);
-                        const retryMessageId = generateId();
+                        // Reuse the FIRST leg's message id, not a fresh one. The
+                        // client builds a single streaming message; if the retry
+                        // flips the id mid-stream, the empty first bubble (only a
+                        // step-start part) is orphaned next to the fallback —
+                        // showing two assistant messages. Sharing the id keeps it
+                        // one message: the step-start + fallback content coalesce.
+                        const retryMessageId = assistantMessageId;
 
                         writer.merge(
                           retryResult.toUIMessageStream({
@@ -980,9 +1742,17 @@ export const createChatHandler = () => {
                               messages: retryMessages,
                               isAborted: retryAborted,
                             }) => {
+                              let producerSaved = false;
+                              const finalization =
+                                getRunFinalization(retryAborted);
+                              const isPreemptiveAbort =
+                                finalization.wasPreemptiveTimeout;
+                              state.streamFinishReason =
+                                finalization.finishReason;
                               try {
+                                await drainHttpExecution();
                                 // Cleanup for retry
-                                preemptiveTimeout?.clear();
+                                clearLifecycleGuards();
                                 if (!subscriberStopped) {
                                   await cancellationSubscriber.stop();
                                   subscriberStopped = true;
@@ -991,23 +1761,13 @@ export const createChatHandler = () => {
                                 const sandboxInfo =
                                   sandboxManager.getSandboxInfo();
                                 chatLogger!.setSandbox(sandboxInfo);
-                                // Use fallback-only cache tokens (subtract pre-fallback snapshot)
-                                // so the wide event isn't mixing cumulative cache with retry-only usage
-                                const fallbackCacheRead =
-                                  usageTracker.cacheReadTokens -
-                                  preFallbackCacheRead;
-                                const fallbackCacheWrite =
-                                  usageTracker.cacheWriteTokens -
-                                  preFallbackCacheWrite;
-                                const fallbackCacheTotal =
-                                  fallbackCacheRead + fallbackCacheWrite;
+                                // resetModelLeg already removed the waived primary leg.
+                                // Subtracting its snapshot again makes cache counts negative.
                                 chatLogger!.setCacheMetrics({
-                                  cacheHitRate:
-                                    fallbackCacheTotal > 0
-                                      ? fallbackCacheRead / fallbackCacheTotal
-                                      : null,
-                                  cacheReadTokens: fallbackCacheRead,
-                                  cacheWriteTokens: fallbackCacheWrite,
+                                  cacheHitRate: usageTracker.cacheHitRate,
+                                  cacheReadTokens: usageTracker.cacheReadTokens,
+                                  cacheWriteTokens:
+                                    usageTracker.cacheWriteTokens,
                                 });
                                 captureToolCalls({
                                   posthog,
@@ -1033,7 +1793,7 @@ export const createChatHandler = () => {
                                 chatLogger!.emitSuccess({
                                   finishReason: state.streamFinishReason,
                                   wasAborted: retryAborted,
-                                  wasPreemptiveTimeout: false,
+                                  wasPreemptiveTimeout: isPreemptiveAbort,
                                   hadSummarization:
                                     summarizationTracker.hasSummarized,
                                 });
@@ -1054,6 +1814,8 @@ export const createChatHandler = () => {
                                   ) {
                                     await updateChat({
                                       chatId,
+                                      expectedStreamId:
+                                        httpExecution?.executionId,
                                       title: generatedTitle,
                                       finishReason: state.streamFinishReason,
                                       todos: mergedTodos,
@@ -1063,7 +1825,11 @@ export const createChatHandler = () => {
                                       selectedModel: selectedModelOverride,
                                     });
                                   } else {
-                                    await prepareForNewStream({ chatId });
+                                    await prepareForNewStream({
+                                      chatId,
+                                      expectedStreamId:
+                                        httpExecution?.executionId,
+                                    });
                                   }
 
                                   const accumulatedFiles =
@@ -1108,6 +1874,31 @@ export const createChatHandler = () => {
                                   await deleteTempStreamForBackend({ chatId });
                                 }
 
+                                const retryAutoContinueReason =
+                                  resolveAgentAutoContinueReason({
+                                    approvalStopped:
+                                      approvalGate.isStopped?.() ?? false,
+                                    purpose,
+                                    temporary: Boolean(temporary),
+                                    finishReason: state.streamFinishReason,
+                                    stoppedDueToTokenExhaustion:
+                                      state.stoppedDueToTokenExhaustion,
+                                    stoppedDueToElapsedTimeout:
+                                      state.stoppedDueToElapsedTimeout,
+                                    hardTimedOut: isPreemptiveAbort,
+                                    manuallyAborted:
+                                      retryAborted && !isPreemptiveAbort,
+                                    terminalError:
+                                      state.providerError !== undefined ||
+                                      state.streamFinishReason === "error",
+                                  });
+                                if (retryAutoContinueReason) {
+                                  writeAutoContinue(writer, {
+                                    continuationId: retryMessageId,
+                                    reason: retryAutoContinueReason,
+                                  });
+                                }
+
                                 // Verify fallback produced valid content
                                 const fallbackAssistantMessage = retryMessages
                                   .slice()
@@ -1144,12 +1935,12 @@ export const createChatHandler = () => {
                                     preFallbackCacheRead,
                                   preFallbackCacheWriteTokens:
                                     preFallbackCacheWrite,
-                                  fallbackCacheReadTokens: fallbackCacheRead,
-                                  fallbackCacheWriteTokens: fallbackCacheWrite,
+                                  fallbackCacheReadTokens:
+                                    usageTracker.cacheReadTokens,
+                                  fallbackCacheWriteTokens:
+                                    usageTracker.cacheWriteTokens,
                                   fallbackCacheHitRate:
-                                    fallbackCacheTotal > 0
-                                      ? fallbackCacheRead / fallbackCacheTotal
-                                      : null,
+                                    usageTracker.cacheHitRate,
                                   userId,
                                   subscription,
                                   isTemporary: temporary,
@@ -1159,8 +1950,24 @@ export const createChatHandler = () => {
 
                                 // Deduct accumulated usage (includes both original + retry streams)
                                 await deductAccumulatedUsage();
+                                producerSaved = true;
                               } finally {
-                                await releaseFreeRunLockOnce();
+                                try {
+                                  await finishRecordedRun(retryAborted);
+                                } finally {
+                                  clearLifecycleGuards();
+                                  await releaseFreeRunLockOnce();
+                                  await closeMcpToolsOnce();
+                                  await finishHttpExecutionOnce();
+                                  await onProducerFinished?.(
+                                    producerSaved &&
+                                      getRunFinalization(retryAborted)
+                                        .status === "completed" &&
+                                      state.streamFinishReason !== "error"
+                                      ? "completed"
+                                      : "failed",
+                                  );
+                                }
                               }
                             },
                             sendReasoning: true,
@@ -1172,8 +1979,8 @@ export const createChatHandler = () => {
                       }
                     }
 
-                    const isPreemptiveAbort =
-                      preemptiveTimeout?.isPreemptive() ?? false;
+                    await drainHttpExecution();
+                    const isPreemptiveAbort = hasLifecycleTimedOut();
                     const onFinishStartTime = Date.now();
                     const triggerTime = preemptiveTimeout?.getTriggerTime();
 
@@ -1207,7 +2014,7 @@ export const createChatHandler = () => {
 
                     // Clear pre-emptive timeout
                     let stepStart = Date.now();
-                    preemptiveTimeout?.clear();
+                    clearLifecycleGuards();
                     logStep("clear_timeout", stepStart);
 
                     // Stop cancellation subscriber
@@ -1218,9 +2025,8 @@ export const createChatHandler = () => {
 
                     // Clear finish reason for user-initiated aborts (not pre-emptive timeouts)
                     // This prevents showing "going off course" message when user clicks stop
-                    if (isAborted && !isPreemptiveAbort) {
-                      state.streamFinishReason = undefined;
-                    }
+                    state.streamFinishReason =
+                      getRunFinalization(isAborted).finishReason;
 
                     // Emit wide event
                     stepStart = Date.now();
@@ -1283,6 +2089,7 @@ export const createChatHandler = () => {
                         stepStart = Date.now();
                         await updateChat({
                           chatId,
+                          expectedStreamId: httpExecution?.executionId,
                           title: generatedTitle,
                           finishReason: state.streamFinishReason,
                           todos: mergedTodos,
@@ -1294,7 +2101,10 @@ export const createChatHandler = () => {
                       } else {
                         // If not persisting, still need to clear stream state
                         stepStart = Date.now();
-                        await prepareForNewStream({ chatId });
+                        await prepareForNewStream({
+                          chatId,
+                          expectedStreamId: httpExecution?.executionId,
+                        });
                         logStep("prepare_for_new_stream", stepStart);
                       }
 
@@ -1357,8 +2167,12 @@ export const createChatHandler = () => {
                       }
 
                       const hasUsageToRecord = Boolean(resolvedUsage);
-                      const shouldSkipSaveSignal =
-                        cancellationSubscriber.shouldSkipSave();
+                      // Reads the durable discard intent when no Redis message
+                      // arrived, so a dropped signal can no longer be mistaken
+                      // for "discard this run's output".
+                      const shouldSkipSaveSignal = isAborted
+                        ? await cancellationSubscriber.resolveSkipSave()
+                        : cancellationSubscriber.shouldSkipSave();
 
                       // If user aborted (not pre-emptive), skip message save when:
                       // 1. skipSave signal received via Redis (edit/regenerate/retry — message will be discarded)
@@ -1427,8 +2241,17 @@ export const createChatHandler = () => {
                             generationTimeMs: Date.now() - streamStartTime,
                             finishReason: state.streamFinishReason,
                             usage: resolvedUsage ?? state.streamUsage,
+                            // updateOnly exists to stop a discarded turn from
+                            // being re-created as an orphan. It must not apply
+                            // to a plain Stop: there, the client's save is
+                            // fire-and-forget, so refusing to insert meant the
+                            // partial output vanished whenever that request did
+                            // not land. The discard intent is durable now, so
+                            // this can be narrowed to the case it was for.
                             updateOnly:
-                              isAborted && !isPreemptiveAbort
+                              isAborted &&
+                              !isPreemptiveAbort &&
+                              shouldSkipSaveSignal
                                 ? true
                                 : undefined,
                             isHidden:
@@ -1521,20 +2344,50 @@ export const createChatHandler = () => {
                       });
                     }
 
-                    if (
-                      (state.stoppedDueToTokenExhaustion ||
-                        state.stoppedDueToElapsedTimeout ||
-                        state.streamFinishReason === "tool-calls") &&
-                      isAgentMode(mode) &&
-                      !temporary
-                    ) {
-                      writeAutoContinue(writer);
+                    const autoContinueReason = isAgentMode(mode)
+                      ? resolveAgentAutoContinueReason({
+                          approvalStopped: approvalGate.isStopped?.() ?? false,
+                          purpose,
+                          temporary: Boolean(temporary),
+                          finishReason: state.streamFinishReason,
+                          stoppedDueToTokenExhaustion:
+                            state.stoppedDueToTokenExhaustion,
+                          stoppedDueToElapsedTimeout:
+                            state.stoppedDueToElapsedTimeout,
+                          hardTimedOut: isPreemptiveAbort,
+                          manuallyAborted: isAborted && !isPreemptiveAbort,
+                          terminalError:
+                            state.providerError !== undefined ||
+                            state.streamFinishReason === "error",
+                        })
+                      : null;
+                    if (autoContinueReason) {
+                      writeAutoContinue(writer, {
+                        continuationId: assistantMessageId,
+                        reason: autoContinueReason,
+                      });
                     }
 
                     await deductAccumulatedUsage();
+                    producerSaved = true;
                   } finally {
                     if (!retryScheduled) {
-                      await releaseFreeRunLockOnce();
+                      try {
+                        await finishRecordedRun(isAborted);
+                      } finally {
+                        clearLifecycleGuards();
+                        await releaseFreeRunLockOnce();
+                        await closeMcpToolsOnce();
+                        await finishHttpExecutionOnce();
+                        await onProducerFinished?.(
+                          producerSaved &&
+                            getRunFinalization(isAborted).status ===
+                              "completed" &&
+                            state.streamFinishReason !== "error"
+                            ? "completed"
+                            : "failed",
+                        );
+                      }
                     }
                   }
                 },
@@ -1542,7 +2395,18 @@ export const createChatHandler = () => {
               }),
             );
           } catch (error) {
+            await drainHttpExecution();
+            clearLifecycleGuards();
             await releaseFreeRunLockOnce();
+            await closeMcpToolsOnce();
+            if (httpExecution) {
+              await usageRefundTracker.refund();
+              await finishHttpExecutionOnce();
+              if ((await readHackHttpExecution(httpExecution))?.canceled) {
+                writer.write({ type: "abort" });
+                return;
+              }
+            }
             throw error;
           }
         },
@@ -1552,6 +2416,9 @@ export const createChatHandler = () => {
         stream,
         headers: {
           "Transfer-Encoding": "chunked",
+          ...(httpExecution
+            ? { "x-rift-execution-id": httpExecution.executionId }
+            : {}),
         },
         async consumeSseStream({ stream: sseStream }) {
           // Temporary chats do not support resumption
@@ -1562,8 +2429,8 @@ export const createChatHandler = () => {
           try {
             const streamContext = getStreamContext();
             if (streamContext) {
-              const streamId = generateId();
-              await startStream({ chatId, streamId });
+              const streamId = httpExecution?.executionId ?? generateId();
+              if (!httpExecution) await startStream({ chatId, streamId });
               await streamContext.createNewResumableStream(
                 streamId,
                 () => sseStream,
@@ -1580,11 +2447,13 @@ export const createChatHandler = () => {
       });
     } catch (error) {
       // Clear timeout if error occurs before onFinish
-      preemptiveTimeout?.clear();
+      await drainHttpExecution();
+      clearLifecycleGuards();
       await releaseFreeRunLockOnce();
+      await closeMcpToolsOnce();
 
       // Best-effort PTY cleanup — the stream may never have reached onFinish.
-      if (outerChatId) {
+      if (outerChatId && !hackWorkbenchOnly) {
         await ptySessionManager
           .closeAll(outerChatId)
           .catch((err) =>
@@ -1597,8 +2466,22 @@ export const createChatHandler = () => {
 
       // Refund the upfront deduction when the request fails before any tokens
       // were consumed. refund() is idempotent and only fires if deductions were
-      // recorded and nothing has been refunded yet.
-      await usageRefundTracker.refund();
+      // recorded and nothing has been refunded yet. A false return means the
+      // refund itself failed (Convex hiccup) — surface it so the burn is
+      // visible and reconcilable instead of silently dropped.
+      if (!(await usageRefundTracker.refund())) {
+        phLogger.error(
+          "Credit refund failed after request error — credits not yet restored",
+          usageRefundTracker.getDeductionSummary(),
+        );
+      }
+
+      if (httpExecution) {
+        await finishHttpExecutionOnce();
+        const status = await readHackHttpExecution(httpExecution);
+        if (status?.canceled)
+          return stoppedHttpResponse(httpExecution.executionId);
+      }
 
       // Handle ChatSDKErrors (including authentication errors)
       if (error instanceof ChatSDKError) {

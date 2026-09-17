@@ -1,6 +1,14 @@
 import { AlertCircle, RefreshCw, Home } from "lucide-react";
 import Link from "next/link";
 import ZauthPageShell from "@/app/components/ZauthPageShell";
+import { Button } from "@/components/ui/button";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardFooter,
+  CardHeader,
+} from "@/components/ui/card";
 import { AutoRetryButton } from "./auto-retry-button";
 
 type ErrorCode = "429" | "401" | "403" | "500" | "502" | "503" | "504";
@@ -64,48 +72,55 @@ export default async function AuthErrorPage({
 
   return (
     <ZauthPageShell header={false} center>
-      <div className="w-full max-w-md rounded-2xl border border-border/60 bg-background/70 p-6 shadow-[0_24px_80px_-32px_rgba(0,0,0,0.65)] backdrop-blur-md sm:p-8">
-        <div className="text-center">
-          <div className="mx-auto mb-5 flex size-12 items-center justify-center rounded-full border border-destructive/30 bg-destructive/10">
-            <AlertCircle className="size-6 text-destructive" />
+      <Card className="w-full max-w-md rounded-[16px] border-[0.5px] border-[var(--x-line-soft)] bg-[var(--x-ground)] shadow-none">
+        <CardHeader className="text-center">
+          <div className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-full bg-[#b42318]/10">
+            <AlertCircle className="h-6 w-6 text-[#b42318]" />
           </div>
-          <p className="rift2-display text-[11px] font-medium uppercase tracking-[0.18em] text-muted-foreground">
-            Auth error
-          </p>
-          <h1 className="rift2-display mt-2 text-xl font-medium tracking-tight text-foreground">
+          <h1 className="text-[20px] font-medium leading-none tracking-[-0.025em] text-[var(--x-ink)]">
             {errorInfo.title}
           </h1>
-          <p className="mt-3 text-[14px] leading-relaxed text-muted-foreground">
+          <CardDescription className="mt-3 text-[15px] leading-[23px] text-[var(--x-ink-45)]">
             {errorInfo.description}
-          </p>
-          {code ? (
-            <p className="mt-3 font-mono text-[11px] text-muted-foreground/70">
-              code: {code}
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          {code && (
+            <p className="text-center font-mono text-[12px] uppercase tracking-[0.06em] text-[var(--x-ink-45)]">
+              Error code: {code}
             </p>
-          ) : null}
-        </div>
-
-        <div className="mt-8 flex flex-col gap-3 sm:flex-row">
+          )}
+        </CardContent>
+        <CardFooter className="flex flex-col gap-3 sm:flex-row w-full">
           {errorInfo.autoRetry ? (
             <AutoRetryButton loginUrl="/login" />
           ) : (
-            <a
-              href="/login"
-              className="inline-flex flex-1 items-center justify-center gap-2 rounded-full bg-foreground px-5 py-2.5 text-[13px] font-medium text-background transition-opacity hover:opacity-90"
+            <Button
+              asChild
+              className="min-w-0 flex-1 rounded-full bg-[var(--x-ink)] text-[var(--x-ground)] shadow-none hover:bg-[#262626]"
             >
-              <RefreshCw className="size-4" />
-              Try again
-            </a>
+              <a href="/login">
+                <RefreshCw className="h-4 w-4" />
+                Try Again
+              </a>
+            </Button>
           )}
-          <Link
-            href="/"
-            className="inline-flex flex-1 items-center justify-center gap-2 rounded-full border border-border/70 px-5 py-2.5 text-[13px] font-medium text-foreground transition-colors hover:border-signal/50 hover:bg-surface-2/40"
+          <Button
+            asChild
+            variant="outline"
+            // The `dark:` half of shadcn's outline variant has to be answered
+              // explicitly. The application root carries the `dark` class, so
+              // `dark:bg-input/30` still applies on this page and painted the
+              // button a solid grey on a white ground.
+              className="min-w-0 flex-1 rounded-full border-[0.5px] border-[var(--x-line-soft)] bg-transparent text-[var(--x-ink)] shadow-none hover:bg-[var(--x-raise)] dark:border-[var(--x-line-soft)] dark:bg-transparent dark:hover:bg-[var(--x-raise)]"
           >
-            <Home className="size-4" />
-            Go home
-          </Link>
-        </div>
-      </div>
+            <Link href="/">
+              <Home className="h-4 w-4" />
+              Go Home
+            </Link>
+          </Button>
+        </CardFooter>
+      </Card>
     </ZauthPageShell>
   );
 }

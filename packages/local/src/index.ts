@@ -17,11 +17,15 @@ import { Centrifuge, Subscription, PublicationContext } from "centrifuge";
 import WebSocket from "ws";
 import { spawn, ChildProcess } from "child_process";
 import os from "os";
+import path from "node:path";
+import { createHash } from "node:crypto";
+import { ManagedSession } from "./managed-session";
 import {
   truncateOutput,
   MAX_OUTPUT_SIZE,
   getDefaultShell,
   buildShellSpawn,
+  withWorkingDirectory,
 } from "./utils";
 import {
   ProcessRunner,
@@ -30,10 +34,10 @@ import {
   isPtyAvailable,
 } from "./process-runner";
 
-const DEFAULT_SHELL = getDefaultShell(os.platform());
+import { OutputDelivery } from "./output-delivery";
+import { LocalIdleTracker } from "./idle-tracker";
 
-// Idle timeout: auto-terminate after 1 hour without commands
-const IDLE_TIMEOUT_MS = 60 * 60 * 1000; // 1 hour
+const DEFAULT_SHELL = getDefaultShell(os.platform());
 
 // Idle check interval: check every 5 minutes
 const IDLE_CHECK_INTERVAL_MS = 5 * 60 * 1000;
@@ -177,6 +181,7 @@ interface OsInfo {
 
 interface ClientCapabilities {
   commands: boolean;
+  commandReadiness: boolean;
   pty: boolean;
 }
 
@@ -376,14 +381,33 @@ class LocalSandboxClient {
   private userId?: string;
   private connectionId?: string;
   private isShuttingDown = false;
-  private lastActivityTime: number;
+  private managedSession?: ManagedSession;
+  private relayCredentials?: { wsUrl: string; token: string };
+  private commandWorkers = new Map<string, ChildProcess>();
+  private outputDelivery = new OutputDelivery(async (data) => {
+    if (!this.subscription) throw new Error("No active relay subscription");
+    await this.subscription.publish(data);
+  });
+  private activity = new LocalIdleTracker(
+    Date.now,
+    undefined,
+    process.argv.includes("--keep-alive"),
+  );
   private idleCheckInterval?: NodeJS.Timeout;
   private processRunner: ProcessRunner;
   private activeStreamCommands: Map<string, ChildProcess> = new Map();
 
   constructor(private config: Config) {
+    if (process.argv.includes("--keep-alive")) {
+      const scope = createHash("sha256")
+        .update(`${config.convexUrl}:${config.token}:${config.name}`)
+        .digest("hex");
+      this.managedSession = new ManagedSession(
+        process.env.RIFT_RUNNER_STATE_DIR ||
+          path.join(os.homedir(), ".local", "state", "rift", scope),
+      );
+    }
     this.convexHttp = new ConvexHttpClient(config.convexUrl);
-    this.lastActivityTime = Date.now();
     this.processRunner = new ProcessRunner();
     this.setupProcessRunnerListeners();
   }
@@ -404,6 +428,7 @@ class LocalSandboxClient {
     });
 
     this.processRunner.on("exit", (sessionId: string, exitCode: number) => {
+      this.activity.touch();
       console.log(
         chalk.gray(`[PTY] Session ${sessionId} exited (code ${exitCode})`),
       );
@@ -460,6 +485,7 @@ class LocalSandboxClient {
   private getCapabilities(): ClientCapabilities {
     return {
       commands: true,
+      commandReadiness: true,
       pty: isPtyAvailable(),
     };
   }
@@ -468,6 +494,25 @@ class LocalSandboxClient {
     console.log(chalk.blue("Connecting to RIFT..."));
 
     try {
+      const saved = this.managedSession?.read();
+      if (saved) {
+        const refreshed = (await this.convexHttp.mutation(
+          api.localSandbox.refreshCentrifugoToken as never,
+          {
+            token: this.config.token,
+            connectionId: saved.connectionId,
+            commandReadiness: true,
+          } as never,
+        )) as RefreshTokenResult;
+        if (refreshed.ok) {
+          this.userId = saved.userId;
+          this.connectionId = saved.connectionId;
+          console.log(chalk.gray(`Connection: ${this.connectionId}`));
+          this.setupCentrifugo(saved.wsUrl, refreshed.centrifugoToken);
+          this.startIdleCheck();
+          return;
+        }
+      }
       const result = (await this.convexHttp.mutation(
         api.localSandbox.connect as never,
         {
@@ -494,6 +539,12 @@ class LocalSandboxClient {
       console.log(chalk.bold(chalk.green("🎉 Local sandbox is ready!")));
       console.log(chalk.gray(`Connection: ${this.connectionId}`));
 
+      if (this.connectionId && this.userId)
+        this.managedSession?.save({
+          connectionId: this.connectionId,
+          userId: this.userId,
+          wsUrl: result.centrifugoWsUrl,
+        });
       this.setupCentrifugo(result.centrifugoWsUrl, result.centrifugoToken);
       this.startIdleCheck();
     } catch (error: unknown) {
@@ -513,6 +564,7 @@ class LocalSandboxClient {
   }
 
   private setupCentrifugo(wsUrl: string, initialToken: string): void {
+    this.relayCredentials = { wsUrl, token: initialToken };
     this.centrifuge = new Centrifuge(wsUrl, {
       websocket: WebSocket as unknown as typeof globalThis.WebSocket,
       token: initialToken,
@@ -547,7 +599,10 @@ class LocalSandboxClient {
           }
           throw error;
         }
-        if (result.ok) return result.centrifugoToken;
+        if (result.ok) {
+          this.relayCredentials = { wsUrl, token: result.centrifugoToken };
+          return result.centrifugoToken;
+        }
 
         console.error(
           chalk.red(`\n❌ Connection terminated by server (${result.reason})`),
@@ -592,6 +647,22 @@ class LocalSandboxClient {
 
       const message = ctx.data;
 
+      if (
+        message?.type === "runner_probe" &&
+        message.targetConnectionId === this.connectionId &&
+        typeof message.probeId === "string" &&
+        message.probeId.length <= 100
+      ) {
+        void this.subscription
+          ?.publish({
+            type: "runner_ready",
+            probeId: message.probeId,
+            targetConnectionId: this.connectionId,
+          })
+          .catch(() => {});
+        return;
+      }
+
       if (!isTargetedIncomingMessage(message)) {
         return;
       }
@@ -600,7 +671,7 @@ class LocalSandboxClient {
         return;
       }
 
-      this.lastActivityTime = Date.now();
+      this.activity.touch();
 
       switch (message.type) {
         case "command":
@@ -668,7 +739,7 @@ class LocalSandboxClient {
       }
     });
 
-    this.centrifuge.on("connected", () => {
+    this.subscription.on("subscribed", () => {
       console.log(chalk.green("✓ Connected to command relay"));
     });
 
@@ -679,22 +750,22 @@ class LocalSandboxClient {
   private async publishToChannel(
     data: CentrifugoOutgoingMessage,
   ): Promise<void> {
-    if (!this.subscription) {
-      console.error(chalk.red("Cannot publish: no active subscription"));
-      return;
+    if (
+      data.type === "stdout" ||
+      data.type === "stderr" ||
+      data.type === "exit" ||
+      data.type === "error"
+    ) {
+      return this.outputDelivery.send(data);
     }
-    try {
-      await this.subscription.publish(data);
-    } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : JSON.stringify(err);
-      console.error(chalk.red(`Publish failed: ${msg}`));
-      throw err;
-    }
+    if (!this.subscription) throw new Error("No active relay subscription");
+    await this.subscription.publish(data);
   }
 
   private async handleCommand(msg: CentrifugoCommandMessage): Promise<void> {
     const { commandId, command, env, cwd, timeout, background, displayName } =
       msg;
+    const finishActivity = this.activity.beginCommand();
 
     // Determine what to show in console:
     // - displayName === "" (empty string): hide command entirely
@@ -719,11 +790,7 @@ class LocalSandboxClient {
           .pop() ?? "";
       const useCmd = shellBase === "cmd" || shellBase === "cmd.exe";
 
-      if (cwd && cwd.trim() !== "") {
-        fullCommand = useCmd
-          ? `cd /d "${cwd}" && ${fullCommand}`
-          : `cd "${cwd}" 2>/dev/null && ${fullCommand}`;
-      }
+      fullCommand = withWorkingDirectory(fullCommand, cwd, useCmd);
 
       if (env) {
         const envString = Object.entries(env)
@@ -760,6 +827,10 @@ class LocalSandboxClient {
         return;
       }
 
+      if (this.managedSession && os.platform() !== "win32") {
+        await this.runManagedCommand(commandId, fullCommand, timeout ?? 30000);
+        return;
+      }
       await this.streamCommand(
         commandId,
         fullCommand,
@@ -775,10 +846,13 @@ class LocalSandboxClient {
         message: truncateOutput(message),
       });
       console.log(chalk.red(`✗ ${displayText}: ${message}`));
+    } finally {
+      finishActivity();
     }
   }
 
   private handleCommandCancel(msg: CentrifugoCommandCancelMessage): void {
+    this.commandWorkers.get(msg.commandId)?.kill("SIGTERM");
     const proc = this.activeStreamCommands.get(msg.commandId);
     if (!proc) {
       return;
@@ -827,6 +901,57 @@ class LocalSandboxClient {
       this.terminateProcessTree(proc);
     }
     this.activeStreamCommands.clear();
+  }
+
+  private async runManagedCommand(
+    commandId: string,
+    command: string,
+    timeout: number,
+  ): Promise<void> {
+    if (
+      !this.managedSession ||
+      !this.relayCredentials ||
+      !this.connectionId ||
+      !this.userId
+    )
+      throw new Error("Managed command relay is not ready");
+    if (!this.managedSession.claim(commandId)) return;
+    const worker = spawn(
+      process.execPath,
+      [...process.execArgv, path.join(__dirname, "command-worker.js")],
+      {
+        detached: true,
+        stdio: ["ignore", "ignore", "ignore", "ipc"],
+      },
+    );
+    this.commandWorkers.set(commandId, worker);
+    await new Promise<void>((resolve, reject) => {
+      worker.once("error", reject);
+      worker.once("exit", (code) => {
+        this.commandWorkers.delete(commandId);
+        if (code === 0) resolve();
+        else
+          reject(
+            new Error("Local command worker ended before delivery completed"),
+          );
+      });
+      worker.send(
+        {
+          commandId,
+          command,
+          timeout,
+          connectionId: this.connectionId,
+          userId: this.userId,
+          wsUrl: this.relayCredentials!.wsUrl,
+          relayToken: this.relayCredentials!.token,
+          convexUrl: this.config.convexUrl,
+          token: this.config.token,
+        },
+        (error) => {
+          if (error) reject(error);
+        },
+      );
+    });
   }
 
   private async streamCommand(
@@ -1071,12 +1196,14 @@ class LocalSandboxClient {
 
   private startIdleCheck(): void {
     this.idleCheckInterval = setInterval(() => {
-      const idleTime = Date.now() - this.lastActivityTime;
-      if (idleTime >= IDLE_TIMEOUT_MS) {
+      const idleTime = this.activity.idleForMs();
+      if (
+        this.activity.shouldExpire(this.processRunner.hasRunningProcesses())
+      ) {
         const idleMinutes = Math.floor(idleTime / 60000);
         console.log(
           chalk.yellow(
-            `\n⏰ Idle timeout: No commands received for ${idleMinutes} minutes`,
+            `\n⏰ Idle timeout: No active work or new commands for ${idleMinutes} minutes`,
           ),
         );
         console.log(chalk.yellow("Auto-terminating to save resources..."));
@@ -1093,6 +1220,7 @@ class LocalSandboxClient {
   }
 
   async cleanup(): Promise<void> {
+    this.outputDelivery.stop();
     console.log(chalk.blue("\n🧹 Cleaning up..."));
 
     this.isShuttingDown = true;
@@ -1121,7 +1249,7 @@ class LocalSandboxClient {
     }, 5000);
 
     try {
-      if (this.connectionId) {
+      if (this.connectionId && !this.managedSession) {
         try {
           await this.convexHttp.mutation(
             api.localSandbox.disconnect as never,
@@ -1163,7 +1291,8 @@ ${chalk.yellow("Usage:")}
   npx https://riftsys.app/downloads/rift-cli.tgz --token TOKEN [options]
 
 ${chalk.yellow("Options:")}
-  --token TOKEN       Authentication token from Settings (required)
+  --token TOKEN       Authentication token (or RIFT_LOCAL_TOKEN environment variable)
+  --keep-alive        Remain connected while idle, for managed desktop services
   --name NAME         Optional connection name fallback (default: hostname)
   --convex-url URL    Override Convex backend URL (for development)
   --help, -h          Show this help message
@@ -1177,15 +1306,15 @@ ${chalk.red("⚠️  Security Warning:")}
   Only connect machines you trust and control.
 
 ${chalk.cyan("Auto-termination:")}
-  The client automatically terminates after 1 hour of inactivity (no commands
-  executed) to save system resources.
+  The client automatically terminates after 1 idle hour without active commands
+  or open PTY sessions. The idle hour starts after work finishes.
 `);
   process.exit(0);
 }
 
 const config: Config = {
   convexUrl: getArg("--convex-url") || PRODUCTION_CONVEX_URL,
-  token: getArg("--token") || "",
+  token: getArg("--token") || process.env.RIFT_LOCAL_TOKEN || "",
   name: getArg("--name") || os.hostname(),
 };
 

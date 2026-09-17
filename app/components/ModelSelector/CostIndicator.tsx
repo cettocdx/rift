@@ -8,9 +8,8 @@ import { isAgentMode } from "@/lib/utils/mode-helpers";
 
 type CostTier = "low" | "medium" | "high" | "very-high";
 
-// Cost tier per RIFT tier id. Standard is mode-aware: in ask it routes
-// through the cheap DeepSeek V4 Flash text path (low), in agent it runs on
-// Kimi K2.6 (medium).
+// Cost tier per product-facing RIFT tier id. Runtime security traffic currently
+// resolves through the shared Grok route; these tiers describe the retail UI.
 export function getCostTier(modelId: string, mode?: ChatMode): CostTier {
   switch (modelId) {
     case "rift-standard":

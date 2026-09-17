@@ -142,6 +142,7 @@ export const checkAndSummarizeIfNeeded = async (
   tools?: ToolSet,
   providerOptions?: Record<string, Record<string, unknown>>,
   modelMessages?: ModelMessage[],
+  context?: import("@/lib/token-limits").ContextLimitOptions,
 ): Promise<SummarizationResult> => {
   // Detect and separate synthetic summary message from real messages
   let realMessages: UIMessage[];
@@ -167,6 +168,12 @@ export const checkAndSummarizeIfNeeded = async (
       fileTokens,
       systemPromptTokens,
       providerInputTokens,
+      context ?? {
+        model:
+          typeof languageModel === "object"
+            ? languageModel.modelId
+            : languageModel,
+      },
     )
   ) {
     return NO_SUMMARIZATION(uiMessages);
@@ -193,6 +200,7 @@ export const checkAndSummarizeIfNeeded = async (
       providerOptions,
       abortSignal,
       modelMessages,
+      subscription,
     );
 
     // In agent modes, save the full transcript of summarized messages to the sandbox
@@ -222,6 +230,11 @@ export const checkAndSummarizeIfNeeded = async (
     ]);
 
     const { text: summaryText, usage: summarizationUsage } = summaryResult;
+    // A tool-only or otherwise empty response must never replace real history.
+    // Check before appending a transcript notice, which is not a summary.
+    if (!summaryText.trim()) {
+      return NO_SUMMARIZATION(uiMessages);
+    }
     let finalSummaryText = summaryText;
     if (savedPath) {
       finalSummaryText += buildTranscriptNotice(savedPath);

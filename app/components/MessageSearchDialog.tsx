@@ -23,9 +23,9 @@ import {
 } from "date-fns";
 import type { Doc } from "@/convex/_generated/dataModel";
 import { useGlobalState } from "../contexts/GlobalState";
-import { chatRoute, useAppShell } from "../contexts/AppShellContext";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { useChats } from "../hooks/useChats";
+import { useChatNavigation } from "@/app/hooks/useChatNavigation";
 
 interface MessageSearchResult {
   id: string;
@@ -57,9 +57,9 @@ export const MessageSearchDialog: React.FC<MessageSearchDialogProps> = ({
 }) => {
   const { user } = useAuth();
   const router = useRouter();
-  const { basePath } = useAppShell();
   const { setChatSidebarOpen, closeSidebar } = useGlobalState();
   const isMobile = useIsMobile();
+  const { goChat } = useChatNavigation();
   const [searchQuery, setSearchQuery] = useState("");
   const [debouncedQuery, setDebouncedQuery] = useState("");
   // Only fetch chats when dialog is open and there's no search query
@@ -252,7 +252,7 @@ export const MessageSearchDialog: React.FC<MessageSearchDialogProps> = ({
       setChatSidebarOpen(false);
     }
 
-    router.push(chatRoute(basePath, chatId));
+    goChat(chatId);
     onClose();
   };
 
@@ -324,7 +324,8 @@ export const MessageSearchDialog: React.FC<MessageSearchDialogProps> = ({
   return (
     <Dialog open={isOpen} onOpenChange={onClose}>
       <DialogContent
-        className="flex flex-col max-w-[680px] w-full h-[440px] p-0 gap-0"
+        className="flex flex-col w-[calc(100%-1.5rem)] sm:max-w-[680px] h-[440px] max-h-[calc(100dvh-1.5rem)] overflow-hidden p-0 gap-0"
+        aria-describedby={undefined}
         onKeyDown={handleKeyDown}
         showCloseButton={false}
       >
@@ -334,10 +335,11 @@ export const MessageSearchDialog: React.FC<MessageSearchDialogProps> = ({
             <div className="flex items-center gap-3 flex-1 min-w-0">
               <Search size={20} className="text-muted-foreground shrink-0" />
               <Input
+                aria-label="Search messages"
                 placeholder="Search messages..."
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
-                className="border-0 bg-transparent focus-visible:ring-0 focus-visible:ring-offset-0 text-base placeholder:text-muted-foreground"
+                className="border-0 bg-transparent text-base placeholder:text-[var(--cursor-text-tertiary)]"
                 autoFocus
               />
             </div>
@@ -345,14 +347,15 @@ export const MessageSearchDialog: React.FC<MessageSearchDialogProps> = ({
               variant="ghost"
               size="sm"
               onClick={onClose}
-              className="h-8 w-8 p-0 hover:bg-muted/50 shrink-0"
+              aria-label="Close search"
+              className="h-11 w-11 sm:h-8 sm:w-8 p-0 hover:bg-muted/50 shrink-0"
             >
               <X size={18} />
             </Button>
           </div>
         </DialogHeader>
 
-        <div className="flex-1 overflow-hidden">
+        <div className="min-h-0 flex-1 overflow-hidden">
           <div className="h-full overflow-y-auto">
             {!trimmedDebouncedQuery ? (
               chats.length === 0 ? (

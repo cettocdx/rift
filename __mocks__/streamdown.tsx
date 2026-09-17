@@ -6,3 +6,6 @@ export const Streamdown = ({ children }: { children: string }) => {
 };
 
 export default Streamdown;
+
+export const useIsCodeFenceIncomplete = () => false;
+export const defaultRemarkPlugins = {};

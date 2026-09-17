@@ -1,8 +1,1 @@
-<svg width="512" height="512" viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="RIFT">
-  <!-- Single-colour mark: set color via `fill` on the <rect> (currentColor-ready). -->
-  <mask id="rift">
-    <rect x="1" y="1" width="30" height="30" rx="8" fill="#fff"/>
-    <path d="M16 -2 L13.4 13 L18.6 18 L15.4 34" stroke="#000" stroke-width="3" stroke-linejoin="round"/>
-  </mask>
-  <rect x="1" y="1" width="30" height="30" rx="8" fill="#0b0f0d" mask="url(#rift)"/>
-</svg>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 124 124" width="124" height="124"><g transform="translate(12 12) scale(1)"><g fill="currentColor"><path d="M55 7C70 16 85 27 91 39Q95 47 81 47H9C40 43 57 37 60 27C62 20 59 12 55 7Z"/><path d="M55 7C70 16 85 27 91 39Q95 47 81 47H9C40 43 57 37 60 27C62 20 59 12 55 7Z" transform="rotate(180 50 50)"/></g></g></svg>

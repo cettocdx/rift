@@ -172,7 +172,7 @@ export const CustomizeRIFTDialog = ({
                 placeholder="Nickname"
                 value={nickname}
                 onChange={(e) => setNickname(e.target.value)}
-                className={`flex w-full rounded-md border ${isNicknameOverLimit ? "border-red-500" : "border-input"} bg-transparent px-3 py-2 text-sm shadow-xs placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50 resize-none`}
+                className={`flex w-full rounded-md border ${isNicknameOverLimit ? "border-red-500" : "border-input"} bg-transparent px-3 py-2 text-sm shadow-xs placeholder:text-[var(--cursor-text-tertiary)] focus-visible:outline-none disabled:cursor-not-allowed disabled:opacity-50 resize-none`}
                 maxRows={1}
               />
               {isNicknameOverLimit && (
@@ -190,7 +190,7 @@ export const CustomizeRIFTDialog = ({
                 placeholder="Pentester, bug bounty hunter, etc."
                 value={occupation}
                 onChange={(e) => setOccupation(e.target.value)}
-                className={`flex w-full rounded-md border ${isOccupationOverLimit ? "border-red-500" : "border-input"} bg-transparent px-3 py-2 text-sm shadow-xs placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50 resize-none`}
+                className={`flex w-full rounded-md border ${isOccupationOverLimit ? "border-red-500" : "border-input"} bg-transparent px-3 py-2 text-sm shadow-xs placeholder:text-[var(--cursor-text-tertiary)] focus-visible:outline-none disabled:cursor-not-allowed disabled:opacity-50 resize-none`}
                 maxRows={1}
               />
               {isOccupationOverLimit && (
@@ -246,7 +246,7 @@ export const CustomizeRIFTDialog = ({
                 placeholder="Describe or select traits"
                 value={traitsText}
                 onChange={(e) => setTraitsText(e.target.value)}
-                className={`flex w-full rounded-md border ${isTraitsOverLimit ? "border-red-500" : "border-input"} bg-transparent px-3 py-2 text-sm shadow-xs placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50 resize-none`}
+                className={`flex w-full rounded-md border ${isTraitsOverLimit ? "border-red-500" : "border-input"} bg-transparent px-3 py-2 text-sm shadow-xs placeholder:text-[var(--cursor-text-tertiary)] focus-visible:outline-none disabled:cursor-not-allowed disabled:opacity-50 resize-none`}
                 minRows={2}
                 maxRows={4}
               />
@@ -282,7 +282,7 @@ export const CustomizeRIFTDialog = ({
                 placeholder="Security interests, preferred methodologies, compliance requirements"
                 value={additionalInfo}
                 onChange={(e) => setAdditionalInfo(e.target.value)}
-                className={`flex w-full rounded-md border ${isAdditionalInfoOverLimit ? "border-red-500" : "border-input"} bg-transparent px-3 py-2 text-sm shadow-xs placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50 resize-none`}
+                className={`flex w-full rounded-md border ${isAdditionalInfoOverLimit ? "border-red-500" : "border-input"} bg-transparent px-3 py-2 text-sm shadow-xs placeholder:text-[var(--cursor-text-tertiary)] focus-visible:outline-none disabled:cursor-not-allowed disabled:opacity-50 resize-none`}
                 minRows={3}
                 maxRows={6}
               />

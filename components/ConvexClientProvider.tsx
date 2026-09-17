@@ -3,6 +3,7 @@
 import { ReactNode, useState } from "react";
 import { ConvexReactClient } from "convex/react";
 import { ConvexAuthNextjsProvider } from "@convex-dev/auth/nextjs";
+import { OAuthCodeHandler } from "@/app/components/OAuthCodeHandler";
 
 export function ConvexClientProvider({ children }: { children: ReactNode }) {
   const [convex] = useState(
@@ -11,6 +12,9 @@ export function ConvexClientProvider({ children }: { children: ReactNode }) {
 
   return (
     <ConvexAuthNextjsProvider client={convex}>
+      {/* Completes the Google OAuth `?code=` exchange (the library skips it
+          under ConvexAuthNextjsServerProvider + our custom /api/auth route). */}
+      <OAuthCodeHandler />
       {children}
     </ConvexAuthNextjsProvider>
   );

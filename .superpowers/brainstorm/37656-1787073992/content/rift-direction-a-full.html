@@ -1,0 +1,292 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>RIFT Direction A</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      --bg: #090909;
+      --surface: #101010;
+      --surface-2: #151515;
+      --line: #242424;
+      --line-soft: rgba(255,255,255,.08);
+      --text: #f2f2ef;
+      --muted: #a1a19b;
+      --dim: #72726e;
+      --signal: #9bf5b4;
+      --ease-out: cubic-bezier(.23,1,.32,1);
+    }
+    * { box-sizing: border-box; }
+    html { background: var(--bg); }
+    body {
+      margin: 0;
+      color: var(--text);
+      background:
+        radial-gradient(circle at 50% -18rem, rgba(255,255,255,.075), transparent 38rem),
+        var(--bg);
+      font-family: Geist, "SF Pro Display", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      font-size: 16px;
+      line-height: 1.55;
+    }
+    button { font: inherit; }
+    .shell { width: min(1500px, calc(100% - 40px)); margin: 0 auto; padding: 36px 0 80px; }
+    .brief-header { display: grid; grid-template-columns: minmax(0, 1.35fr) minmax(320px, .65fr); gap: 54px; align-items: end; margin-bottom: 32px; }
+    .label { color: #8c8c87; font: 500 11px/1.2 "SFMono-Regular", Consolas, monospace; letter-spacing: .12em; text-transform: uppercase; }
+    .brief-header h1 { margin: 12px 0 0; max-width: 880px; font-size: clamp(42px, 5vw, 76px); line-height: .98; letter-spacing: -.06em; font-weight: 520; text-wrap: balance; }
+    .brief-header p { margin: 0; color: var(--muted); max-width: 50ch; }
+    .dials { display: flex; gap: 8px; margin-top: 17px; flex-wrap: wrap; }
+    .dials span { border: 1px solid var(--line); border-radius: 999px; padding: 6px 9px; color: #bebeb8; font: 9px/1 "SFMono-Regular", Consolas, monospace; }
+    .workspace { display: grid; grid-template-columns: minmax(0, 1fr) 330px; gap: 16px; align-items: start; }
+    .site-frame { border: 1px solid var(--line); border-radius: 20px; overflow: hidden; background: var(--bg); box-shadow: 0 30px 120px rgba(0,0,0,.45); }
+    .framebar { height: 40px; display: flex; align-items: center; gap: 6px; padding: 0 13px; border-bottom: 1px solid var(--line-soft); background: #111; }
+    .framebar i { width: 6px; height: 6px; border-radius: 50%; background: #555552; }
+    .framebar span { margin-left: auto; color: #5f5f5a; font: 9px/1 monospace; }
+    .landing { overflow: hidden; }
+    .nav { height: 62px; padding: 0 clamp(18px, 3vw, 42px); display: flex; align-items: center; gap: 28px; border-bottom: 1px solid var(--line-soft); }
+    .brand { display: flex; align-items: center; gap: 9px; font-size: 13px; font-weight: 650; letter-spacing: -.025em; }
+    .brand-mark { position: relative; width: 22px; height: 18px; }
+    .brand-mark::before, .brand-mark::after { content: ""; position: absolute; left: 1px; width: 20px; height: 7px; border-radius: 8px 2px 8px 2px; background: var(--text); transform: skewX(-24deg); }
+    .brand-mark::before { top: 1px; }
+    .brand-mark::after { bottom: 1px; transform: skewX(-24deg) rotate(180deg); }
+    .navlinks { display: flex; gap: 23px; margin-left: 12px; color: #969691; font-size: 11px; }
+    .nav-actions { margin-left: auto; display: flex; gap: 8px; align-items: center; }
+    .link { color: #a9a9a4; font-size: 11px; }
+    .nav-cta, .hero-cta { border: 0; background: var(--text); color: var(--bg); border-radius: 999px; font-weight: 630; }
+    .nav-cta { min-height: 32px; padding: 0 13px; font-size: 10px; }
+    .landing-hero { position: relative; min-height: 545px; padding: 70px clamp(22px, 5vw, 68px) 0; overflow: hidden; }
+    .field { position: absolute; width: 420px; height: 300px; right: -35px; top: 20px; object-fit: cover; opacity: .33; mix-blend-mode: screen; mask-image: radial-gradient(circle, #000 0 42%, transparent 76%); }
+    .hero-copy { position: relative; z-index: 1; max-width: 780px; }
+    .hero-copy h2 { margin: 0; max-width: 680px; font-size: clamp(50px, 6vw, 82px); line-height: .93; letter-spacing: -.066em; font-weight: 520; text-wrap: balance; }
+    .hero-copy p { max-width: 44ch; margin: 22px 0 0; color: var(--muted); font-size: clamp(15px, 1.3vw, 18px); line-height: 1.52; }
+    .hero-actions { display: flex; gap: 9px; margin-top: 27px; }
+    .hero-cta { min-height: 44px; padding: 0 18px; }
+    .hero-secondary { min-height: 44px; padding: 0 17px; border: 1px solid var(--line); border-radius: 999px; background: #111; color: #d2d2cd; }
+    .product-shell { position: absolute; left: clamp(22px, 5vw, 68px); right: clamp(22px, 5vw, 68px); bottom: -182px; padding: 7px; border: 1px solid rgba(255,255,255,.12); border-radius: 17px 17px 0 0; background: rgba(255,255,255,.035); box-shadow: 0 28px 110px rgba(0,0,0,.72); }
+    .product-shell img { display: block; width: 100%; border-radius: 11px 11px 0 0; border: 1px solid rgba(255,255,255,.08); }
+    .proof-strip { display: grid; grid-template-columns: repeat(3, 1fr); border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); background: #0c0c0c; }
+    .proof { min-height: 116px; padding: 26px 30px; border-right: 1px solid var(--line); }
+    .proof:last-child { border-right: 0; }
+    .proof strong { display: block; margin-bottom: 7px; font-size: 14px; font-weight: 560; }
+    .proof span { color: var(--muted); font-size: 11px; }
+    .story { padding: 76px clamp(22px, 5vw, 68px); }
+    .story h3 { margin: 0; max-width: 680px; font-size: clamp(34px, 4vw, 52px); line-height: 1; letter-spacing: -.052em; font-weight: 520; }
+    .story > p { max-width: 54ch; color: var(--muted); margin: 17px 0 34px; font-size: 14px; }
+    .steps { display: grid; grid-template-columns: .9fr 1.1fr; border: 1px solid var(--line); border-radius: 14px; overflow: hidden; }
+    .step-list { background: #0d0d0d; }
+    .step { min-height: 86px; padding: 18px 20px; border-bottom: 1px solid var(--line); }
+    .step:last-child { border-bottom: 0; }
+    .step.active { background: #151515; box-shadow: inset 2px 0 0 var(--signal); }
+    .step strong { display: block; font-size: 13px; font-weight: 570; }
+    .step span { color: #888883; font-size: 10px; }
+    .step-visual { position: relative; min-height: 258px; padding: 27px; border-left: 1px solid var(--line); background: radial-gradient(circle at 60% 40%, rgba(155,245,180,.065), transparent 42%), #101010; }
+    .terminal { height: 100%; border: 1px solid rgba(255,255,255,.11); border-radius: 9px; padding: 18px; background: #0a0a0a; font: 10px/1.8 "SFMono-Regular", Consolas, monospace; color: #70706c; }
+    .terminal b { color: var(--signal); font-weight: 500; }
+    .terminal em { color: #d0d0cb; font-style: normal; }
+    .supporting { display: grid; grid-template-columns: 1.15fr .85fr; gap: 10px; padding: 0 clamp(22px, 5vw, 68px) 74px; }
+    .support-card { min-height: 240px; border: 1px solid var(--line); border-radius: 14px; overflow: hidden; background: #0f0f0f; }
+    .support-card img { width: 100%; height: 155px; object-fit: cover; object-position: top; display: block; filter: saturate(.55) contrast(1.06); }
+    .support-copy { padding: 18px; }
+    .support-copy strong { display: block; font-size: 15px; font-weight: 560; }
+    .support-copy span { color: var(--muted); font-size: 11px; }
+    .trust { display: grid; grid-template-columns: .9fr 1.1fr; gap: 40px; padding: 74px clamp(22px, 5vw, 68px); border-top: 1px solid var(--line); background: #0d0d0d; }
+    .trust h3 { margin: 0; font-size: clamp(30px, 3vw, 46px); line-height: 1.02; letter-spacing: -.05em; font-weight: 520; }
+    .trust-list { display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; }
+    .trust-item { min-height: 95px; padding: 16px; border: 1px solid var(--line); border-radius: 10px; }
+    .trust-item strong { display: block; color: #d5d5d0; font-size: 12px; font-weight: 550; }
+    .trust-item span { color: #83837e; font-size: 10px; }
+    .final-cta { padding: 86px 24px 92px; text-align: center; }
+    .final-cta h3 { margin: 0 auto; max-width: 670px; font-size: clamp(38px, 5vw, 64px); line-height: .98; letter-spacing: -.06em; font-weight: 520; }
+    .final-cta button { margin-top: 24px; min-height: 44px; padding: 0 19px; border: 0; border-radius: 999px; background: var(--text); color: var(--bg); font-weight: 650; }
+    .rail { position: sticky; top: 16px; display: grid; gap: 12px; }
+    .panel { border: 1px solid var(--line); border-radius: 14px; padding: 18px; background: rgba(16,16,16,.92); }
+    .panel h3 { margin: 8px 0 13px; font-size: 18px; letter-spacing: -.025em; font-weight: 560; }
+    .panel p { margin: 0; color: var(--muted); font-size: 12px; }
+    .type-spec { display: grid; gap: 13px; }
+    .type-row { display: grid; grid-template-columns: 76px 1fr; gap: 10px; align-items: baseline; }
+    .type-row span { color: var(--dim); font: 9px/1 monospace; }
+    .type-row strong { font-weight: 520; }
+    .type-row:nth-child(1) strong { font-size: 24px; letter-spacing: -.05em; line-height: 1; }
+    .type-row:nth-child(2) strong { font-size: 15px; }
+    .type-row:nth-child(3) strong { font: 10px/1.4 "SFMono-Regular", Consolas, monospace; letter-spacing: .06em; }
+    .swatches { display: grid; grid-template-columns: repeat(5, 1fr); gap: 5px; margin: 13px 0 10px; }
+    .swatch { aspect-ratio: 1; border-radius: 7px; border: 1px solid rgba(255,255,255,.1); }
+    .palette-code { color: #858580; font: 9px/1.7 monospace; }
+    .logo-art { margin-top: 13px; border: 1px solid var(--line); border-radius: 10px; overflow: hidden; background: #050505; }
+    .logo-art img { width: 100%; aspect-ratio: 1.45; object-fit: cover; display: block; }
+    .logo-note { margin-top: 10px; color: #8e8e89; font-size: 10px; line-height: 1.55; }
+    .rules { margin: 0; padding: 0; list-style: none; }
+    .rules li { padding: 10px 0; border-bottom: 1px solid var(--line-soft); color: #b6b6b1; font-size: 11px; }
+    .rules li:last-child { border-bottom: 0; }
+    .rules b { color: var(--signal); font-weight: 560; }
+    .missing { border-color: rgba(155,245,180,.27); }
+    .missing h3 { color: var(--signal); }
+    .choices-wrap { margin-top: 22px; padding: 26px; border: 1px solid var(--line); border-radius: 16px; background: #0d0d0d; }
+    .choices-wrap h2 { margin: 0; font-size: 25px; letter-spacing: -.035em; font-weight: 540; }
+    .choices-wrap > p { margin: 6px 0 18px; color: var(--muted); font-size: 13px; }
+    .choices { display: grid; grid-template-columns: repeat(3, 1fr); gap: 9px; }
+    .option { min-height: 116px; padding: 16px; border: 1px solid var(--line); border-radius: 12px; background: #111; color: var(--text); text-align: left; cursor: pointer; transition: transform 160ms var(--ease-out), border-color 160ms ease, background 160ms ease; }
+    .option:active { transform: scale(.98); }
+    .option.selected { border-color: var(--signal); background: rgba(155,245,180,.055); }
+    .option strong { display: block; margin: 7px 0 4px; font-size: 14px; }
+    .option span { color: var(--muted); font-size: 11px; line-height: 1.45; }
+    @media (hover:hover) and (pointer:fine) {
+      .option:hover { transform: translateY(-2px); border-color: #474743; }
+      .nav-cta:hover, .hero-cta:hover, .final-cta button:hover { background: #fff; }
+    }
+    @media (max-width: 1100px) {
+      .brief-header { grid-template-columns: 1fr; gap: 18px; }
+      .workspace { grid-template-columns: 1fr; }
+      .rail { position: static; grid-template-columns: repeat(2, 1fr); }
+    }
+    @media (max-width: 760px) {
+      .shell { width: min(100% - 24px, 1500px); padding-top: 24px; }
+      .brief-header h1 { font-size: 42px; }
+      .navlinks, .link { display: none; }
+      .landing-hero { min-height: 480px; padding-top: 54px; }
+      .hero-copy h2 { font-size: 50px; }
+      .field { width: 300px; right: -100px; opacity: .24; }
+      .product-shell { bottom: -40px; }
+      .proof-strip, .supporting, .trust, .steps, .choices, .rail { grid-template-columns: 1fr; }
+      .proof { border-right: 0; border-bottom: 1px solid var(--line); }
+      .proof:last-child { border-bottom: 0; }
+      .step-visual { border-left: 0; border-top: 1px solid var(--line); }
+      .supporting { padding-bottom: 50px; }
+      .trust-list { grid-template-columns: 1fr; }
+    }
+    @media (prefers-reduced-motion: reduce) {
+      .option { transition: border-color 120ms ease; }
+      .option:hover, .option:active { transform: none; }
+    }
+  </style>
+</head>
+<body>
+  <main class="shell">
+    <header class="brief-header">
+      <div>
+        <div class="label">Direction A / Agent Workstation</div>
+        <h1>RIFT’i bir araç değil, profesyonel çalışma sistemi olarak konumlandır.</h1>
+      </div>
+      <div>
+        <p>Build ana ürün. Studio ve Hack, ana hikâyeyi dağıtmadan RIFT’in erişebildiği uzman çalışma alanları.</p>
+        <div class="dials"><span>Variance 6</span><span>Motion 5</span><span>Density 4</span></div>
+      </div>
+    </header>
+
+    <div class="workspace">
+      <section class="site-frame" aria-label="Direction A landing mockup">
+        <div class="framebar"><i></i><i></i><i></i><span>localhost:3060/landing/v2</span></div>
+        <div class="landing">
+          <nav class="nav">
+            <div class="brand"><span class="brand-mark" aria-hidden="true"></span>RIFT</div>
+            <div class="navlinks"><span>Product</span><span>Enterprise</span><span>Research</span><span>Docs</span></div>
+            <div class="nav-actions"><span class="link">Sign in</span><button class="nav-cta">Download</button></div>
+          </nav>
+
+          <section class="landing-hero">
+            <img class="field" src="/files/rift-field-a-preview.png" alt="RIFT Field procedural identity study" />
+            <div class="hero-copy">
+              <h2>Give RIFT the work.</h2>
+              <p>RIFT plans, codes, tests and ships while you stay in control.</p>
+              <div class="hero-actions"><button class="hero-cta">Download for macOS</button><button class="hero-secondary">Watch RIFT work</button></div>
+            </div>
+            <div class="product-shell">
+              <img src="http://localhost:3060/landing-v2/app-build.webp" alt="RIFT Build product interface" />
+            </div>
+          </section>
+
+          <section class="proof-strip" aria-label="Product proof">
+            <div class="proof"><strong>Plans the job</strong><span>Turns an outcome into a visible execution plan.</span></div>
+            <div class="proof"><strong>Runs the work</strong><span>Coordinates tools and agents in one traceable thread.</span></div>
+            <div class="proof"><strong>Proves the result</strong><span>Tests, reviews and explains what changed.</span></div>
+          </section>
+
+          <section class="story">
+            <h3>One task. A coordinated agent team.</h3>
+            <p>The page demonstrates the workflow instead of listing disconnected features.</p>
+            <div class="steps">
+              <div class="step-list">
+                <div class="step"><strong>Describe the outcome</strong><span>Natural language, files, images or an existing repository.</span></div>
+                <div class="step active"><strong>Review the plan</strong><span>Scope, assumptions and checkpoints stay visible.</span></div>
+                <div class="step"><strong>Approve the result</strong><span>Inspect changes and evidence before anything ships.</span></div>
+              </div>
+              <div class="step-visual">
+                <div class="terminal"><b>RIFT</b> mapped the request<br /><em>04 tasks ready</em><br /><br />01 inspect the surface<br />02 isolate the change<br />03 implement and test<br />04 prepare the review</div>
+              </div>
+            </div>
+          </section>
+
+          <section class="supporting">
+            <article class="support-card"><img src="http://localhost:3060/landing-v2/app-studio.webp" alt="RIFT Studio interface" /><div class="support-copy"><strong>Studio when the work turns visual</strong><span>Generate and refine media without leaving the agent thread.</span></div></article>
+            <article class="support-card"><img src="http://localhost:3060/landing-v2/app-hack.webp" alt="RIFT Hack interface" /><div class="support-copy"><strong>Hack when the work needs depth</strong><span>Investigate systems with the same execution history.</span></div></article>
+          </section>
+
+          <section class="trust">
+            <h3>Control built for real work.</h3>
+            <div class="trust-list">
+              <div class="trust-item"><strong>Approval boundaries</strong><span>Clear handoff before sensitive actions.</span></div>
+              <div class="trust-item"><strong>Visible execution</strong><span>Every step stays inspectable.</span></div>
+              <div class="trust-item"><strong>Context controls</strong><span>Teams choose what RIFT can access.</span></div>
+              <div class="trust-item"><strong>Production evidence</strong><span>Results arrive with tests and explanations.</span></div>
+            </div>
+          </section>
+
+          <section class="final-cta"><h3>Give the next piece of work to RIFT.</h3><button>Download RIFT</button></section>
+        </div>
+      </section>
+
+      <aside class="rail">
+        <section class="panel">
+          <div class="label">Typography</div>
+          <h3>Geist, rebuilt as a hierarchy</h3>
+          <div class="type-spec">
+            <div class="type-row"><span>Display</span><strong>Geist 520</strong></div>
+            <div class="type-row"><span>Body</span><strong>Geist 400 at 16-18px</strong></div>
+            <div class="type-row"><span>Data only</span><strong>JETBRAINS MONO</strong></div>
+          </div>
+          <p style="margin-top:13px">72-82px hero, 46-52px section title, 16px minimum body, 65ch maximum reading width.</p>
+        </section>
+
+        <section class="panel">
+          <div class="label">Color system</div>
+          <h3>Neutral foundation, one signal</h3>
+          <div class="swatches"><div class="swatch" style="background:#090909"></div><div class="swatch" style="background:#101010"></div><div class="swatch" style="background:#242424"></div><div class="swatch" style="background:#f2f2ef"></div><div class="swatch" style="background:#9bf5b4"></div></div>
+          <div class="palette-code">#090909 / #101010 / #242424<br />#F2F2EF / #9BF5B4</div>
+          <p style="margin-top:10px">Body contrast 7.67:1. Primary text 17.75:1. Signal accent 15.28:1.</p>
+        </section>
+
+        <section class="panel">
+          <div class="label">Logo system</div>
+          <h3>Rift Field</h3>
+          <p>Mevcut iki şeritli glyph küçük boyutta korunur. Nokta alanı yalnızca büyük marka anlarında devreye girer.</p>
+          <div class="logo-art"><img src="/files/rift-field-a-preview.png" alt="Rift Field logo background exploration" /></div>
+          <div class="logo-note">16px: solid glyph. 28px: simplified glyph. 96px ve üstü: procedural field. Hareket: alan merkeze sıkışır, glyph görünür.</div>
+        </section>
+
+        <section class="panel">
+          <div class="label">Motion</div>
+          <h3>Purpose before spectacle</h3>
+          <ul class="rules"><li><b>Hero:</b> 650ms controlled reveal</li><li><b>Product:</b> 24px rise, no scale from zero</li><li><b>UI:</b> 160-220ms, strong ease-out</li><li><b>Reduced motion:</b> opacity only</li><li><b>Hover:</b> fine-pointer devices only</li></ul>
+        </section>
+
+        <section class="panel missing">
+          <div class="label">Launch blockers</div>
+          <h3>Gerçek güven kanıtı gerekli</h3>
+          <p>Müşteri logoları, gerçek alıntı, ölçülmüş sonuçlar ve güvenlik iddiaları doğrulanmadan uydurma sosyal kanıt kullanılmaz.</p>
+        </section>
+      </aside>
+    </div>
+
+    <section class="choices-wrap">
+      <h2>A yönünün tonunu kilitleyelim.</h2>
+      <p>Bir seçeneğe tıkla. Sonra A’yı onaylayıp B yönüne geçeceğim.</p>
+      <div class="choices">
+        <button class="option" data-choice="A1 - Bu denge doğru" onclick="toggleSelect(this)"><div class="label">A1</div><strong>Bu denge doğru</strong><span>Ürün netliği, kurumsal güven ve marka karakteri dengede kalır.</span></button>
+        <button class="option" data-choice="A2 - Daha kurumsal" onclick="toggleSelect(this)"><div class="label">A2</div><strong>Daha kurumsal</strong><span>Motion azalır, güvenlik ve ekip kontrolü daha erken görünür.</span></button>
+        <button class="option" data-choice="A3 - Daha cesur" onclick="toggleSelect(this)"><div class="label">A3</div><strong>Daha cesur</strong><span>Rift Field büyür, tipografi ve scroll anlatısı daha deneysel olur.</span></button>
+      </div>
+    </section>
+  </main>
+</body>
+</html>

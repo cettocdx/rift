@@ -1,0 +1,81 @@
+.overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 150;
+  background: rgb(0 0 0 / 0.35);
+}
+.dialog {
+  position: fixed;
+  z-index: 151;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: min(400px, calc(100vw - 32px));
+  padding: 24px;
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  background: var(--popover);
+  color: var(--foreground);
+  box-shadow: 0 16px 60px rgb(0 0 0 / 0.18);
+}
+.title {
+  font-size: 16px;
+  font-weight: 550;
+  letter-spacing: -0.2px;
+}
+.description {
+  margin-top: 12px;
+  font-size: 13px;
+  line-height: 1.6;
+  color: var(--muted-foreground);
+}
+.address {
+  margin-top: 16px;
+  font:
+    11px/1.5 var(--font-mono),
+    monospace;
+  color: var(--muted-foreground);
+}
+.actions {
+  margin-top: 24px;
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+.actions button {
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  padding: 7px 12px;
+  font-size: 12px;
+}
+.actions button:last-child {
+  background: var(--foreground);
+  color: var(--background);
+}
+.actions button:focus-visible,
+.status button:focus-visible {
+  outline: 1px solid var(--ring);
+  outline-offset: 2px;
+}
+.status {
+  position: fixed;
+  top: 44px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 90;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  max-width: calc(100vw - 32px);
+  padding: 7px 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--popover);
+  color: var(--muted-foreground);
+  font-size: 11px;
+  box-shadow: 0 3px 12px rgb(0 0 0 / 0.06);
+}
+.status button {
+  color: var(--foreground);
+  white-space: nowrap;
+}

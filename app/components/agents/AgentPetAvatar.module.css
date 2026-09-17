@@ -1,0 +1,161 @@
+.avatar {
+  --pet-surface: color-mix(in srgb, var(--pet-accent) 14%, var(--card));
+  --pet-line: color-mix(in srgb, var(--foreground) 82%, var(--pet-accent));
+  --pet-paper: color-mix(in srgb, var(--background) 92%, var(--pet-accent));
+  --pet-muted: color-mix(in srgb, var(--pet-accent) 42%, var(--background));
+
+  position: relative;
+  display: inline-grid;
+  flex: none;
+  place-items: center;
+  overflow: hidden;
+  width: var(--pet-size, 3.5rem);
+  height: var(--pet-size, 3.5rem);
+  border: 1px solid color-mix(in srgb, var(--pet-accent) 46%, var(--border));
+  border-radius: 0.65rem;
+  color: var(--pet-line);
+  background: var(--pet-surface);
+  box-shadow:
+    inset 0 1px 0 color-mix(in srgb, var(--background) 72%, transparent),
+    inset 0 -1px 0 color-mix(in srgb, var(--foreground) 9%, transparent);
+  transition:
+    border-color 180ms cubic-bezier(0.16, 1, 0.3, 1),
+    background-color 180ms cubic-bezier(0.16, 1, 0.3, 1),
+    transform 180ms cubic-bezier(0.16, 1, 0.3, 1),
+    opacity 180ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.avatar::after {
+  position: absolute;
+  right: 0.3rem;
+  bottom: 0.3rem;
+  width: 0.42rem;
+  height: 0.42rem;
+  border: 1px solid color-mix(in srgb, var(--pet-accent) 72%, var(--foreground));
+  border-radius: 0.12rem;
+  background: var(--pet-accent);
+  content: "";
+  opacity: 0;
+  transform: rotate(45deg) scale(0.65);
+  transition:
+    opacity 160ms ease-out,
+    transform 180ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.avatar[data-selected="true"] {
+  border-color: color-mix(in srgb, var(--pet-accent) 78%, var(--foreground));
+  background: color-mix(in srgb, var(--pet-accent) 20%, var(--card));
+  box-shadow:
+    inset 3px 0 0 var(--pet-accent),
+    inset 0 1px 0 color-mix(in srgb, var(--background) 74%, transparent);
+}
+
+.avatar[data-selected="true"]::after {
+  opacity: 1;
+  transform: rotate(45deg) scale(1);
+}
+
+.avatar[data-workflow="false"] {
+  border-style: dashed;
+  opacity: 0.72;
+}
+
+.avatar[data-workflow="false"] .character {
+  filter: saturate(0.45);
+  opacity: 0.76;
+  transform: translateY(1.5px);
+}
+
+.art {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+.character,
+.accessory,
+.eyes,
+.signal {
+  transform-box: fill-box;
+  transform-origin: center;
+}
+
+.character,
+.accessory,
+.eyes {
+  transition:
+    transform 180ms cubic-bezier(0.16, 1, 0.3, 1),
+    opacity 180ms ease-out,
+    filter 180ms ease-out;
+}
+
+:global(.group:hover) .avatar,
+.avatar:hover {
+  transform: translateY(-1px);
+}
+
+:global(.group:hover) .character,
+.avatar:hover .character {
+  transform: translateY(-1px);
+}
+
+:global(.group:hover) .accessory,
+.avatar:hover .accessory {
+  transform: rotate(-2deg) translateY(-0.5px);
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .avatar[data-selected="true"] .signal {
+    animation: pet-ready 3.6s cubic-bezier(0.16, 1, 0.3, 1) infinite;
+  }
+
+  .avatar[data-workflow="false"] .eyes {
+    animation: pet-doze 6.4s ease-in-out infinite;
+  }
+}
+
+@keyframes pet-ready {
+  0%,
+  82%,
+  100% {
+    opacity: 0.58;
+    transform: scale(0.82);
+  }
+  88% {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+@keyframes pet-doze {
+  0%,
+  72%,
+  78%,
+  100% {
+    transform: scaleY(1);
+  }
+  75% {
+    transform: scaleY(0.18);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .avatar,
+  .avatar::after,
+  .character,
+  .accessory,
+  .eyes,
+  .signal {
+    animation: none !important;
+    transition-duration: 0.01ms !important;
+  }
+
+  :global(.group:hover) .avatar,
+  :global(.group:hover) .character,
+  :global(.group:hover) .accessory,
+  .avatar:hover,
+  .avatar:hover .character,
+  .avatar:hover .accessory {
+    transform: none;
+  }
+}

@@ -13,9 +13,52 @@ type TransferTokenData = {
   desktopAuthState?: string;
 };
 
+type DevelopmentStoreEntry = {
+  value: unknown;
+  expiresAt: number;
+};
+
+const DEVELOPMENT_STORE_KEY = "__riftDesktopAuthTransferStore";
+
+type DesktopAuthGlobal = typeof globalThis & {
+  [DEVELOPMENT_STORE_KEY]?: Map<string, DevelopmentStoreEntry>;
+};
+
+function developmentStore(): Map<string, DevelopmentStoreEntry> | null {
+  if (process.env.NODE_ENV === "production") return null;
+  const runtime = globalThis as DesktopAuthGlobal;
+  runtime[DEVELOPMENT_STORE_KEY] ??= new Map();
+  return runtime[DEVELOPMENT_STORE_KEY] ?? null;
+}
+
+function setDevelopmentValue(
+  key: string,
+  value: unknown,
+  ttlSeconds: number,
+): boolean {
+  const store = developmentStore();
+  if (!store) return false;
+  store.set(key, { value, expiresAt: Date.now() + ttlSeconds * 1000 });
+  return true;
+}
+
+function consumeDevelopmentValue<T>(key: string): T | null {
+  const store = developmentStore();
+  if (!store) return null;
+  const entry = store.get(key);
+  store.delete(key);
+  if (!entry || entry.expiresAt <= Date.now()) return null;
+  return entry.value as T;
+}
+
 function getRedis(): Redis | null {
-  const redisUrl = process.env.UPSTASH_REDIS_REST_URL;
-  const redisToken = process.env.UPSTASH_REDIS_REST_TOKEN;
+  // Vercel's Redis/KV integrations expose KV_REST_API_* while standalone
+  // Upstash projects expose UPSTASH_REDIS_REST_*. Accept both so desktop auth
+  // uses the same configured store as the rest of the production app.
+  const redisUrl =
+    process.env.UPSTASH_REDIS_REST_URL || process.env.KV_REST_API_URL;
+  const redisToken =
+    process.env.UPSTASH_REDIS_REST_TOKEN || process.env.KV_REST_API_TOKEN;
 
   if (!redisUrl || !redisToken) {
     return null;
@@ -40,13 +83,6 @@ export async function createDesktopTransferToken(
   options?: { returnPath?: string; desktopAuthState?: string },
 ): Promise<string | null> {
   const redis = getRedis();
-  if (!redis) {
-    console.error(
-      "[Desktop Auth] Redis not configured, cannot create transfer token",
-    );
-    return null;
-  }
-
   const transferToken = generateTransferToken();
   const key = `${TRANSFER_TOKEN_PREFIX}${transferToken}`;
 
@@ -59,6 +95,16 @@ export async function createDesktopTransferToken(
   }
   if (options?.desktopAuthState) {
     data.desktopAuthState = options.desktopAuthState;
+  }
+
+  if (!redis) {
+    if (setDevelopmentValue(key, data, TRANSFER_TOKEN_TTL_SECONDS)) {
+      return transferToken;
+    }
+    console.error(
+      "[Desktop Auth] Redis not configured, cannot create transfer token",
+    );
+    return null;
   }
 
   try {
@@ -87,25 +133,28 @@ export async function exchangeDesktopTransferToken(
   }
 
   const redis = getRedis();
-  if (!redis) {
-    console.error(
-      "[Desktop Auth] Redis not configured, cannot exchange transfer token",
-    );
-    return null;
-  }
-
   const key = `${TRANSFER_TOKEN_PREFIX}${transferToken}`;
 
   let rawData: TransferTokenData | string | null;
-  try {
-    // Use getdel for atomic get-and-delete to prevent race conditions
-    rawData = await redis.getdel<TransferTokenData>(key);
-  } catch (err) {
-    console.error(
-      "[Desktop Auth] Failed to retrieve transfer token from Redis:",
-      err,
-    );
-    return null;
+  if (!redis) {
+    rawData = consumeDevelopmentValue<TransferTokenData | string>(key);
+    if (process.env.NODE_ENV === "production") {
+      console.error(
+        "[Desktop Auth] Redis not configured, cannot exchange transfer token",
+      );
+      return null;
+    }
+  } else {
+    try {
+      // getdel makes the transfer one-time and prevents token replay.
+      rawData = await redis.getdel<TransferTokenData>(key);
+    } catch (err) {
+      console.error(
+        "[Desktop Auth] Failed to retrieve transfer token from Redis:",
+        err,
+      );
+      return null;
+    }
   }
 
   if (!rawData) {
@@ -167,17 +216,18 @@ export async function createOAuthState(
   metadata?: OAuthStateMetadata,
 ): Promise<string | null> {
   const redis = getRedis();
+  const state = generateTransferToken();
+  const key = `${OAUTH_STATE_PREFIX}${state}`;
+
+  const value = metadata ? JSON.stringify(metadata) : "1";
+
   if (!redis) {
+    if (setDevelopmentValue(key, value, OAUTH_STATE_TTL_SECONDS)) return state;
     console.error(
       "[Desktop Auth] Redis not configured, cannot create OAuth state",
     );
     return null;
   }
-
-  const state = generateTransferToken();
-  const key = `${OAUTH_STATE_PREFIX}${state}`;
-
-  const value = metadata ? JSON.stringify(metadata) : "1";
 
   try {
     await redis.set(key, value, { ex: OAUTH_STATE_TTL_SECONDS });
@@ -198,17 +248,18 @@ export async function verifyAndConsumeOAuthState(
   }
 
   const redis = getRedis();
-  if (!redis) {
-    console.error(
-      "[Desktop Auth] Redis not configured, cannot verify OAuth state",
-    );
-    return { valid: false };
-  }
-
   const key = `${OAUTH_STATE_PREFIX}${state}`;
 
   try {
-    const value = await redis.getdel<string>(key);
+    const value = redis
+      ? await redis.getdel<string>(key)
+      : consumeDevelopmentValue<string>(key);
+    if (!redis && process.env.NODE_ENV === "production") {
+      console.error(
+        "[Desktop Auth] Redis not configured, cannot verify OAuth state",
+      );
+      return { valid: false };
+    }
     if (!value) {
       return { valid: false };
     }

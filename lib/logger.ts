@@ -22,7 +22,7 @@ export interface ChatWideEvent {
 
   // Service context
   service: "chat-handler";
-  endpoint: "/api/chat" | "/api/agent-long";
+  endpoint: "/api/chat" | "/api/agent-long" | "/api/hack-long";
   version: string;
   region?: string;
 
@@ -102,6 +102,10 @@ export interface ChatWideEvent {
     was_preemptive_timeout: boolean;
     had_summarization: boolean;
   };
+
+  // Per-run measurements from the agent loop (steps, tool calls, cache hit
+  // ratio, per-tool p95). Shape owned by lib/telemetry/agent-run-telemetry.
+  metrics?: Record<string, unknown>;
 
   // Token usage (from model response)
   usage?: {
@@ -212,11 +216,12 @@ export class WideEventBuilder {
   private toolCalls: Array<{ name: string; sandbox_type?: string }> = [];
   private streamStartTime?: number;
   private anthropicPromptRepairCount = 0;
+  private reportedModelCost?: number;
 
   constructor(
     requestId: string,
     chatId: string,
-    endpoint: "/api/chat" | "/api/agent-long",
+    endpoint: "/api/chat" | "/api/agent-long" | "/api/hack-long",
   ) {
     this.event = {
       timestamp: new Date().toISOString(),
@@ -478,6 +483,16 @@ export class WideEventBuilder {
     if (usage) {
       // Extract provider cost if available (e.g., from OpenRouter)
       const rawCost = (usage as { raw?: { cost?: number } }).raw?.cost;
+      this.reportedModelCost =
+        typeof rawCost === "number" && Number.isFinite(rawCost) && rawCost >= 0
+          ? rawCost
+          : undefined;
+      const inputDetails = usage.inputTokenDetails as
+        | { cacheReadTokens?: number; cacheWriteTokens?: number }
+        | undefined;
+      const outputDetails = usage.outputTokenDetails as
+        | { reasoningTokens?: number }
+        | undefined;
 
       this.event.usage = {
         input_tokens: usage.inputTokens as number | undefined,
@@ -485,12 +500,16 @@ export class WideEventBuilder {
         total_tokens:
           ((usage.inputTokens as number) || 0) +
           ((usage.outputTokens as number) || 0),
-        reasoning_tokens: (usage.reasoningTokens as number) || undefined,
-        cache_read_tokens: usage.cacheReadInputTokens as number | undefined,
-        cache_write_tokens: usage.cacheCreationInputTokens as
-          | number
-          | undefined,
-        total_cost: rawCost,
+        reasoning_tokens:
+          outputDetails?.reasoningTokens ??
+          (usage.reasoningTokens as number | undefined),
+        cache_read_tokens:
+          inputDetails?.cacheReadTokens ??
+          (usage.cacheReadInputTokens as number | undefined),
+        cache_write_tokens:
+          inputDetails?.cacheWriteTokens ??
+          (usage.cacheCreationInputTokens as number | undefined),
+        total_cost: this.reportedModelCost,
       };
     }
     return this;
@@ -549,6 +568,12 @@ export class WideEventBuilder {
    * errored mid-flight, so dashboards/alerts don't treat broken responses as
    * clean successes.
    */
+  /** Attach the run's aggregate measurements. */
+  setRunMetrics(metrics: Record<string, unknown>): this {
+    this.event.metrics = metrics;
+    return this;
+  }
+
   setSuccess(): this {
     this.event.outcome = this.event.had_provider_error ? "partial" : "success";
     this.event.status_code = 200;
@@ -624,20 +649,13 @@ export class WideEventBuilder {
       this.event.tool_call_count = this.toolCalls.length;
     }
 
-    // Use provider cost if available, otherwise calculate from tokens
-    if (this.event.usage && !this.event.usage.total_cost) {
-      // Fallback: calculate from tokens (pricing: $0.50/M input, $3.00/M output)
-      const inputCost =
-        ((this.event.usage.input_tokens || 0) / 1_000_000) * 0.5;
-      const outputCost =
-        ((this.event.usage.output_tokens || 0) / 1_000_000) * 3.0;
-      this.event.usage.total_cost = inputCost + outputCost;
-    }
-
-    // Add external tool costs (e.g., web search API)
-    if (this.additionalToolCost > 0 && this.event.usage) {
+    // Never invent a model-independent price when provider cost is missing.
+    // Recompute from the source values so repeated reads do not add tools twice.
+    if (this.event.usage) {
       this.event.usage.total_cost =
-        (this.event.usage.total_cost || 0) + this.additionalToolCost;
+        this.reportedModelCost === undefined
+          ? undefined
+          : this.reportedModelCost + this.additionalToolCost;
     }
 
     // Don't include assistant_id for temporary chats
@@ -723,7 +741,7 @@ export const logger = {
  */
 export function createWideEventBuilder(
   chatId: string,
-  endpoint: "/api/chat" | "/api/agent-long",
+  endpoint: "/api/chat" | "/api/agent-long" | "/api/hack-long",
 ): WideEventBuilder {
   const requestId = `req_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
   return new WideEventBuilder(requestId, chatId, endpoint);

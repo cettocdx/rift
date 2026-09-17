@@ -38,8 +38,8 @@ describe("sliding-window", () => {
       mockCreateRedisClient.mockReturnValue(null);
 
       const result = await checkFreeUserRateLimit("user-123");
-      expect(result.remaining).toBe(1);
-      expect(result.limit).toBe(1);
+      expect(result.remaining).toBe(3);
+      expect(result.limit).toBe(3);
       expect(result.rateLimitSkipped).toBe(true);
       expect(mockEvalFn).not.toHaveBeenCalled();
     });
@@ -57,7 +57,7 @@ describe("sliding-window", () => {
           expect.stringMatching(/^free_limit:user-123:free:\d+$/),
           "free_referral_bonus:user-123",
         ],
-        [1, 1, expect.any(Number)],
+        [3, 1, expect.any(Number)],
       );
       expect(result.remaining).toBe(5);
     });
@@ -101,8 +101,8 @@ describe("sliding-window", () => {
       mockCreateRedisClient.mockReturnValue(null);
 
       const result = await checkFreeAgentRateLimit("user-123");
-      expect(result.remaining).toBe(1);
-      expect(result.limit).toBe(1);
+      expect(result.remaining).toBe(3);
+      expect(result.limit).toBe(3);
       expect(result.rateLimitSkipped).toBe(true);
       expect(mockEvalFn).not.toHaveBeenCalled();
     });
@@ -120,7 +120,7 @@ describe("sliding-window", () => {
           expect.stringMatching(/^free_limit:user-123:free:\d+$/),
           "free_referral_bonus:user-123",
         ],
-        [1, 1, expect.any(Number)],
+        [3, 1, expect.any(Number)],
       );
       expect(result.remaining).toBe(5);
     });

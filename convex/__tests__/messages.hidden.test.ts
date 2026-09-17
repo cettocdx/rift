@@ -309,6 +309,88 @@ describe("saveMessage — is_hidden handling", () => {
 
     expect(mockCtx.db.patch).not.toHaveBeenCalled();
   });
+
+  it("attaches a generated video referenced inside its tool output", async () => {
+    setupExistingMessage(null);
+    mockCtx.db.get.mockResolvedValue({
+      _id: "file-video" as Id<"files">,
+      user_id: USER_ID,
+      is_attached: false,
+    });
+
+    const { saveMessage } = await import("../messages");
+
+    await saveMessage.handler(mockCtx, {
+      serviceKey: SERVICE_KEY,
+      id: "msg-generated-video",
+      chatId: CHAT_ID,
+      userId: USER_ID,
+      role: "assistant" as const,
+      parts: [
+        {
+          type: "tool-generate_video",
+          state: "output-available",
+          output: {
+            ok: true,
+            fileId: "file-video" as Id<"files">,
+            storageId: "storage-video",
+            mediaType: "video/mp4",
+          },
+        },
+      ],
+    });
+
+    expect(mockCtx.db.insert).toHaveBeenCalledWith(
+      "messages",
+      expect.objectContaining({
+        file_ids: ["file-video"],
+      }),
+    );
+    expect(mockCtx.db.patch).toHaveBeenCalledWith("file-video", {
+      is_attached: true,
+    });
+  });
+
+  it("keeps generated media attached when the client persists a stopped run", async () => {
+    setupExistingMessage(null);
+    mockCtx.auth = {
+      getUserIdentity: jest.fn<any>().mockResolvedValue({ subject: USER_ID }),
+    };
+    mockCtx.db.get.mockResolvedValue({
+      _id: "file-stopped-video" as Id<"files">,
+      user_id: USER_ID,
+      is_attached: false,
+    });
+
+    const { saveAssistantMessage } = await import("../messages");
+
+    await saveAssistantMessage.handler(mockCtx, {
+      id: "msg-stopped-video",
+      chatId: CHAT_ID,
+      role: "assistant" as const,
+      parts: [
+        {
+          type: "tool-generate_video",
+          state: "output-available",
+          output: {
+            fileId: "file-stopped-video" as Id<"files">,
+            storageId: "storage-stopped-video",
+            mediaType: "video/mp4",
+          },
+        },
+      ],
+    });
+
+    expect(mockCtx.db.insert).toHaveBeenCalledWith(
+      "messages",
+      expect.objectContaining({
+        file_ids: ["file-stopped-video"],
+      }),
+    );
+    expect(mockCtx.db.patch).toHaveBeenCalledWith("file-stopped-video", {
+      is_attached: true,
+    });
+  });
 });
 
 describe("getMessagesByChatId — is_hidden filtering", () => {
@@ -345,6 +427,30 @@ describe("getMessagesByChatId — is_hidden filtering", () => {
       }),
     });
   }
+
+  it("returns each saved finish reason without applying the latest chat outcome to history", async () => {
+    setupPaginatedMessages([
+      makeMessage({
+        id: "cutoff",
+        role: "assistant",
+        finish_reason: "preemptive-timeout",
+      }),
+      makeMessage({ id: "complete", role: "assistant", finish_reason: "stop" }),
+      makeMessage({ id: "legacy", role: "assistant" }),
+    ]);
+    const { getMessagesByChatId } = await import("../messages");
+    const result = await getMessagesByChatId.handler(mockCtx, {
+      chatId: CHAT_ID,
+      paginationOpts: { numItems: 10, cursor: null },
+    });
+    expect(
+      result.page.map((message: any) => [message.id, message.finish_reason]),
+    ).toEqual([
+      ["cutoff", "preemptive-timeout"],
+      ["complete", "stop"],
+      ["legacy", undefined],
+    ]);
+  });
 
   it("should exclude messages where is_hidden is true", async () => {
     const visibleMsg = makeMessage({

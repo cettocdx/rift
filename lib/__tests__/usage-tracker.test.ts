@@ -1,10 +1,8 @@
 import { describe, it, expect, jest, beforeEach } from "@jest/globals";
 import { UsageTracker } from "../usage-tracker";
-import { RETAIL_MARGIN } from "../rate-limit/token-bucket";
 
-// 1M default-priced input tokens, in dollars, at the current retail margin
-// ($0.50/1M × margin). Tracks calculateTokenCost so it survives margin tweaks.
-const ONE_M_DEFAULT_INPUT_DOLLARS = 0.5 * RETAIL_MARGIN;
+// Usage telemetry records raw provider/base dollars consistently.
+const ONE_M_DEFAULT_INPUT_DOLLARS = 0.5;
 
 describe("UsageTracker", () => {
   let tracker: UsageTracker;
@@ -30,6 +28,66 @@ describe("UsageTracker", () => {
       expect(tracker.inputTokens).toBe(300);
       expect(tracker.outputTokens).toBe(125);
       expect(tracker.totalTokens).toBe(425);
+    });
+
+    it.each([true, false])(
+      "derives each missing total when the reported-total step is first: %s",
+      (reportedFirst) => {
+        const reported = {
+          inputTokens: 100,
+          outputTokens: 50,
+          totalTokens: 150,
+        };
+        const missing = { inputTokens: 200, outputTokens: 75 };
+        for (const usage of reportedFirst
+          ? [reported, missing]
+          : [missing, reported]) {
+          tracker.accumulateStep(usage);
+        }
+
+        expect(tracker.totalTokens).toBe(425);
+        expect(
+          tracker.createUsageCostRecord({
+            selectedModel: "model-default",
+            configuredModelId: "model-default",
+            rateLimitInfo: {
+              remaining: 1000,
+              resetTime: new Date(),
+              limit: 250000,
+              pointsDeducted: 100,
+            },
+          }).totalTokens,
+        ).toBe(425);
+      },
+    );
+
+    it("derives missing totals from available input and output without adding token details again", () => {
+      tracker.accumulateStep({ inputTokens: 100 });
+      tracker.accumulateStep({ outputTokens: 20 });
+      tracker.accumulateStep({
+        inputTokens: 50,
+        outputTokens: 30,
+        inputTokenDetails: { cacheReadTokens: 40, cacheWriteTokens: 10 },
+        outputTokenDetails: { reasoningTokens: 15 },
+      });
+      tracker.accumulateStep({});
+
+      expect(tracker.totalTokens).toBe(200);
+    });
+
+    it("preserves supplied totals including zero instead of deriving them", () => {
+      tracker.accumulateStep({
+        inputTokens: 100,
+        outputTokens: 50,
+        totalTokens: 160,
+      });
+      tracker.accumulateStep({
+        inputTokens: 20,
+        outputTokens: 10,
+        totalTokens: 0,
+      });
+
+      expect(tracker.totalTokens).toBe(160);
     });
 
     it("should accumulate cache tokens", () => {
@@ -116,6 +174,14 @@ describe("UsageTracker", () => {
   });
 
   describe("cacheHitRate", () => {
+    it("includes summary receipt coverage in the aggregate ratio", () => {
+      tracker.accumulateStep({
+        inputTokens: 100,
+        inputTokenDetails: { cacheReadTokens: 80 },
+      });
+      tracker.accumulateSummary({ inputTokens: 100, outputTokens: 10 });
+      expect(tracker.cacheHitRate).toBeNull();
+    });
     it("should return null when no cache data", () => {
       expect(tracker.cacheHitRate).toBeNull();
     });
@@ -125,7 +191,7 @@ describe("UsageTracker", () => {
       expect(tracker.cacheHitRate).toBeNull();
     });
 
-    it("should compute hit rate as reads / (reads + writes)", () => {
+    it("should compute the fraction of total input served from cache", () => {
       tracker.accumulateStep({
         inputTokens: 100,
         inputTokenDetails: { cacheReadTokens: 80, cacheWriteTokens: 20 },
@@ -149,6 +215,59 @@ describe("UsageTracker", () => {
       expect(tracker.cacheHitRate).toBe(1);
     });
 
+    it("does not report a perfect hit when most input is uncached", () => {
+      tracker.accumulateStep({
+        inputTokens: 10_000,
+        inputTokenDetails: { cacheReadTokens: 100 },
+      });
+      expect(tracker.cacheHitRate).toBe(0.01);
+    });
+
+    it("leaves missing or inconsistent input coverage unknown", () => {
+      tracker.accumulateStep({ inputTokenDetails: { cacheReadTokens: 100 } });
+      expect(tracker.cacheHitRate).toBeNull();
+      tracker.accumulateStep({ inputTokens: 50 });
+      expect(tracker.cacheHitRate).toBeNull();
+    });
+
+    it("does not hide a missing input total behind later complete receipts", () => {
+      tracker.accumulateStep({ inputTokenDetails: { cacheReadTokens: 100 } });
+      tracker.accumulateStep({
+        inputTokens: 1000,
+        inputTokenDetails: { cacheReadTokens: 0 },
+      });
+      expect(tracker.cacheHitRate).toBeNull();
+    });
+
+    it("does not count missing cache metadata as a confirmed cache miss", () => {
+      tracker.accumulateStep({
+        inputTokens: 100,
+        inputTokenDetails: { cacheReadTokens: 80 },
+      });
+      tracker.accumulateStep({ inputTokens: 100 });
+      expect(tracker.cacheHitRate).toBeNull();
+      tracker.resetModelLeg();
+      tracker.accumulateStep({
+        inputTokens: 100,
+        inputTokenDetails: { cacheReadTokens: 50 },
+      });
+      expect(tracker.cacheHitRate).toBe(0.5);
+    });
+
+    it("reports only the retained fallback leg after reset", () => {
+      tracker.accumulateStep({
+        inputTokens: 10000,
+        inputTokenDetails: { cacheReadTokens: 9000 },
+      });
+      tracker.resetModelLeg();
+      tracker.accumulateStep({
+        inputTokens: 200,
+        inputTokenDetails: { cacheReadTokens: 20 },
+      });
+      expect(tracker.cacheReadTokens).toBe(20);
+      expect(tracker.cacheHitRate).toBe(0.1);
+    });
+
     it("should accumulate across steps", () => {
       tracker.accumulateStep({
         inputTokens: 100,
@@ -158,8 +277,8 @@ describe("UsageTracker", () => {
         inputTokens: 100,
         inputTokenDetails: { cacheReadTokens: 40, cacheWriteTokens: 10 },
       });
-      // total: reads=100, writes=50 → rate = 100/150 ≈ 0.667
-      expect(tracker.cacheHitRate).toBeCloseTo(0.667, 2);
+      // total: reads=100, input=200 → rate = 0.5
+      expect(tracker.cacheHitRate).toBe(0.5);
     });
   });
 
@@ -200,7 +319,7 @@ describe("UsageTracker", () => {
       tracker.accumulateStep({ inputTokens: 1_000_000, outputTokens: 0 });
 
       const cost = tracker.computeCostDollars("model-default");
-      // 1M input tokens at $0.50/1M × retail margin
+      // 1M input tokens at the raw $0.50/1M price
       expect(cost).toBeCloseTo(ONE_M_DEFAULT_INPUT_DOLLARS, 5);
     });
 
@@ -370,5 +489,33 @@ describe("UsageTracker", () => {
         costSource: "provider",
       });
     });
+  });
+});
+
+describe("UsageTracker — reasoning tokens", () => {
+  // Recorded, not billed: whether output tokens already include reasoning is
+  // provider-specific, and when raw.cost is present the provider's total wins.
+  // Without this counter the estimate path could not even be audited.
+  it("accumulates reasoning tokens from either provider shape", () => {
+    const tracker = new UsageTracker();
+    tracker.accumulateStep({
+      inputTokens: 10,
+      outputTokens: 5,
+      totalTokens: 15,
+      outputTokenDetails: { reasoningTokens: 40 },
+    });
+    tracker.accumulateStep({
+      inputTokens: 10,
+      outputTokens: 5,
+      totalTokens: 15,
+      reasoningTokens: 2,
+    });
+    expect(tracker.reasoningTokens).toBe(42);
+  });
+
+  it("leaves the counter at zero when nothing is reported", () => {
+    const tracker = new UsageTracker();
+    tracker.accumulateStep({ inputTokens: 1, outputTokens: 1, totalTokens: 2 });
+    expect(tracker.reasoningTokens).toBe(0);
   });
 });

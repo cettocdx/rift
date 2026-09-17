@@ -1,5 +1,13 @@
+import { projectPtyOutput } from "@/lib/ai/tools/utils/pty-model-output";
 import { getModerationResult } from "@/lib/moderation";
-import type { ChatMode, SubscriptionTier, SelectedModel } from "@/types";
+import {
+  BUILD_MODELS,
+  type BuildModelId,
+  ChatMode,
+  SubscriptionTier,
+  SelectedModel,
+  ChatPurpose,
+} from "@/types";
 import { isAgentMode } from "@/lib/utils/mode-helpers";
 import { UIMessage } from "ai";
 import { processMessageFiles } from "@/lib/utils/file-transform-utils";
@@ -42,13 +50,65 @@ export const getMaxStepsForUser = (
 // real-time cyber content-filter empties out pentest output, which would
 // reintroduce the exact refusals this product depends on avoiding.
 const SINGLE_MODEL: ModelName = "model-grok-4.3";
+const GROK_45_CANARY_MODEL: ModelName = "model-grok-4.6";
+
+// Build and image orchestration use verified OpenRouter models instead of the
+// security agent's fixed Grok route. Sol remains the proven default builder;
+// Fable 5.1 is the current multimodal product-work orchestrator.
+const providerKeyForBuildModel = (id: BuildModelId): ModelName =>
+  BUILD_MODELS.find((model) => model.id === id)!.providerKey;
+
+const APP_BUILDER_MODEL = providerKeyForBuildModel("build-fable");
+const APP_BUILDER_DEFAULT_MODEL = providerKeyForBuildModel("build-codex");
+const APP_BUILDER_MAX_MODEL = providerKeyForBuildModel("build-max");
+
+const VISIBLE_BUILD_MODEL_BY_SELECTION = Object.fromEntries(
+  BUILD_MODELS.map((model) => [model.id, model.providerKey]),
+) as Partial<Record<SelectedModel, ModelName>>;
+
+// Build-mode picker selection → OpenRouter model. Keys are the `build-*`
+// SelectedModel ids (see types/chat.ts BUILD_MODELS); `rift-max` is the legacy
+// build "max" toggle. Anything unmapped falls back to the Sol default.
+const BUILD_MODEL_BY_SELECTION: Partial<Record<SelectedModel, ModelName>> = {
+  ...VISIBLE_BUILD_MODEL_BY_SELECTION,
+  // Hidden legacy selections are deliberately upgraded to a current model so
+  // an old localStorage/chat value never silently routes to a retired picker.
+  // `build-glm` is NOT listed here any more: GLM 5.2 is a visible picker entry
+  // as of the 17 Aug 2026 catalog refresh, so it resolves through
+  // VISIBLE_BUILD_MODEL_BY_SELECTION above.
+  "build-opus46": APP_BUILDER_MAX_MODEL,
+  "build-balanced": APP_BUILDER_MODEL,
+  "build-sol-pro": providerKeyForBuildModel("build-astra"),
+  "build-fast": APP_BUILDER_DEFAULT_MODEL,
+  "build-deepseek": APP_BUILDER_DEFAULT_MODEL,
+  "rift-max": APP_BUILDER_MAX_MODEL,
+};
 
 export function selectModel(
-  _mode: ChatMode,
+  mode: ChatMode,
   _subscription: SubscriptionTier,
-  _selectedModel?: SelectedModel,
+  selectedModel?: SelectedModel,
   _hasImageOrPdf?: boolean,
+  purpose: ChatPurpose = "security",
+  grok45Canary = false,
 ): ModelName {
+  if (purpose === "app") {
+    return (
+      (selectedModel && BUILD_MODEL_BY_SELECTION[selectedModel]) ??
+      APP_BUILDER_DEFAULT_MODEL
+    );
+  }
+  // Image mode orchestrates the generate_image tool. It uses Fable
+  // because reliable tool-calling matters here: Grok tends to "describe" an
+  // image in text instead of actually calling the tool, so no image appears.
+  // The image itself is still produced by generate_image (gemini via
+  // OpenRouter) — only the tool-deciding model differs.
+  if (purpose === "image") {
+    return APP_BUILDER_MODEL;
+  }
+  if (grok45Canary && purpose === "security" && isAgentMode(mode)) {
+    return GROK_45_CANARY_MODEL;
+  }
   return SINGLE_MODEL;
 }
 
@@ -108,6 +168,7 @@ const ABORT_RENDERABLE_TOOL_TYPES = new Set([
   "tool-multi_edit",
   "tool-web_search",
   "tool-open_url",
+  "tool-browse_url",
   "tool-web",
   "tool-shell",
   "tool-run_terminal_cmd",
@@ -115,6 +176,9 @@ const ABORT_RENDERABLE_TOOL_TYPES = new Set([
   "tool-http_request",
   "tool-get_terminal_files",
   "tool-todo_write",
+  "tool-search",
+  "tool-apply_patch",
+  "tool-delegate_task",
   "tool-create_note",
   "tool-list_notes",
   "tool-update_note",
@@ -407,8 +471,8 @@ function removeDuplicateToolParts(messages: UIMessage[]): UIMessage[] {
  * - `tool-file` (read/edit/append): drops originalContent / modifiedContent
  * - `tool-update_note`: drops original / modified diff data
  * - `tool-run_terminal_cmd` / `tool-interact_terminal_session`: drops
- *   rawSnapshot (raw ANSI byte buffer used only by the sidebar's xterm
- *   renderer; the model already has `output` and `sessionSnapshot`).
+ *   rawSnapshot and the live modelContext receipt. Sandbox-local snapshot
+ *   files may have expired, so history retains its full cleaned evidence.
  */
 function stripOriginalContentFromMessages(messages: UIMessage[]): UIMessage[] {
   return messages.map((message) => {
@@ -451,8 +515,8 @@ function stripOriginalContentFromMessages(messages: UIMessage[]): UIMessage[] {
         };
       }
 
-      // Process PTY tool parts to strip rawSnapshot. Output shape is
-      // `{ result: { output, sessionSnapshot, rawSnapshot, ... } }`.
+      // A prior sandbox file may be gone. Without a current availability
+      // check, retain full cleaned history instead of a live-only receipt.
       if (
         (part.type === "tool-run_terminal_cmd" ||
           part.type === "tool-interact_terminal_session") &&
@@ -460,13 +524,13 @@ function stripOriginalContentFromMessages(messages: UIMessage[]): UIMessage[] {
         part.output !== null &&
         typeof (part.output as any).result === "object" &&
         (part.output as any).result !== null &&
-        "rawSnapshot" in (part.output as any).result
+        ("rawSnapshot" in (part.output as any).result ||
+          "modelContext" in (part.output as any).result)
       ) {
         hasChanges = true;
-        const { rawSnapshot, ...restResult } = (part.output as any).result;
         return {
           ...part,
-          output: { ...part.output, result: restResult },
+          output: projectPtyOutput(part.output, true),
         };
       }
 
@@ -578,15 +642,39 @@ const UI_ONLY_PART_TYPES = new Set(["data-summarization"]);
 /**
  * Filters out UI-only parts from a message that AI providers don't understand.
  */
-const filterUIOnlyParts = <T extends { parts?: any[] }>(message: T): T => {
+export const filterUIOnlyParts = <T extends { parts?: any[]; role?: string }>(
+  message: T,
+  archiveRecovery = false,
+): T => {
   if (!message.parts) return message;
 
   const filteredParts = message.parts.filter(
-    (part: any) => !UI_ONLY_PART_TYPES.has(part.type),
+    (part: any) =>
+      !UI_ONLY_PART_TYPES.has(part.type) &&
+      !(part.type === "file" && part.isRunArchive === true),
   );
 
+  // A generic hint cannot grant access: the tool resolves references from the
+  // owner-checked persisted chat, never from these possibly client-supplied parts.
+  if (
+    archiveRecovery &&
+    message.role === "assistant" &&
+    message.parts.some(
+      (part: any) => part.type === "file" && part.isRunArchive === true,
+    )
+  ) {
+    filteredParts.push({
+      type: "text",
+      text: "Some operation details were archived. Use read_run_archive (action=list, then read) to recover omitted evidence from this conversation when needed.",
+    });
+  }
+
   // Only create new object if parts were actually filtered
-  if (filteredParts.length === message.parts.length) return message;
+  if (
+    filteredParts.every((part, index) => part === message.parts![index]) &&
+    filteredParts.length === message.parts.length
+  )
+    return message;
 
   return { ...message, parts: filteredParts };
 };
@@ -601,8 +689,11 @@ export async function processChatMessages({
   subscription,
   uploadBasePath,
   modelOverride,
+  purpose = "security",
+  grok45Canary = false,
   allowLocalDesktopFiles = false,
   deferModeration = false,
+  abortSignal,
 }: {
   messages: UIMessage[];
   mode: ChatMode;
@@ -610,6 +701,8 @@ export async function processChatMessages({
   subscription: SubscriptionTier;
   uploadBasePath?: string;
   modelOverride?: SelectedModel;
+  purpose?: ChatPurpose;
+  grok45Canary?: boolean;
   allowLocalDesktopFiles?: boolean;
   /**
    * When true, skip the (blocking) moderation round-trip here and let the
@@ -619,9 +712,12 @@ export async function processChatMessages({
    * streaming. Keeps the moderation HTTPS RTT off the serial critical path.
    */
   deferModeration?: boolean;
+  abortSignal?: AbortSignal;
 }) {
   // Filter out UI-only parts (data-summarization) that AI providers don't understand
-  const messagesWithoutUIOnlyParts = messages.map(filterUIOnlyParts);
+  const messagesWithoutUIOnlyParts = messages.map((message) =>
+    filterUIOnlyParts(message, mode === "agent"),
+  );
 
   // Limit image parts before fetching URLs to avoid unnecessary S3 requests
   // Keep image attachment pruning aligned with the per-message upload cap.
@@ -688,6 +784,8 @@ export async function processChatMessages({
     subscription,
     modelOverride,
     hasImageOrPdfAttachment(messagesWithoutDuplicates),
+    purpose,
+    grok45Canary,
   );
 
   // Strip providerMetadata for Anthropic models to prevent cross-model signature errors.
@@ -709,6 +807,7 @@ export async function processChatMessages({
     const moderationResult = await getModerationResult(
       cleanedMessages,
       subscription !== "free",
+      { signal: abortSignal },
     );
 
     // If moderation allows, add authorization message

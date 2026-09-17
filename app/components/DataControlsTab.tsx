@@ -159,7 +159,7 @@ const DataControlsTab = () => {
             <AlertDialogAction
               onClick={handleDeleteAllChats}
               disabled={isDeletingChats}
-              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              className="bg-foreground text-background hover:bg-foreground/90"
             >
               {isDeletingChats ? "Deleting..." : "Confirm deletion"}
             </AlertDialogAction>
@@ -190,7 +190,7 @@ const DataControlsTab = () => {
             <AlertDialogAction
               onClick={handleDeleteSandboxes}
               disabled={isDeletingSandboxes}
-              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              className="bg-foreground text-background hover:bg-foreground/90"
             >
               {isDeletingSandboxes ? "Deleting..." : "Delete"}
             </AlertDialogAction>

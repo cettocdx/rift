@@ -1,0 +1,36 @@
+{
+  "name": "@rift/console",
+  "version": "0.3.5",
+  "description": "Local RIFT coding agent with optional durable Cloud Build sessions",
+  "type": "module",
+  "bin": {
+    "rift": "./dist/index.js",
+    "rift-console": "./dist/index.js"
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "engines": {
+    "node": ">=20",
+    "bun": ">=1.3.0"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "test": "npm run build && node --test test/*.test.cjs",
+    "install-local": "npm run build && node scripts/install-local.mjs",
+    "prepack": "npm run build",
+    "test:tui": "bun test test/opentui.test.ts",
+    "build:release": "node scripts/build-release.mjs",
+    "test:performance": "bun run scripts/verify-performance.ts"
+  },
+  "dependencies": {
+    "@opentui/core": "0.5.11",
+    "ws": "^8.20.1"
+  },
+  "devDependencies": {
+    "@types/node": "^25.9.1",
+    "@types/ws": "^8.18.1",
+    "typescript": "^6.0.3"
+  }
+}

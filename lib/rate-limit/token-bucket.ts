@@ -1,4 +1,14 @@
+import {
+  RETAIL_MARGIN,
+  normalizePricingMargin,
+} from "@/lib/billing/account-pricing";
+import {
+  measureBillingReservation,
+  reportBillingReservation,
+  type BillingReservationDiagnostics,
+} from "./reservation-diagnostics";
 import { Ratelimit } from "@upstash/ratelimit";
+import { randomUUID } from "crypto";
 import { ChatSDKError } from "@/lib/errors";
 import type {
   SubscriptionTier,
@@ -8,12 +18,24 @@ import type {
 import { createRedisClient, formatTimeRemaining } from "./redis";
 import {
   deductFromBalance,
+  deductFromPlanCredits,
   refundToBalance,
+  refundPlanCredits,
   deductFromTeamBalance,
   refundToTeamBalance,
-  getExtraUsageBalance,
 } from "@/lib/extra-usage";
 import { getSuspensionMessage } from "@/lib/suspensionMessage";
+import {
+  getIncludedCreditsForTier,
+  usesAccountCreditLedger,
+} from "@/lib/billing/included-credits";
+import { POINTS_PER_DOLLAR } from "@/lib/billing/credit-units";
+import {
+  migratePaidPlanLedger,
+  type PaidLedgerSnapshot,
+} from "@/lib/billing/paid-ledger-migration";
+
+export { POINTS_PER_DOLLAR } from "@/lib/billing/credit-units";
 
 // =============================================================================
 // Configuration
@@ -22,14 +44,36 @@ import { getSuspensionMessage } from "@/lib/suspensionMessage";
 /** Model pricing: $/1M tokens per model (default used for ask models + gemini 3 flash agent) */
 const MODEL_PRICING_MAP: Record<string, { input: number; output: number }> = {
   default: { input: 0.5, output: 3.0 },
+  "model-gpt-6-astra": { input: 10.0, output: 50.0 },
+  "model-fable-5.1": { input: 10.0, output: 50.0 },
+  "model-gemini-3.8-flash": { input: 0.75, output: 3.75 },
   "model-sonnet-4.6": { input: 3.0, output: 15.0 },
+  "model-sonnet-5": { input: 2.0, output: 10.0 },
   "model-gemini-3-flash": { input: 0.5, output: 3.0 },
   "fallback-gemini-3.5-flash": { input: 1.5, output: 9.0 },
   "model-opus-4.6": { input: 5.0, output: 25.0 },
+  "model-opus-4.7": { input: 5.0, output: 25.0 },
   "model-opus-4.8": { input: 5.0, output: 25.0 },
+  // build-max ships model-opus-5. Every prior Opus is 5/25; without this the
+  // flagship billed at the 0.5/3.0 default and undercharged ~10x on output.
+  "model-opus-5": { input: 5.0, output: 25.0 },
   "model-grok-4.3": { input: 1.25, output: 2.5 },
-  "model-kimi-k2.7-code": { input: 0.75, output: 3.5 },
-  "model-kimi-k2.6": { input: 0.95, output: 4.0 },
+  "model-grok-4.5": { input: 2.0, output: 6.0 },
+  // build-grok ships model-grok-4.6; priced at the 4.5 rate it supersedes.
+  "model-grok-4.6": { input: 2.0, output: 6.0 },
+  "model-kimi-k3": { input: 3.0, output: 15.0 },
+  "model-qwen3.7-max": { input: 1.475, output: 4.425 },
+  // build-qwen ships model-qwen3.8-max; priced at the 3.7-max rate.
+  "model-qwen3.8-max": { input: 1.475, output: 4.425 },
+  "model-gpt-5.5": { input: 2.5, output: 20.0 },
+  "model-gpt-5.6-luna": { input: 1.0, output: 6.0 },
+  "model-gpt-5.6-sol": { input: 5.0, output: 30.0 },
+  // build-sol-pro ships model-gpt-5.6-sol-pro, the higher-effort Sol tier: same
+  // per-token rate as Sol, more tokens. Default pricing undercharged it ~6x.
+  "model-gpt-5.6-sol-pro": { input: 5.0, output: 30.0 },
+  "model-glm-5.3": { input: 0.8554, output: 2.6884 },
+  // OpenRouter list price for tencent/hy4-preview.
+  "model-hy4-preview": { input: 0.834, output: 2.501 },
   // All agent routes (auto + free + every tier) now resolve to x-ai/grok-4.3 —
   // see resolveTierToProviderKey in lib/ai/providers.ts. Mirror the
   // model-grok-4.3 rate ($1.25 in / $2.50 out) so burn is priced right.
@@ -41,8 +85,42 @@ const MODEL_PRICING_MAP: Record<string, { input: number; output: number }> = {
 const getModelPricing = (modelName?: string) =>
   (modelName && MODEL_PRICING_MAP[modelName]) || MODEL_PRICING_MAP.default;
 
-/** Points per dollar (1 point = $0.0001) */
-export const POINTS_PER_DOLLAR = 10_000;
+/**
+ * Raw provider price ($/1M tokens) for a model key, or the generic default.
+ * Exposed for surfaces that must show a provider's own cost figures (e.g. the
+ * OpenCode engine's display config); billing still runs through the retail
+ * margin path, this is not a billing source.
+ */
+export function getRawModelPricing(modelName?: string): {
+  input: number;
+  output: number;
+} {
+  return getModelPricing(modelName);
+}
+
+/**
+ * Whether a model has an explicit price, versus silently taking the generic
+ * default. A priced model list can assert coverage against this so a new model
+ * cannot ship un-billed.
+ */
+export const isModelPriced = (modelName?: string): boolean =>
+  typeof modelName === "string" &&
+  modelName !== "default" &&
+  Object.prototype.hasOwnProperty.call(MODEL_PRICING_MAP, modelName);
+
+/** Raw model dollars for usage telemetry; credit billing applies its margin separately. */
+export function calculateRawModelCostDollars(
+  inputTokens: number,
+  outputTokens: number,
+  modelName?: string,
+): number {
+  const pricing = getModelPricing(modelName);
+  return (
+    (Math.max(0, inputTokens) * pricing.input +
+      Math.max(0, outputTokens) * pricing.output) /
+    1_000_000
+  );
+}
 
 /**
  * Retail margin multiplier — the single knob that turns raw model cost into the
@@ -51,7 +129,24 @@ export const POINTS_PER_DOLLAR = 10_000;
  * $X always buys X×POINTS_PER_DOLLAR tokens and the margin is earned on burn.
  * Tune this single constant to change pricing across every model.
  */
-export const RETAIL_MARGIN = 2.5;
+export { RETAIL_MARGIN } from "@/lib/billing/account-pricing";
+
+/**
+ * What a million tokens of this model actually costs the user, in dollars —
+ * raw provider price with the retail margin already applied. Anything shown in
+ * the product must come from here: the raw map understates the bill by the
+ * margin, and quoting a price the user is not charged is worse than no price.
+ */
+export const getRetailModelPricing = (
+  modelName?: string,
+  pricingMargin?: number,
+): { input: number; output: number } => {
+  const base = getModelPricing(modelName);
+  return {
+    input: base.input * normalizePricingMargin(pricingMargin),
+    output: base.output * normalizePricingMargin(pricingMargin),
+  };
+};
 
 /** 30 days in seconds — used for Redis TTLs aligned with billing cycles. */
 const THIRTY_DAYS_SECONDS = 30 * 24 * 60 * 60;
@@ -76,27 +171,22 @@ export const calculateTokenCost = (
   tokens: number,
   type: "input" | "output",
   modelName?: string,
+  pricingMargin?: number,
 ): number => {
   if (tokens <= 0) return 0;
   const pricing = getModelPricing(modelName);
   const price = type === "input" ? pricing.input : pricing.output;
   return Math.ceil(
-    (tokens / 1_000_000) * price * POINTS_PER_DOLLAR * RETAIL_MARGIN,
+    (tokens / 1_000_000) *
+      price *
+      POINTS_PER_DOLLAR *
+      normalizePricingMargin(pricingMargin),
   );
 };
 
 // =============================================================================
 // Budget Limits
 // =============================================================================
-
-/** Monthly credit amounts per tier (1:1 with subscription price) */
-const MONTHLY_CREDITS: Record<string, number> = {
-  free: 0,
-  pro: 250_000, // $25
-  "pro-plus": 600_000, // $60
-  ultra: 2_000_000, // $200
-  team: 400_000, // $40
-};
 
 /**
  * Get monthly budget limit for a subscription tier (shared between agent and ask modes).
@@ -105,14 +195,14 @@ const MONTHLY_CREDITS: Record<string, number> = {
 export const getBudgetLimits = (
   subscription: SubscriptionTier,
 ): { monthly: number } => {
-  return { monthly: MONTHLY_CREDITS[subscription] ?? 0 };
+  return { monthly: getIncludedCreditsForTier(subscription) };
 };
 
 /** Get monthly budget in dollars (full subscription price, shared between modes) */
 export const getSubscriptionPrice = (
   subscription: SubscriptionTier,
 ): number => {
-  return (MONTHLY_CREDITS[subscription] ?? 0) / POINTS_PER_DOLLAR;
+  return getIncludedCreditsForTier(subscription) / POINTS_PER_DOLLAR;
 };
 
 // =============================================================================
@@ -148,6 +238,108 @@ const createRateLimiter = (
 };
 
 /**
+ * Authoritative Pro/Max preflight. Convex atomically spends included credits
+ * first and purchased add-ons second; Redis is never consulted for ongoing
+ * authorization after the one-time migration above.
+ */
+export const checkAccountCreditLimit = async (
+  userId: string,
+  subscription: "pro" | "ultra",
+  estimatedInputTokens: number = 0,
+  extraUsageConfig?: ExtraUsageConfig,
+  modelName?: string,
+  ledgerSnapshot?: PaidLedgerSnapshot,
+  diagnostics?: BillingReservationDiagnostics,
+  pricingMargin?: number,
+): Promise<RateLimitInfo> => {
+  try {
+    await measureBillingReservation(diagnostics, "billingMigration", () =>
+      migratePaidPlanLedger(userId, subscription, ledgerSnapshot),
+    );
+    const estimatedCost = calculateTokenCost(
+      estimatedInputTokens,
+      "input",
+      modelName,
+      pricingMargin,
+    );
+    const autoReloadAllowed =
+      extraUsageConfig?.enabled === true &&
+      extraUsageConfig.autoReloadEnabled === true;
+    reportBillingReservation(diagnostics, {
+      type: "strategy",
+      strategy: "account_credits",
+      autoReloadAllowed,
+    });
+    // Wall time of the whole Convex action call (including its query/debit and transport),
+    // not the server-side mutation's execution time alone.
+    const result = await measureBillingReservation(
+      diagnostics,
+      "billingAccountDebit",
+      () =>
+        deductFromPlanCredits(userId, subscription, estimatedCost, {
+          allowAutoReload: autoReloadAllowed,
+        }),
+    );
+    const resetTime = result.includedResetAt
+      ? new Date(result.includedResetAt)
+      : new Date(Date.now() + THIRTY_DAYS_SECONDS * 1000);
+
+    if (!result.success) {
+      if (result.monthlyCapExceeded) {
+        throw new ChatSDKError(
+          "rate_limit:chat",
+          "You've hit your monthly add-on credit spending limit. Increase it in Settings to continue.",
+          { subscription, capReason: "extra_usage_cap" },
+        );
+      }
+      if (
+        result.autoReloadTriggered &&
+        result.autoReloadResult?.success === false
+      ) {
+        throw new ChatSDKError(
+          "rate_limit:chat",
+          `Auto-reload couldn't add credits (${result.autoReloadResult.reason ?? "payment_failed"}). Update your payment method, then try again.`,
+          { subscription, capReason: "auto_reload_failed" },
+        );
+      }
+      const debtCopy =
+        result.debtPoints > 0
+          ? "A prior completed request has an unsettled usage balance. "
+          : "";
+      throw new ChatSDKError(
+        "rate_limit:chat",
+        `${debtCopy}Your included credits are used up and your add-on balance cannot cover this request. Add credits in Settings to continue.`,
+        { subscription, capReason: "monthly_exhausted" },
+      );
+    }
+
+    const refundKey = `credit_refund:${userId}:${randomUUID()}`;
+    return {
+      remaining: result.includedRemainingPoints,
+      resetTime,
+      limit: result.includedTotalPoints,
+      monthly: {
+        remaining: result.includedRemainingPoints,
+        limit: result.includedTotalPoints,
+        resetTime,
+      },
+      pointsDeducted: result.includedPointsDeducted,
+      extraUsagePointsDeducted: result.purchasedPointsDeducted,
+      servedFrom: "account",
+      pricingMargin: normalizePricingMargin(pricingMargin),
+      creditRefundKey: refundKey,
+    };
+  } catch (error) {
+    if (error instanceof ChatSDKError) throw error;
+    throw new ChatSDKError(
+      "rate_limit:chat",
+      `Credit ledger unavailable: ${error instanceof Error ? error.message : "Unknown error"}`,
+      { subscription, capReason: "billing_unavailable" },
+    );
+  }
+};
+
+/**
  * Check rate limit using token bucket and deduct estimated input cost upfront.
  * Used for all paid users (Pro, Pro+, Ultra, Team) in both agent and ask modes.
  * Supports extra usage charging when limit is exceeded.
@@ -159,6 +351,7 @@ export const checkTokenBucketLimit = async (
   extraUsageConfig?: ExtraUsageConfig,
   modelName?: string,
   organizationId?: string,
+  pricingMargin?: number,
 ): Promise<RateLimitInfo> => {
   const redis = createRedisClient();
 
@@ -206,6 +399,7 @@ export const checkTokenBucketLimit = async (
       estimatedInputTokens,
       "input",
       modelName,
+      pricingMargin,
     );
 
     const upgradeHint =
@@ -243,6 +437,7 @@ export const checkTokenBucketLimit = async (
         resetTime: new Date(result.reset),
       },
       pointsDeducted,
+      pricingMargin: normalizePricingMargin(pricingMargin),
       ...(extraUsagePointsDeducted !== undefined && {
         extraUsagePointsDeducted,
       }),
@@ -449,33 +644,49 @@ export const computeActualCostPoints = ({
   providerCostDollars,
   modelName,
   nonModelCostDollars = 0,
+  pricingMargin,
 }: {
   actualInputTokens: number;
   actualOutputTokens: number;
   providerCostDollars?: number;
   modelName?: string;
   nonModelCostDollars?: number;
+  pricingMargin?: number;
 }): number => {
-  if (providerCostDollars !== undefined && providerCostDollars > 0) {
+  if (
+    providerCostDollars !== undefined &&
+    Number.isFinite(providerCostDollars) &&
+    providerCostDollars >= 0
+  ) {
     // Apply RETAIL_MARGIN here too — most real cost flows through this clean-
     // completion branch, so without the multiplier the margin would leak.
-    return Math.ceil(providerCostDollars * POINTS_PER_DOLLAR * RETAIL_MARGIN);
+    return Math.ceil(
+      providerCostDollars *
+        POINTS_PER_DOLLAR *
+        normalizePricingMargin(pricingMargin),
+    );
   }
   const actualInputCost = calculateTokenCost(
     actualInputTokens,
     "input",
     modelName,
+    pricingMargin,
   );
   const outputCost = calculateTokenCost(
     actualOutputTokens,
     "output",
     modelName,
+    pricingMargin,
   );
   // calculateTokenCost already bakes in RETAIL_MARGIN; non-model (sandbox/tool)
   // cost is raw dollars, so apply the margin to it explicitly.
   const nonModelCostPoints =
     nonModelCostDollars > 0
-      ? Math.ceil(nonModelCostDollars * POINTS_PER_DOLLAR * RETAIL_MARGIN)
+      ? Math.ceil(
+          nonModelCostDollars *
+            POINTS_PER_DOLLAR *
+            normalizePricingMargin(pricingMargin),
+        )
       : 0;
   return actualInputCost + outputCost + nonModelCostPoints;
 };
@@ -496,11 +707,13 @@ export const checkBalanceLimit = async (
   estimatedInputTokens: number,
   modelName?: string,
   extraUsageConfig?: ExtraUsageConfig,
+  pricingMargin?: number,
 ): Promise<RateLimitInfo> => {
   const estimatedCost = calculateTokenCost(
     estimatedInputTokens,
     "input",
     modelName,
+    pricingMargin,
   );
 
   const outOfTokens = () =>
@@ -535,6 +748,7 @@ export const checkBalanceLimit = async (
     pointsDeducted: estimatedCost,
     extraUsagePointsDeducted: estimatedCost,
     servedFrom: "balance",
+    pricingMargin: normalizePricingMargin(pricingMargin),
   };
 };
 
@@ -553,12 +767,14 @@ export const deductBalanceUsage = async (
   providerCostDollars?: number,
   modelName?: string,
   nonModelCostDollars: number = 0,
+  pricingMargin?: number,
 ): Promise<void> => {
   try {
     const estimatedInputCost = calculateTokenCost(
       estimatedInputTokens,
       "input",
       modelName,
+      pricingMargin,
     );
     const actualCostPoints = computeActualCostPoints({
       actualInputTokens,
@@ -566,16 +782,26 @@ export const deductBalanceUsage = async (
       providerCostDollars,
       modelName,
       nonModelCostDollars,
+      pricingMargin,
     });
 
     const costDifference = actualCostPoints - estimatedInputCost;
     if (costDifference > 0) {
-      await deductFromBalance(userId, costDifference);
+      const result = await deductFromBalance(userId, costDifference);
+      if (!result.success) {
+        throw new Error("Balance usage adjustment was not confirmed");
+      }
     } else if (costDifference < 0) {
-      await refundToBalance(userId, Math.abs(costDifference));
+      const result = await refundToBalance(userId, Math.abs(costDifference));
+      if (!result.success) {
+        throw new Error("Balance usage adjustment was not confirmed");
+      }
     }
   } catch (error) {
     console.error("Failed to deduct balance usage:", error);
+    // A missing acknowledgment may follow a committed adjustment. Propagate
+    // the uncertainty to the finalizer; never silently succeed or replay it.
+    throw error;
   }
 };
 
@@ -590,7 +816,74 @@ export const deductUsage = async (
   modelName?: string,
   nonModelCostDollars: number = 0,
   organizationId?: string,
+  rateLimitInfo?: RateLimitInfo,
 ): Promise<void> => {
+  const pricingMargin = rateLimitInfo?.pricingMargin;
+  if (
+    usesAccountCreditLedger(subscription) &&
+    rateLimitInfo?.servedFrom === "account"
+  ) {
+    const estimatedInputCost = calculateTokenCost(
+      estimatedInputTokens,
+      "input",
+      modelName,
+      pricingMargin,
+    );
+    const actualCostPoints = computeActualCostPoints({
+      actualInputTokens,
+      actualOutputTokens,
+      providerCostDollars,
+      modelName,
+      nonModelCostDollars,
+      pricingMargin,
+    });
+    const difference = actualCostPoints - estimatedInputCost;
+
+    if (difference > 0) {
+      const result = await deductFromPlanCredits(
+        userId,
+        subscription,
+        difference,
+        {
+          allowAutoReload:
+            extraUsageConfig?.enabled === true &&
+            extraUsageConfig.autoReloadEnabled === true,
+          allowDebt: true,
+        },
+      );
+      if (!result.success) {
+        console.error("[credit-ledger] Post-stream true-up recorded debt", {
+          userId,
+          subscription,
+          difference,
+          debtPoints: result.debtPoints,
+        });
+        throw new ChatSDKError(
+          "rate_limit:chat",
+          "The completed request exceeded the available credits. The unpaid usage was recorded; add credits before starting another request.",
+          { subscription, capReason: "balance_exhausted" },
+        );
+      }
+    } else if (difference < 0) {
+      const refundPoints = Math.abs(difference);
+      // Reverse the allocation in LIFO order: permanent purchased credits were
+      // spent after included credits, so restore them first. This preserves
+      // source identity and never converts expiring credits into add-ons.
+      const purchasedRefund = Math.min(
+        refundPoints,
+        rateLimitInfo.extraUsagePointsDeducted ?? 0,
+      );
+      const includedRefund = refundPoints - purchasedRefund;
+      await refundPlanCredits(
+        userId,
+        `${rateLimitInfo.creditRefundKey ?? `credit_refund:${userId}:${randomUUID()}`}:trueup`,
+        includedRefund,
+        purchasedRefund,
+      );
+    }
+    return;
+  }
+
   const redis = createRedisClient();
   if (!redis) {
     if (process.env.NODE_ENV !== "production") return;
@@ -610,6 +903,7 @@ export const deductUsage = async (
       estimatedInputTokens,
       "input",
       modelName,
+      pricingMargin,
     );
 
     // Calculate actual cost - prefer provider cost if available.
@@ -619,6 +913,7 @@ export const deductUsage = async (
       providerCostDollars,
       modelName,
       nonModelCostDollars,
+      pricingMargin,
     });
 
     // Calculate the difference between what we pre-deducted and actual cost
@@ -644,24 +939,39 @@ export const deductUsage = async (
 
     // Deduct only what the bucket can cover
     if (fromBucket > 0) {
-      await monthly.limiter.limit(monthly.key, { rate: fromBucket });
+      const result = await monthly.limiter.limit(monthly.key, {
+        rate: fromBucket,
+      });
+      // Another run can consume the balance after the peek. Do not treat a
+      // declined debit as settled or charge overflow based on that stale peek.
+      if (!result.success) {
+        throw new Error("Bucket usage adjustment was not confirmed");
+      }
     }
 
-    // Send overflow to extra usage if enabled
-    if (
-      fromExtraUsage > 0 &&
-      extraUsageConfig?.enabled &&
-      (extraUsageConfig.hasBalance || extraUsageConfig.autoReloadEnabled)
-    ) {
+    // A partial bucket debit is not a settled request. Retain the unresolved
+    // journal outcome when no overflow source is eligible; do not retry the
+    // already-applied bucket leg or charge a disabled funding source.
+    if (fromExtraUsage > 0) {
+      if (
+        !extraUsageConfig?.enabled ||
+        (!extraUsageConfig.hasBalance && !extraUsageConfig.autoReloadEnabled)
+      ) {
+        throw new Error("Usage overflow has no eligible funding source");
+      }
       const isTeamPool = subscription === "team" && !!organizationId;
-      if (isTeamPool) {
-        await deductFromTeamBalance(organizationId!, userId, fromExtraUsage);
-      } else {
-        await deductFromBalance(userId, fromExtraUsage);
+      const result = isTeamPool
+        ? await deductFromTeamBalance(organizationId!, userId, fromExtraUsage)
+        : await deductFromBalance(userId, fromExtraUsage);
+      if (!result.success) {
+        throw new Error("Legacy usage adjustment was not confirmed");
       }
     }
   } catch (error) {
     console.error("Failed to deduct usage:", error);
+    // The write may have committed before its acknowledgment was lost. Let
+    // the finalizer retain the unresolved outcome; never replay this debit.
+    throw error;
   }
 };
 
@@ -677,7 +987,8 @@ const refundBucketTokens = async (
   if (pointsToRefund <= 0) return;
 
   const redis = createRedisClient();
-  if (!redis) return;
+  if (!redis)
+    throw new Error("Bucket refund was not confirmed: Redis unavailable");
 
   const { monthly: monthlyLimit } = getBudgetLimits(subscription);
   const monthlyKey = monthlyBucketKey(userId, subscription);
@@ -695,6 +1006,7 @@ const refundBucketTokens = async (
     }
   } catch (error) {
     console.error("Failed to refund bucket tokens:", error);
+    throw error;
   }
 };
 
@@ -784,7 +1096,7 @@ export const stashOldBucketRemaining = async (
 
   const monthlyKey = monthlyBucketKey(userId, oldTier);
   const stashKey = `upgrade:carryover:${userId}`;
-  const oldTierMax = MONTHLY_CREDITS[oldTier] ?? 0;
+  const oldTierMax = getIncludedCreditsForTier(oldTier);
 
   try {
     const tokens = await redis.hget<number>(monthlyKey, "tokens");
@@ -879,7 +1191,7 @@ export const initProratedBucket = async (
   const redis = createRedisClient();
   if (!redis) return;
 
-  const newTierMax = MONTHLY_CREDITS[newTier] ?? 0;
+  const newTierMax = getIncludedCreditsForTier(newTier);
   if (newTierMax === 0) return;
 
   const { burnAmount } = calculateProratedCredits(
@@ -928,7 +1240,7 @@ export const initProratedBucket = async (
 // Team Seat Rotation Protection
 // =============================================================================
 
-const TEAM_CREDITS = MONTHLY_CREDITS["team"] ?? 0;
+const TEAM_CREDITS = getIncludedCreditsForTier("team");
 
 /** Redis key for accumulated removed-member usage per org. */
 const orgRemovedUsageKey = (orgId: string) => `team:removed_usage:${orgId}`;
@@ -1075,7 +1387,22 @@ export const refundUsage = async (
   pointsDeducted: number,
   extraUsagePointsDeducted: number,
   organizationId?: string,
+  creditRefundKey?: string,
+  servedFrom?: RateLimitInfo["servedFrom"],
 ): Promise<void> => {
+  if (usesAccountCreditLedger(subscription) && servedFrom === "account") {
+    if (!creditRefundKey) {
+      throw new Error("Missing account credit refund idempotency key");
+    }
+    await refundPlanCredits(
+      userId,
+      creditRefundKey,
+      pointsDeducted,
+      extraUsagePointsDeducted,
+    );
+    return;
+  }
+
   const refundPromises: Promise<void>[] = [];
 
   if (pointsDeducted > 0) {
@@ -1092,16 +1419,22 @@ export const refundUsage = async (
             organizationId!,
             userId,
             extraUsagePointsDeducted,
-          ).then(() => {})
-        : refundToBalance(userId, extraUsagePointsDeducted).then(() => {}),
+          ).then((result) => {
+            if (!result.success)
+              throw new Error("Team refund was not confirmed");
+          })
+        : refundToBalance(userId, extraUsagePointsDeducted).then((result) => {
+            if (!result.success)
+              throw new Error("Balance refund was not confirmed");
+          }),
     );
   }
 
   if (refundPromises.length > 0) {
-    try {
-      await Promise.all(refundPromises);
-    } catch (error) {
-      console.error("Failed to refund usage:", error);
-    }
+    // Join every issued adjustment even when one fails. A sibling operation
+    // may still commit; this result must not invite replay of the whole batch.
+    const results = await Promise.allSettled(refundPromises);
+    const failure = results.find((result) => result.status === "rejected");
+    if (failure?.status === "rejected") throw failure.reason;
   }
 };

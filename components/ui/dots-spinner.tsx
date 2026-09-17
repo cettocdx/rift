@@ -26,7 +26,7 @@ const DotsSpinner = ({
 
   const variantClasses = {
     default: "bg-gray-600",
-    primary: "bg-blue-600",
+    primary: "bg-primary",
     secondary: "bg-gray-400",
   };
 

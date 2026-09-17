@@ -1,0 +1,57 @@
+{
+  "$schema": "https://schema.tauri.app/config/2/capability",
+  "identifier": "ui-preview",
+  "description": "Local interface preview on port 3020",
+  "webviews": [
+    "main"
+  ],
+  "remote": {
+    "urls": [
+      "http://localhost:3020"
+    ]
+  },
+  "permissions": [
+    "core:default",
+    "core:window:allow-start-dragging",
+    {
+      "identifier": "shell:allow-open",
+      "allow": [
+        {
+          "path": "http://**",
+          "scheme": "http"
+        },
+        {
+          "path": "https://**",
+          "scheme": "https"
+        }
+      ]
+    },
+    "allow-desktop-core-bridge",
+    "allow-desktop-browser",
+    "allow-desktop-local-access",
+    "allow-desktop-profile-terminal",
+    "allow-desktop-command-bridge",
+    "os:default",
+    "process:default",
+    "deep-link:default",
+    "dialog:default",
+    "opener:default",
+    {
+      "identifier": "opener:allow-open-path",
+      "allow": [
+        {
+          "path": "$HOME/**"
+        },
+        {
+          "path": "$DOWNLOAD/**"
+        },
+        {
+          "path": "/tmp/rift-upload/**"
+        },
+        {
+          "path": "/tmp/rift/**"
+        }
+      ]
+    }
+  ]
+}

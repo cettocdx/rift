@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="color-scheme" content="light dark" />
+    <title>RIFT</title>
+    <style>
+      /* RIFT_LAUNCH_STYLES */
+    </style>
+  </head>
+  <body>
+    <main class="rift-launch" data-state="loading">
+      <div
+        class="rift-launch__drag"
+        data-tauri-drag-region
+        aria-hidden="true"
+      ></div>
+
+      <div class="rift-launch__identity">
+        <!-- RIFT_LAUNCH_MARK -->
+        <h1 class="rift-launch__wordmark">RIFT</h1>
+        <p class="rift-launch__expansion">
+          Recursive Intelligence for Technology
+        </p>
+      </div>
+      <div class="rift-launch__connection">
+        <div class="rift-launch__signal" aria-hidden="true"><i></i></div>
+        <p
+          class="rift-launch__status"
+          role="status"
+          aria-live="polite"
+          id="status-text"
+        >
+          Opening RIFT
+        </p>
+        <p class="rift-launch__error" id="error-message" hidden></p>
+        <button class="rift-launch__retry" id="retry-btn" type="button" hidden>
+          Try again
+        </button>
+      </div>
+    </main>
+    <script type="application/json" id="rift-launch-config">
+      /* RIFT_LAUNCH_CONFIG */
+    </script>
+    <script>
+      /* RIFT_LAUNCH_RUNTIME */
+    </script>
+  </body>
+</html>

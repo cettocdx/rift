@@ -89,6 +89,16 @@ export function validateUploadPolicy(args: {
     };
   }
 
+  /*
+   * Agent mode is exempt on purpose.
+   *
+   * An oversized image uploaded in Agent mode is stored as sandbox-only
+   * metadata and never parsed or inlined into a model request — see the
+   * "accepts oversized Agent images as sandbox-only metadata without parsing"
+   * case in convex/__tests__/fileActions.upload-policy.test.ts, which is the
+   * contract for it. Removing this exemption was tried while chasing a crashed
+   * run and that test caught it immediately, which is exactly what it is for.
+   */
   if (
     !isAgentUploadMode(args.mode) &&
     isSupportedImageMediaType(args.mediaType) &&

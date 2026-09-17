@@ -1,0 +1,34 @@
+diff --git a/dist/commonjs/v3/streams.js b/dist/commonjs/v3/streams.js
+index b7819b431359343ab6a87a6076f6d7abd7752946..62a0246cd7d7fac7e4183004d8eab8037339d5c2 100644
+--- a/dist/commonjs/v3/streams.js
++++ b/dist/commonjs/v3/streams.js
+@@ -92,7 +92,11 @@ function pipeInternal(key, value, opts, spanName) {
+             target: runId,
+             requestOptions,
+         });
+-        instance.wait().finally(() => {
++        // End tracing on either outcome without creating an unobserved
++        // rejected promise. waitUntilComplete still propagates the failure.
++        instance.wait().then(() => {
++            span.end();
++        }, () => {
+             span.end();
+         });
+         return {
+diff --git a/dist/esm/v3/streams.js b/dist/esm/v3/streams.js
+index 2449296fcf43a534179df897613cb3b14e55a531..2625c9da80d1e6a0078fb550863695f594091ee1 100644
+--- a/dist/esm/v3/streams.js
++++ b/dist/esm/v3/streams.js
+@@ -88,7 +88,11 @@ function pipeInternal(key, value, opts, spanName) {
+             target: runId,
+             requestOptions,
+         });
+-        instance.wait().finally(() => {
++        // End tracing on either outcome without creating an unobserved
++        // rejected promise. waitUntilComplete still propagates the failure.
++        instance.wait().then(() => {
++            span.end();
++        }, () => {
+             span.end();
+         });
+         return {

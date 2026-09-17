@@ -156,7 +156,7 @@ export const ActivityTimeline: React.FC<ActivityTimelineProps> = ({
                 ) : itemStatus === "error" ? (
                   <X className="h-3.5 w-3.5 text-red-400" />
                 ) : (
-                  <Check className="h-3.5 w-3.5 text-success" />
+                  <Check className="h-3.5 w-3.5 text-emerald-400" />
                 )}
               </div>
             </button>
@@ -166,8 +166,8 @@ export const ActivityTimeline: React.FC<ActivityTimelineProps> = ({
         {/* Live tail indicator */}
         {isStreaming && (
           <div className="flex items-center gap-2 px-3 py-2 text-[11px] text-muted-foreground">
-            <CircleDot className="h-3 w-3 animate-pulse text-signal" />
-            Agent is working...
+            <CircleDot className="h-3 w-3 animate-pulse text-green-500" />
+            Agent run in progress
           </div>
         )}
       </div>

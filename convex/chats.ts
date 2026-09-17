@@ -1,3 +1,6 @@
+import { hasBlockingHttpExecution } from "./lib/hackHttpExecutions";
+import { hasPendingHackCleanup } from "./lib/hackRunCleanup";
+import { chatSnapshotValidator, toChatSnapshot } from "./lib/chatSnapshot";
 import { query, mutation, internalMutation } from "./_generated/server";
 import type { MutationCtx } from "./_generated/server";
 import { v, ConvexError } from "convex/values";
@@ -8,6 +11,11 @@ import { MAX_PREVIOUS_SUMMARIES } from "./constants";
 import { validateServiceKey } from "./lib/utils";
 import { coerceSelectedModel } from "../types/chat";
 import { convexLogger } from "./lib/logger";
+import { saveOwnedChat } from "./lib/chatPersistence";
+import {
+  deleteChatCheckpointBatch,
+  scheduleChatCheckpointCleanup,
+} from "./lib/chatCheckpointCleanup";
 
 const DELETE_ALL_CHATS_MESSAGE_BATCH_SIZE = 10;
 const DELETE_ALL_CHATS_SUMMARY_BATCH_SIZE = 25;
@@ -39,6 +47,8 @@ async function deleteNextUserChatBatch(ctx: MutationCtx, userId: string) {
   if (!chat) {
     return false;
   }
+
+  await deleteChatCheckpointBatch(ctx, { chatId: chat.id, userId });
 
   const messages = await ctx.db
     .query("messages")
@@ -126,6 +136,7 @@ export const getChatByIdFromClient = query({
       user_id: v.string(),
       finish_reason: v.optional(v.string()),
       active_stream_id: v.optional(v.string()),
+      active_http_execution_id: v.optional(v.string()),
       canceled_at: v.optional(v.number()),
       default_model_slug: v.optional(
         v.union(v.literal("ask"), v.literal("agent"), v.literal("agent-long")),
@@ -153,8 +164,16 @@ export const getChatByIdFromClient = query({
       update_time: v.number(),
       pinned_at: v.optional(v.number()),
       active_trigger_run_id: v.optional(v.string()),
+      last_run_error: v.optional(v.string()),
+      opencode_session_id: v.optional(v.string()),
+      opencode_sandbox_id: v.optional(v.string()),
       sandbox_type: v.optional(v.string()),
       selected_model: v.optional(v.string()),
+      purpose: v.optional(v.string()),
+      console_session: v.optional(v.boolean()),
+      project_id: v.optional(v.id("projects")),
+      project_bot_id: v.optional(v.id("project_bots")),
+      bot_meeting_id: v.optional(v.id("bot_meetings")),
     }),
     v.null(),
   ),
@@ -212,46 +231,7 @@ export const getChatByIdFromClient = query({
  */
 export const getChatById = query({
   args: { serviceKey: v.string(), id: v.string() },
-  returns: v.union(
-    v.object({
-      _id: v.id("chats"),
-      _creationTime: v.number(),
-      id: v.string(),
-      title: v.string(),
-      user_id: v.string(),
-      finish_reason: v.optional(v.string()),
-      active_stream_id: v.optional(v.string()),
-      canceled_at: v.optional(v.number()),
-      default_model_slug: v.optional(
-        v.union(v.literal("ask"), v.literal("agent"), v.literal("agent-long")),
-      ),
-      todos: v.optional(
-        v.array(
-          v.object({
-            id: v.string(),
-            content: v.string(),
-            status: v.union(
-              v.literal("pending"),
-              v.literal("in_progress"),
-              v.literal("completed"),
-              v.literal("cancelled"),
-            ),
-            sourceMessageId: v.optional(v.string()),
-          }),
-        ),
-      ),
-      branched_from_chat_id: v.optional(v.string()),
-      latest_summary_id: v.optional(v.id("chat_summaries")),
-      share_id: v.optional(v.string()),
-      share_date: v.optional(v.number()),
-      update_time: v.number(),
-      pinned_at: v.optional(v.number()),
-      active_trigger_run_id: v.optional(v.string()),
-      sandbox_type: v.optional(v.string()),
-      selected_model: v.optional(v.string()),
-    }),
-    v.null(),
-  ),
+  returns: chatSnapshotValidator,
   handler: async (ctx, args) => {
     // Verify service role key
     validateServiceKey(args.serviceKey);
@@ -266,8 +246,7 @@ export const getChatById = query({
 
       // Drop legacy codex_thread_id from the response — preserved on the row
       // for old data but not exposed to callers.
-      const { codex_thread_id: _legacy, ...chatPublic } = chat;
-      return chatPublic;
+      return toChatSnapshot(chat);
     } catch (error) {
       console.error("Failed to get chat by id (backend):", error);
       return null;
@@ -284,6 +263,11 @@ export const saveChat = mutation({
     id: v.string(),
     userId: v.string(),
     title: v.string(),
+    // Chat mode (security / app / image). Optional + additive; absence means
+    // "security". Persisted so reopening a saved chat restores its mode.
+    purpose: v.optional(v.string()),
+    // Server-validated project context resolved before chat creation.
+    projectId: v.optional(v.id("projects")),
   },
   returns: v.string(),
   handler: async (ctx, args) => {
@@ -291,17 +275,14 @@ export const saveChat = mutation({
     validateServiceKey(args.serviceKey);
 
     try {
-      const chatId = await ctx.db.insert("chats", {
-        id: args.id,
-        title: args.title,
-        user_id: args.userId,
-        update_time: Date.now(),
-      });
-
-      return chatId;
+      return await saveOwnedChat(ctx, args);
     } catch (error) {
       console.error("Failed to save chat:", error);
-      throw new Error("Failed to save chat");
+      if (error instanceof ConvexError) throw error;
+      throw new ConvexError({
+        code: "CHAT_SAVE_FAILED",
+        message: "Failed to save chat",
+      });
     }
   },
 });
@@ -373,6 +354,8 @@ export const updateChat = mutation({
   args: {
     serviceKey: v.string(),
     chatId: v.string(),
+    expectedTriggerRunId: v.optional(v.string()),
+    expectedStreamId: v.optional(v.string()),
     title: v.optional(v.string()),
     finishReason: v.optional(v.string()),
     defaultModelSlug: v.optional(
@@ -414,6 +397,41 @@ export const updateChat = mutation({
         return null;
       }
 
+      // A canceled worker can finish after another run has taken over. Check
+      // ownership in this transaction before changing shared chat state.
+      if (
+        args.expectedTriggerRunId !== undefined &&
+        chat.active_trigger_run_id !== args.expectedTriggerRunId
+      ) {
+        return null;
+      }
+
+      if (
+        args.expectedStreamId !== undefined &&
+        chat.active_stream_id !== args.expectedStreamId
+      )
+        return null;
+
+      if (
+        args.expectedStreamId === undefined &&
+        (await hasBlockingHttpExecution(ctx, {
+          userId: chat.user_id,
+          chatId: args.chatId,
+        }))
+      )
+        return null;
+
+      // Final metadata can precede message persistence and producer cleanup.
+      // Keep the exact identity discoverable for reconnect/Stop until finish
+      // acknowledges that cleanup, while preserving legacy CAS cleanup.
+      const keepHttpIdentity =
+        args.expectedStreamId !== undefined &&
+        chat.active_http_execution_id === args.expectedStreamId &&
+        (await hasBlockingHttpExecution(ctx, {
+          userId: chat.user_id,
+          chatId: args.chatId,
+        }));
+
       // Prepare update object with only provided fields.
       // update_time is only bumped for user-visible changes (title, model,
       // sandbox) so that background writes (todos, stream-state cleanup,
@@ -432,12 +450,19 @@ export const updateChat = mutation({
         sandbox_type?: string;
         selected_model?: string;
         active_stream_id?: undefined;
+        active_http_execution_id?: undefined;
         canceled_at?: undefined;
         update_time?: number;
       } = {
-        // Always clear stream state when updating chat (stream is finished)
-        active_stream_id: undefined,
-        canceled_at: undefined,
+        ...(keepHttpIdentity
+          ? {}
+          : {
+              active_stream_id: undefined,
+              active_http_execution_id: undefined,
+            }),
+        ...(args.expectedStreamId === undefined
+          ? { canceled_at: undefined }
+          : {}),
       };
 
       if (args.title !== undefined) {
@@ -512,6 +537,7 @@ export const getUserChats = query({
           q.eq("user_id", identity.subject.split("|")[0]).gt("pinned_at", 0),
         )
         .order("asc")
+        .filter((q) => q.neq(q.field("console_session"), true))
         .take(MAX_PINNED_CHATS);
 
       if (pinnedChats.length === MAX_PINNED_CHATS) {
@@ -533,6 +559,7 @@ export const getUserChats = query({
           q.eq("user_id", identity.subject.split("|")[0]),
         )
         .order("desc")
+        .filter((q) => q.neq(q.field("console_session"), true))
         .paginate(args.paginationOpts);
 
       const unpinnedPage = result.page.filter((c) => !pinnedIds.has(c.id));
@@ -603,6 +630,50 @@ export const getUserChats = query({
         continueCursor: "",
       };
     }
+  },
+});
+
+/**
+ * Search the authenticated user's complete chat-title index. The command
+ * palette uses this instead of relying only on whichever pagination pages are
+ * currently mounted in the sidebar.
+ */
+export const searchUserChats = query({
+  args: {
+    query: v.string(),
+    limit: v.optional(v.number()),
+  },
+  returns: v.array(
+    v.object({
+      id: v.string(),
+      title: v.string(),
+      update_time: v.number(),
+    }),
+  ),
+  handler: async (ctx, args) => {
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity) return [];
+
+    const search = args.query.trim().slice(0, 160);
+    if (!search) return [];
+    const requestedLimit = Math.floor(args.limit ?? 40);
+    const limit = Math.min(60, Math.max(1, requestedLimit));
+    const userId = identity.subject.split("|")[0];
+
+    const matches = await ctx.db
+      .query("chats")
+      .withSearchIndex("search_title", (q) =>
+        q.search("title", search).eq("user_id", userId),
+      )
+      .take(limit);
+
+    return matches
+      .filter((chat) => !chat.console_session)
+      .map((chat) => ({
+        id: chat.id,
+        title: chat.title,
+        update_time: chat.update_time,
+      }));
   },
 });
 
@@ -725,6 +796,11 @@ export const deleteChat = mutation({
           message: "Unauthorized: Chat does not belong to user",
         });
       }
+
+      await deleteChatCheckpointBatch(ctx, {
+        chatId: chat.id,
+        userId: chat.user_id,
+      });
 
       // Delete all messages and their associated files
       const messages = await ctx.db
@@ -939,6 +1015,16 @@ export const deleteAllChatsBatch = internalMutation({
   },
 });
 
+/** Continue an already-authorized deletion after the chat row is gone. */
+export const deleteChatCheckpointsBatch = internalMutation({
+  args: { chatId: v.string(), userId: v.string() },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    await deleteChatCheckpointBatch(ctx, args);
+    return null;
+  },
+});
+
 /**
  * Set the active trigger.dev run id for a chat (used by /api/agent-long when
  * kicking off a long-running task). Stored on the chat row so the cancel
@@ -960,6 +1046,13 @@ export const setActiveTriggerRun = mutation({
       .first();
     if (!chat) return null;
     if (
+      await hasPendingHackCleanup(ctx, {
+        userId: chat.user_id,
+        chatId: args.chatId,
+      })
+    )
+      return null;
+    if (
       args.expectedRunId !== undefined &&
       chat.active_trigger_run_id !== args.expectedRunId
     ) {
@@ -967,6 +1060,33 @@ export const setActiveTriggerRun = mutation({
     }
     await ctx.db.patch(chat._id, {
       active_trigger_run_id: args.triggerRunId ?? undefined,
+    });
+    return null;
+  },
+});
+
+/**
+ * Bind (or clear) the OpenCode engine session for a chat. The session lives on
+ * the chat's sandbox disk; remembering its id lets the next leg continue it.
+ */
+export const setOpenCodeSession = mutation({
+  args: {
+    serviceKey: v.string(),
+    chatId: v.string(),
+    sessionId: v.union(v.string(), v.null()),
+    sandboxId: v.optional(v.string()),
+  },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    validateServiceKey(args.serviceKey);
+    const chat = await ctx.db
+      .query("chats")
+      .withIndex("by_chat_id", (q) => q.eq("id", args.chatId))
+      .first();
+    if (!chat) return null;
+    await ctx.db.patch(chat._id, {
+      opencode_session_id: args.sessionId ?? undefined,
+      opencode_sandbox_id: args.sessionId ? args.sandboxId : undefined,
     });
     return null;
   },
@@ -1008,6 +1128,12 @@ export const deleteAllChatsForUser = mutation({
       .collect();
 
     for (const chat of userChats) {
+      // Schedule before removing the chat, in the same transaction. Avoid
+      // reading every large transcript inside this account-wide mutation.
+      await scheduleChatCheckpointCleanup(ctx, {
+        chatId: chat.id,
+        userId: args.userId,
+      });
       const messages = await ctx.db
         .query("messages")
         .withIndex("by_chat_id", (q) => q.eq("chat_id", chat.id))
@@ -1308,5 +1434,30 @@ export const getLatestSummaryForBackend = query({
       console.error("Failed to get latest summary:", error);
       return null;
     }
+  },
+});
+
+/** Create a distinct terminal transcript. Existing app chats cannot be claimed. */
+export const ensureConsoleChat = mutation({
+  args: { serviceKey: v.string(), userId: v.string(), chatId: v.string() },
+  handler: async (ctx, args) => {
+    validateServiceKey(args.serviceKey);
+    const chat = await ctx.db
+      .query("chats")
+      .withIndex("by_chat_id", (q) => q.eq("id", args.chatId))
+      .first();
+    if (chat) {
+      if (chat.user_id !== args.userId || !chat.console_session)
+        throw new ConvexError("This is not your terminal session");
+      return;
+    }
+    await ctx.db.insert("chats", {
+      id: args.chatId,
+      user_id: args.userId,
+      title: "RIFT Terminal",
+      purpose: "app",
+      console_session: true,
+      update_time: Date.now(),
+    });
   },
 });

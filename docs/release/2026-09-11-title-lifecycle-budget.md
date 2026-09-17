@@ -1,0 +1,9 @@
+# Bound optional title generation
+
+Both web and durable worker paths awaited a parallel title promise during final persistence. The title call had no explicit deadline, output ceiling, parent cancellation or retry policy. A stalled provider could keep an otherwise finished response waiting, and the AI SDK's default two retries applied to this optional work.
+
+Title generation now has a four-second wall-clock wait bound, a linked provider abort signal, zero automatic retries and a 256-token output ceiling. The caller is released even if a transport ignores cancellation. Both entry points pass their existing user-stop signal. Successful titles retain structured-output validation and language selection; missing user text or a pre-cancelled request makes no title call. Empty, timed-out and post-stop titles are not written. Existing chat titles are left in place when generation yields no replacement.
+
+This ceiling applies only to the optional title, not agent tasks, reasoning, tool execution or their retry policy. Aborting a transport cannot guarantee that a provider has stopped processing or that already incurred usage is free. Title receipts are not yet included in the model-operation ledger; no customer billing changes were introduced here.
+
+The initial lifecycle tests reproduced unbounded waits, ignored parent cancellation, missing call limits and empty title emission. Nine passing lifecycle/real-AI-SDK tests cover these cases, actual structured output and a retryable 503 response making exactly one provider invocation. The stuck-transport case verifies provider signal cancellation and no late writer event. Tests use no paid provider. Evidence: /tmp/rift-title-lifecycle-red.log and /tmp/rift-title-all-green.log. Normal commit hooks and a production preview build provide integrated validation.

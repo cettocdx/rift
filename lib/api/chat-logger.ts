@@ -34,7 +34,7 @@ import {
 
 export interface ChatLoggerConfig {
   chatId: string;
-  endpoint: "/api/chat" | "/api/agent-long";
+  endpoint: "/api/chat" | "/api/agent-long" | "/api/hack-long";
 }
 
 export interface RequestDetails {
@@ -159,6 +159,44 @@ const isRetriableProviderCategory = (
   category === "provider_5xx" ||
   category === "stream_terminated" ||
   category === "timeout";
+
+/**
+ * The wide event, somewhere it can be queried.
+ *
+ * It was only ever `console.log`ged. Inside the Trigger worker that lands in
+ * Trigger's log retention and nowhere else, so "p95 tool calls on failed Build
+ * runs last week" had no answer. Flattened one level so the dashboard can
+ * filter on `stream.finish_reason`-style keys; nested arrays stay as-is.
+ * Only the durable endpoint for now: it is where the long, expensive runs are.
+ */
+const emitWideEventToAnalytics = (event: ChatWideEvent): void => {
+  if (
+    event.endpoint !== "/api/agent-long" &&
+    event.endpoint !== "/api/hack-long"
+  )
+    return;
+  try {
+    const flat: Record<string, unknown> = {};
+    for (const [key, value] of Object.entries(event)) {
+      if (value && typeof value === "object" && !Array.isArray(value)) {
+        for (const [inner, innerValue] of Object.entries(
+          value as Record<string, unknown>,
+        )) {
+          flat[`${key}.${inner}`] = innerValue;
+        }
+      } else {
+        flat[key] = value;
+      }
+    }
+    phLogger.event("rift-agent_run_wide", {
+      userId: event.user?.id,
+      chat_id: event.chat_id,
+      ...flat,
+    });
+  } catch {
+    // Analytics must never break the request that produced the event.
+  }
+};
 
 /**
  * Creates a chat logger instance for tracking wide events
@@ -426,7 +464,9 @@ export function createChatLogger(config: ChatLoggerConfig) {
       } else {
         builder.setSuccess();
       }
-      logger.info(builder.build());
+      const event = builder.build();
+      logger.info(event);
+      emitWideEventToAnalytics(event);
     },
 
     /**
@@ -447,7 +487,11 @@ export function createChatLogger(config: ChatLoggerConfig) {
         retriable: error.type === "rate_limit",
         metadata: compactChatErrorMetadata(error.metadata),
       });
-      logger.info(builder.build());
+      {
+        const event = builder.build();
+        logger.info(event);
+        emitWideEventToAnalytics(event);
+      }
 
       // Fire a discrete PostHog event when a paid user is blocked at the
       // monthly cap. Used to size the cap-hit cohort and correlate against
@@ -512,7 +556,9 @@ export function createChatLogger(config: ChatLoggerConfig) {
           ? isRetriableProviderCategory(providerCategory)
           : false,
       });
-      logger.info(builder.build());
+      const event = builder.build();
+      logger.info(event);
+      emitWideEventToAnalytics(event);
     },
 
     /**
@@ -587,7 +633,7 @@ type AgentCompletionAnalyticsArgs = {
   posthog: PostHog | null;
   userId: string;
   chatId: string;
-  endpoint: "/api/chat" | "/api/agent-long";
+  endpoint: "/api/chat" | "/api/agent-long" | "/api/hack-long";
   mode: ChatMode;
   subscription: string;
   sandboxInfo: SandboxInfo | null;
@@ -637,7 +683,7 @@ export function captureFreeAgentValueReached({
   posthog: PostHog | null;
   userId: string;
   chatId: string;
-  endpoint: "/api/chat" | "/api/agent-long";
+  endpoint: "/api/chat" | "/api/agent-long" | "/api/hack-long";
   mode: ChatMode;
   subscription: string;
   sandboxInfo: SandboxInfo | null;
@@ -710,7 +756,7 @@ export function captureUsageCost({
   subscription: string;
   organizationId?: string;
   chatId: string;
-  endpoint: "/api/chat" | "/api/agent-long";
+  endpoint: "/api/chat" | "/api/agent-long" | "/api/hack-long";
   mode: ChatMode;
   usage: UsageCostRecord;
 }) {

@@ -56,7 +56,8 @@ export async function reclaimSandboxDisk(sandbox: AnySandbox): Promise<void> {
     await sandbox.commands.run(RECLAIM_CMD, {
       timeoutMs: 60_000,
       user: "root",
-    } as { timeoutMs: number; user: "root" });
+      envs: { HOME: "/root", USER: "root", LOGNAME: "root" },
+    });
   } catch (err) {
     console.warn(
       "[sandbox] disk reclaim failed (continuing):",

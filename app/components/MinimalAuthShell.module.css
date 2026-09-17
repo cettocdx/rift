@@ -1,0 +1,122 @@
+.shell {
+  --pa-ground: #0a0a0a;
+  --pa-ink: #ededed;
+  --pa-muted: #9b9b9b;
+  --pa-faint: #858585;
+  --pa-line: #262626;
+  --pa-line-soft: #383838;
+  --pa-surface-soft: #191919;
+  --pa-primary-hover: #d8d8d8;
+  --pa-border-hover: #777;
+  --pa-error: #f18d91;
+  min-height: 100dvh;
+  display: flex;
+  flex-direction: column;
+  background: var(--pa-ground);
+  color: var(--pa-ink);
+  color-scheme: dark;
+  font-family: var(--font-geist), system-ui, sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+.header {
+  min-height: 76px;
+  padding: 20px 28px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 24px;
+  flex-shrink: 0;
+}
+.brand {
+  display: inline-flex;
+  min-width: 44px;
+  min-height: 44px;
+  align-items: center;
+  color: var(--pa-ink);
+}
+.back {
+  display: inline-flex;
+  min-height: 44px;
+  align-items: center;
+  border: 1px solid var(--pa-line);
+  border-radius: 999px;
+  padding: 7px 13px;
+  font-size: 12px;
+  line-height: 18px;
+}
+.main {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 40px 24px;
+}
+.form {
+  width: 100%;
+  max-width: 360px;
+}
+.form h1 {
+  font-size: 24px;
+  line-height: 30px;
+  font-weight: 500;
+  text-align: center;
+}
+.form h1 + p {
+  font-size: 14px;
+  line-height: 21px;
+  text-align: center;
+}
+.form > div > div:has(> h1) {
+  margin-bottom: 28px;
+}
+.form > div > p:last-child {
+  text-align: center;
+  border: 0;
+  padding-top: 0;
+  margin-top: 24px;
+  font-size: 13px;
+}
+.footer {
+  padding: 20px 24px 24px;
+  color: var(--pa-muted);
+  font-size: 12px;
+  line-height: 18px;
+}
+.footer nav {
+  display: flex;
+  justify-content: center;
+  gap: 20px;
+}
+.footer a {
+  display: inline-flex;
+  min-width: 44px;
+  min-height: 44px;
+  align-items: center;
+  justify-content: center;
+}
+.shell a:hover {
+  color: #fff;
+}
+.shell :is(a, button, input, textarea, select):focus-visible {
+  /* This dark entry surface needs its own contrast, independent of the
+     document theme and the global compact application focus treatment. */
+  outline: 2px solid var(--pa-ink) !important;
+  outline-offset: 3px !important;
+  border-radius: 4px;
+}
+:global(html.rift-vibrancy) .shell .header {
+  padding-left: 96px;
+  -webkit-app-region: drag;
+}
+.header a {
+  -webkit-app-region: no-drag;
+}
+@media (max-width: 480px) {
+  .header {
+    min-height: 64px;
+    padding: 16px 20px;
+  }
+  .main {
+    padding: 28px 24px;
+  }
+}

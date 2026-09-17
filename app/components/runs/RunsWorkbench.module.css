@@ -1,0 +1,7 @@
+@media (pointer: coarse) {
+  .filter {
+    min-width: 44px;
+    min-height: 44px;
+    touch-action: manipulation;
+  }
+}

@@ -4,6 +4,8 @@ const loadSaveMessageWithMocks = async () => {
   jest.resetModules();
   process.env.NEXT_PUBLIC_CONVEX_URL = "https://example.convex.cloud";
 
+  const mockArchiveMessage = jest.fn().mockResolvedValue({type: "file", fileId: "archive-1", name: "run.json", mediaType: "application/json"});
+  jest.doMock("../archive-message", () => ({archiveMessage: mockArchiveMessage}));
   const mockMutation = jest.fn().mockResolvedValue({ id: "message-1" });
   const mockCompactMessageForStorage = jest.fn((message: any) => {
     const sizeBytes = JSON.stringify(message.parts).length;
@@ -30,10 +32,47 @@ const loadSaveMessageWithMocks = async () => {
   }));
 
   const { saveMessage } = await import("../actions");
-  return { saveMessage, mockCompactMessageForStorage };
+  return { saveMessage, mockCompactMessageForStorage, mockMutation, mockArchiveMessage };
 };
 
 describe("saveMessage", () => {
+  it("forwards the optional run ownership guard to the storage mutation", async () => {
+    const { saveMessage, mockMutation } = await loadSaveMessageWithMocks();
+    await saveMessage({
+      chatId: "chat-1",
+      userId: "user-1",
+      expectedTriggerRunId: "run-current",
+      message: {
+        id: "message-1",
+        role: "assistant",
+        parts: [{ type: "text", text: "done" }],
+      },
+    });
+    expect(mockMutation.mock.calls.at(-1)?.[1]).toEqual(
+      expect.objectContaining({ expectedTriggerRunId: "run-current" }),
+    );
+  });
+
+  it("preserves typed run-lost failures instead of returning success", async () => {
+    const { saveMessage, mockMutation } = await loadSaveMessageWithMocks();
+    const lost = Object.assign(new Error("This run no longer owns the chat"), {
+      data: { code: "AGENT_RUN_LOST" },
+    });
+    mockMutation.mockRejectedValueOnce(lost);
+    await expect(
+      saveMessage({
+        chatId: "chat-1",
+        userId: "user-1",
+        expectedTriggerRunId: "run-old",
+        message: {
+          id: "message-1",
+          role: "assistant",
+          parts: [{ type: "text", text: "stale" }],
+        },
+      }),
+    ).rejects.toBe(lost);
+  });
+
   it("sanitizes assistant parts before storage compaction", async () => {
     const { saveMessage, mockCompactMessageForStorage } =
       await loadSaveMessageWithMocks();
@@ -70,4 +109,52 @@ describe("saveMessage", () => {
     });
     expect(() => JSON.stringify(compactedMessage.parts)).not.toThrow();
   });
+
+  it("persists one attachment id for a generated-media tool result", async () => {
+    const { saveMessage, mockMutation } = await loadSaveMessageWithMocks();
+
+    await saveMessage({
+      chatId: "chat-1",
+      userId: "user-1",
+      message: {
+        id: "message-video",
+        role: "assistant",
+        parts: [
+          {
+            type: "tool-generate_video",
+            state: "output-available",
+            output: {
+              fileId: "file-video",
+              storageId: "storage-video",
+              mediaType: "video/mp4",
+            },
+          } as any,
+        ],
+      },
+      extraFileIds: ["file-video" as any],
+    });
+
+    expect(mockMutation).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ fileIds: ["file-video"] }),
+    );
+  });
+});
+
+
+it("never saves compacted placeholders if the original archive cannot commit", async () => {
+  const {saveMessage, mockCompactMessageForStorage, mockMutation, mockArchiveMessage} = await loadSaveMessageWithMocks();
+  mockCompactMessageForStorage.mockImplementation((message: any) => ({
+    message: {...message, parts: [{type: "text", text: "Archived"}]},
+    compacted: true, beforeSizeBytes: 2_000_000, afterSizeBytes: 50,
+    strippedUiOnlyFields: false, prunedCount: 1,
+  }));
+  mockArchiveMessage.mockRejectedValueOnce(new Error("Storage unavailable"));
+  await expect(saveMessage({chatId: "chat-1", userId: "user-1", message: {
+    id: "message-1", role: "assistant", parts: [{type: "text", text: "original"}],
+  }})).rejects.toThrow();
+  expect(mockMutation).not.toHaveBeenCalled();
+  expect(mockArchiveMessage).toHaveBeenCalledWith(expect.objectContaining({
+    message: expect.objectContaining({parts: [{type: "text", text: "original"}]}),
+  }));
 });

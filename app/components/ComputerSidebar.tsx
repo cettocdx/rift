@@ -1,3 +1,5 @@
+import { useAuth } from "@/app/hooks/useAuth";
+import { getAccountPricingMargin } from "@/lib/billing/account-pricing";
 import React from "react";
 import Image from "next/image";
 import { createPortal } from "react-dom";
@@ -7,7 +9,6 @@ import {
   Eye,
   FileText,
   Maximize2,
-  Minimize2,
   Terminal,
   Play,
   SkipBack,
@@ -16,7 +17,11 @@ import {
   Code,
 } from "lucide-react";
 import { useState, useEffect, useRef, useMemo } from "react";
+import { getEffectiveBuildModel } from "@/types/chat";
+import { formatModelPrice } from "@/lib/pricing/model-price";
 import { useGlobalState } from "../contexts/GlobalState";
+import { getMaxTokensForSubscription } from "@/lib/token-limits";
+import { useLiveSidebarContent } from "../contexts/LiveSidebarContent";
 import { ComputerCodeBlock } from "./ComputerCodeBlock";
 import { TerminalCodeBlock } from "./TerminalCodeBlock";
 import { DiffView } from "./DiffView";
@@ -52,15 +57,65 @@ import {
   getToolName,
   getDisplayTarget,
 } from "./computer-sidebar-utils";
-import { ActivityTimeline } from "./ActivityTimeline";
+import { AgentActivityPanel } from "./AgentActivityPanel";
+import { AgentActivityStatus } from "./AgentActivityStatus";
+import { SourceDomainBadge } from "./SourceDomainBadge";
+import type {
+  AgentActivitySubagent,
+  CreateSubagentDraft,
+} from "./agent-activity";
+import {
+  buildSubagentPrompt,
+  canCreateSubagentInMode,
+  getCurrentRunMessages,
+  getCurrentRunTodos,
+} from "./agent-activity";
+import { useProShell } from "./pro/ProShellContext";
+import type { Todo } from "@/types/chat";
+import { extractAllSidebarContent } from "@/lib/utils/sidebar-utils";
+import { submitChatMessage } from "@/lib/utils/submit-message";
+import { useChatApprovals } from "@/app/contexts/ChatApprovalContext";
 
 interface ComputerSidebarProps {
+  /** Tab host owns navigation, close and surrounding chrome. */
+  embedded?: boolean;
   sidebarOpen: boolean;
   sidebarContent: SidebarContent | null;
   closeSidebar: () => void;
   messages?: any[];
+  currentRunMessages?: any[];
+  currentRunExecutions?: readonly SidebarContent[];
+  navigationExecutions?: readonly SidebarContent[];
+  currentRunTodos?: readonly Todo[];
   onNavigate?: (content: SidebarContent) => void;
   status?: ChatStatus;
+  todos?: readonly Todo[];
+  selectedSubagentToolCallId?: string | null;
+  onSelectSubagent?: (toolCallId: string | null) => void;
+  subagents?: readonly AgentActivitySubagent[];
+  onCreateSubagent?: (draft: CreateSubagentDraft) => boolean | void;
+  contextWindowTokens?: number;
+  modelPrice?: { input: string; output: string };
+}
+
+export function resolveLiveSidebarContent(
+  selectedContent: SidebarContent | null,
+  liveContent: SidebarContent | null,
+): SidebarContent | null {
+  if (
+    !selectedContent ||
+    !liveContent ||
+    !("toolCallId" in selectedContent) ||
+    !("toolCallId" in liveContent)
+  ) {
+    return selectedContent;
+  }
+
+  const selectedToolCallId = selectedContent.toolCallId;
+  return typeof selectedToolCallId === "string" &&
+    selectedToolCallId === liveContent.toolCallId
+    ? liveContent
+    : selectedContent;
 }
 
 const formatFileSize = (sizeBytes?: number): string | null => {
@@ -174,8 +229,12 @@ const SidebarPreviewImage = ({
       <div className="flex w-full justify-center">
         <button
           type="button"
-          className="group relative block cursor-zoom-in focus:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background"
-          onClick={() => setViewerOpen(true)}
+          className="group relative block cursor-zoom-in focus:outline-none"
+          onClick={(event) => {
+            // Let the viewer restore this opener after a WebKit mouse click.
+            event.currentTarget.focus({ preventScroll: true });
+            setViewerOpen(true);
+          }}
           aria-label={`View ${label} in full size`}
         >
           <Image
@@ -288,16 +347,55 @@ const ViewFileSummary = ({ file }: { file: NonNullable<SidebarContent> }) => {
 };
 
 export const ComputerSidebarBase: React.FC<ComputerSidebarProps> = ({
+  embedded = false,
   sidebarOpen,
   sidebarContent,
   closeSidebar,
   messages = [],
+  currentRunMessages: suppliedCurrentRunMessages,
+  currentRunExecutions: suppliedCurrentRunExecutions,
+  navigationExecutions,
+  currentRunTodos: suppliedCurrentRunTodos,
   onNavigate,
   status,
+  todos = [],
+  subagents,
+  selectedSubagentToolCallId,
+  onSelectSubagent,
+  onCreateSubagent,
+  contextWindowTokens,
+  modelPrice,
 }) => {
+  const approvals = useChatApprovals();
   const [isWrapped, setIsWrapped] = useState(true);
-  const [viewMode, setViewMode] = useState<"detail" | "activity">("detail");
+  const [historyMessageId, setHistoryMessageId] = useState("");
+  const [viewMode, setViewMode] = useState<"detail" | "activity">(() =>
+    sidebarContent ? "detail" : "activity",
+  );
   const previousToolCountRef = useRef<number>(0);
+  const currentRunMessages = useMemo(
+    () => suppliedCurrentRunMessages ?? getCurrentRunMessages(messages),
+    [messages, suppliedCurrentRunMessages],
+  );
+  const currentRunExecutions = useMemo(
+    () =>
+      suppliedCurrentRunExecutions ??
+      extractAllSidebarContent(currentRunMessages),
+    [currentRunMessages, suppliedCurrentRunExecutions],
+  );
+  const currentRunTodos = useMemo(
+    () =>
+      suppliedCurrentRunTodos ?? getCurrentRunTodos(todos, currentRunMessages),
+    [currentRunMessages, suppliedCurrentRunTodos, todos],
+  );
+  const currentRunCurrentIndex = useMemo(() => {
+    if (!sidebarContent || !("toolCallId" in sidebarContent)) return -1;
+    return currentRunExecutions.findIndex(
+      (execution) =>
+        "toolCallId" in execution &&
+        execution.toolCallId === sidebarContent.toolCallId,
+    );
+  }, [currentRunExecutions, sidebarContent]);
 
   const {
     toolExecutions,
@@ -313,6 +411,7 @@ export const ComputerSidebarBase: React.FC<ComputerSidebarProps> = ({
     canGoNext,
   } = useSidebarNavigation({
     messages,
+    toolExecutions: navigationExecutions,
     sidebarContent,
     onNavigate,
   });
@@ -359,7 +458,12 @@ export const ComputerSidebarBase: React.FC<ComputerSidebarProps> = ({
 
   // Auto-follow new tools when at live position during streaming
   useEffect(() => {
-    if (!sidebarOpen || !onNavigate || toolExecutions.length === 0) {
+    if (
+      embedded ||
+      !sidebarOpen ||
+      !onNavigate ||
+      toolExecutions.length === 0
+    ) {
       return;
     }
 
@@ -389,6 +493,7 @@ export const ComputerSidebarBase: React.FC<ComputerSidebarProps> = ({
     // Update the ref for next comparison
     previousToolCountRef.current = currentToolCount;
   }, [
+    embedded,
     toolExecutions.length,
     currentIndex,
     sidebarOpen,
@@ -398,7 +503,7 @@ export const ComputerSidebarBase: React.FC<ComputerSidebarProps> = ({
 
   // Handle deleted messages: close sidebar or navigate to latest when content no longer exists
   useEffect(() => {
-    if (!sidebarOpen || !sidebarContent) {
+    if (embedded || !sidebarOpen || !sidebarContent) {
       return;
     }
 
@@ -414,6 +519,7 @@ export const ComputerSidebarBase: React.FC<ComputerSidebarProps> = ({
       }
     }
   }, [
+    embedded,
     currentIndex,
     sidebarOpen,
     sidebarContent,
@@ -422,16 +528,39 @@ export const ComputerSidebarBase: React.FC<ComputerSidebarProps> = ({
     closeSidebar,
   ]);
 
-  if (!sidebarOpen || !sidebarContent) {
+  // Opening the drawer from the persistent run summary intentionally clears
+  // sidebarContent. Keep that state on the activity surface; selecting a real
+  // operation below switches back to its terminal/file detail.
+  useEffect(() => {
+    if (!sidebarContent) setViewMode("activity");
+  }, [sidebarContent]);
+
+  if (!sidebarOpen) {
     return null;
   }
 
-  const isFile = isSidebarFile(sidebarContent);
-  const isTerminal = isSidebarTerminal(sidebarContent);
-  const isProxy = isSidebarProxy(sidebarContent);
-  const isWebSearch = isSidebarWebSearch(sidebarContent);
-  const isNotes = isSidebarNotes(sidebarContent);
-  const isSharedFiles = isSidebarSharedFiles(sidebarContent);
+  const fileContent =
+    sidebarContent && isSidebarFile(sidebarContent) ? sidebarContent : null;
+  const terminalContent =
+    sidebarContent && isSidebarTerminal(sidebarContent) ? sidebarContent : null;
+  const proxyContent =
+    sidebarContent && isSidebarProxy(sidebarContent) ? sidebarContent : null;
+  const webSearchContent =
+    sidebarContent && isSidebarWebSearch(sidebarContent)
+      ? sidebarContent
+      : null;
+  const notesContent =
+    sidebarContent && isSidebarNotes(sidebarContent) ? sidebarContent : null;
+  const sharedFilesContent =
+    sidebarContent && isSidebarSharedFiles(sidebarContent)
+      ? sidebarContent
+      : null;
+  const isFile = Boolean(fileContent);
+  const isTerminal = Boolean(terminalContent);
+  const isProxy = Boolean(proxyContent);
+  const isWebSearch = Boolean(webSearchContent);
+  const isNotes = Boolean(notesContent);
+  const isSharedFiles = Boolean(sharedFilesContent);
 
   // Use resolved versions for display metadata so streaming updates are reflected
   const displayContent =
@@ -440,19 +569,40 @@ export const ComputerSidebarBase: React.FC<ComputerSidebarProps> = ({
     (isProxy && resolvedProxy) ||
     sidebarContent;
 
-  const actionText = getActionText(displayContent);
-  const icon = getSidebarIcon(displayContent);
-  const toolName = getToolName(displayContent);
-  const displayTarget = getDisplayTarget(displayContent);
-  const headerTitle = isProxy ? "RIFT\u2019s Proxy" : "RIFT\u2019s Computer";
+  const awaitingApproval =
+    !!displayContent &&
+    "toolCallId" in displayContent &&
+    approvals.toolCallIds.includes(displayContent.toolCallId ?? "");
+  const actionText = awaitingApproval
+    ? "Awaiting approval"
+    : displayContent
+      ? getActionText(displayContent)
+      : "";
+  const icon = displayContent ? getSidebarIcon(displayContent) : null;
+  const toolName = displayContent ? getToolName(displayContent) : "";
+  const displayTarget = displayContent ? getDisplayTarget(displayContent) : "";
+  const showingActivity =
+    !embedded && (viewMode === "activity" || !sidebarContent);
+  const headerTitle = showingActivity
+    ? "Agent Activity"
+    : isProxy
+      ? "RIFT\u2019s Proxy"
+      : "RIFT\u2019s Computer";
   const isLive = status === "streaming" || status === "submitted";
+
+  // The terminal / code / diff "screen" should always read as a real dark
+  // terminal \u2014 light text on a dark surface \u2014 regardless of the app's light or
+  // dark theme. (Image/PDF previews, web search, notes keep the themed surface.)
+  const isCodeScreen = Boolean(
+    isTerminal || isProxy || (isFile && resolvedFile?.action !== "viewing"),
+  );
 
   const handleClose = () => {
     closeSidebar();
   };
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
-    if (e.key === "Escape") {
+    if (!embedded && e.key === "Escape") {
       handleClose();
     }
   };
@@ -462,93 +612,102 @@ export const ComputerSidebarBase: React.FC<ComputerSidebarProps> = ({
   };
 
   return (
-    <div className="h-full w-full top-0 left-0 desktop:top-auto desktop:left-auto desktop:right-auto z-50 fixed desktop:relative desktop:h-full desktop:mr-4 flex-shrink-0">
+    <div
+      data-computer-sidebar
+      data-docked-detail={embedded || undefined}
+      role="complementary"
+      aria-label="Agent activity and computer"
+      onKeyDown={handleKeyDown}
+      // No right margin: the pane meets the window edge, the way a docked
+      // panel does. The gap only made sense while this was a floating card.
+      className="fixed left-0 top-0 z-50 h-full w-full flex-shrink-0 md:relative md:left-auto md:right-auto md:top-auto md:h-full"
+    >
       <div className="h-full w-full">
-        <div className="rift2-glass-panel flex h-full w-full rounded-2xl shadow-[0_24px_80px_-32px_rgba(0,0,0,0.55)]">
+        {/* A full-height side panel is a plane, not a card. The 22px radius and
+            the drop shadow made it read as a floating sheet: the top corner
+            curled away from the window edge and left a notch against the header
+            beside it. Claude's equivalent panel is a flat pane divided by a
+            single hairline, so this is one border-left and nothing else. */}
+        <div className="flex h-full w-full flex-shrink-0 border-l border-border bg-background">
           <div className="flex-1 min-w-0 p-4 flex flex-col h-full">
             {/* Header */}
-            <div className="flex items-center gap-2 w-full">
+            <div
+              data-computer-detail-header
+              className="flex items-center gap-2 w-full"
+            >
               <div className="flex items-center gap-2 flex-1 min-w-0">
-                <span className="text-foreground text-lg font-semibold truncate">
+                <span className="truncate text-[14px] font-medium text-foreground">
                   {headerTitle}
                 </span>
-                <span
-                  className={`inline-flex items-center gap-1.5 rounded-full border px-2 py-0.5 text-[10px] font-mono uppercase tracking-[0.15em] shrink-0 ${
-                    isLive
-                      ? "border-success/50 bg-success/10 text-success"
-                      : "border-border bg-muted/30 text-muted-foreground"
-                  }`}
-                  aria-live="polite"
-                >
-                  <span
-                    className={`h-1.5 w-1.5 rounded-full ${
-                      isLive
-                        ? "bg-success animate-pulse"
-                        : "bg-muted-foreground/50"
-                    }`}
-                  />
-                  {isLive ? "live" : "idle"}
-                </span>
+                <AgentActivityStatus isLive={isLive} />
               </div>
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <button
-                    type="button"
-                    onClick={() =>
-                      setViewMode((m) =>
-                        m === "activity" ? "detail" : "activity",
-                      )
-                    }
-                    className={`w-7 h-7 relative rounded-md inline-flex items-center justify-center gap-2.5 cursor-pointer transition-colors ${
-                      viewMode === "activity"
-                        ? "bg-muted text-foreground"
-                        : "hover:bg-muted/50 text-muted-foreground"
-                    }`}
-                    aria-label={
-                      viewMode === "activity"
-                        ? "Show detail view"
-                        : "Show activity timeline"
-                    }
-                    aria-pressed={viewMode === "activity"}
-                    tabIndex={0}
-                  >
-                    {viewMode === "activity" ? (
-                      <Code className="w-5 h-5" />
-                    ) : (
-                      <ListTree className="w-5 h-5" />
-                    )}
-                  </button>
-                </TooltipTrigger>
-                <TooltipContent>
-                  {viewMode === "activity"
-                    ? "Detail view"
-                    : "Activity timeline"}
-                </TooltipContent>
-              </Tooltip>
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <button
-                    type="button"
-                    onClick={handleClose}
-                    className="w-7 h-7 relative rounded-md inline-flex items-center justify-center gap-2.5 cursor-pointer hover:bg-muted/50 transition-colors"
-                    aria-label="Minimize sidebar"
-                    tabIndex={0}
-                    onKeyDown={handleKeyDown}
-                  >
-                    <Minimize2 className="w-5 h-5 text-muted-foreground" />
-                  </button>
-                </TooltipTrigger>
-                <TooltipContent>Minimize</TooltipContent>
-              </Tooltip>
+              {sidebarContent ? (
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setViewMode((mode) =>
+                          mode === "activity" ? "detail" : "activity",
+                        )
+                      }
+                      className={`w-7 h-7 relative rounded-md inline-flex items-center justify-center gap-2.5 cursor-pointer transition-colors ${
+                        viewMode === "activity"
+                          ? "bg-muted text-foreground"
+                          : "hover:bg-muted/50 text-muted-foreground"
+                      }`}
+                      aria-label={
+                        viewMode === "activity"
+                          ? "Show operation detail"
+                          : "Show agent activity"
+                      }
+                      aria-pressed={viewMode === "activity"}
+                      tabIndex={0}
+                    >
+                      {viewMode === "activity" ? (
+                        <Code className="w-5 h-5" />
+                      ) : (
+                        <ListTree className="w-5 h-5" />
+                      )}
+                    </button>
+                  </TooltipTrigger>
+                  <TooltipContent>
+                    {viewMode === "activity"
+                      ? "Operation detail"
+                      : "Agent activity"}
+                  </TooltipContent>
+                </Tooltip>
+              ) : null}
+              {/* No preview or minimize buttons here. The window strip owns
+                  both -- its Globe opens the preview and its PanelRight
+                  toggles this pane -- and a second copy of each in this
+                  header meant two controls for one action, one of which
+                  drifted. Esc still closes the pane, and the strip's toggle
+                  is always on screen. The activity/detail switch stays: it is
+                  this pane's own state, not the window's. */}
             </div>
 
-            {viewMode === "activity" ? (
-              <div className="flex flex-col rounded-lg overflow-hidden bg-muted/20 border border-border/30 dark:border-black/30 flex-1 min-h-0 mt-[16px]">
-                <ActivityTimeline
-                  toolExecutions={toolExecutions}
-                  currentIndex={currentIndex}
+            {showingActivity ? (
+              <div
+                id="agent-activity-panel"
+                className="mt-2 flex min-h-0 flex-1 flex-col overflow-hidden border-t border-border/60 bg-background"
+              >
+                <AgentActivityPanel
+                  selectedHistoryMessageId={historyMessageId}
+                  onSelectHistoryMessage={setHistoryMessageId}
+                  todos={currentRunTodos}
+                  historyTodos={todos}
+                  toolExecutions={currentRunExecutions}
+                  messages={messages}
+                  currentIndex={currentRunCurrentIndex}
                   status={status}
-                  onSelect={(content) => {
+                  selectedSubagentToolCallId={selectedSubagentToolCallId}
+                  onSelectSubagent={onSelectSubagent}
+                  subagents={subagents}
+                  onCreateSubagent={onCreateSubagent}
+                  contextWindowTokens={contextWindowTokens}
+                  modelPrice={modelPrice}
+                  onSelectExecution={(content) => {
                     onNavigate?.(content);
                     setViewMode("detail");
                   }}
@@ -557,13 +716,15 @@ export const ComputerSidebarBase: React.FC<ComputerSidebarProps> = ({
             ) : (
               <>
                 {/* Action Status */}
-                <div className="flex items-center gap-2 mt-2">
+                <div
+                  data-computer-detail-status
+                  className="flex items-center gap-2 mt-2"
+                >
                   <div className="w-[40px] h-[40px] bg-muted/50 rounded-lg flex items-center justify-center flex-shrink-0">
                     {icon}
                   </div>
                   <div className="flex-1 flex flex-col gap-1 min-w-0">
                     <div className="text-[12px] text-muted-foreground">
-                      RIFT is using{" "}
                       <span className="text-foreground">{toolName}</span>
                     </div>
                     <div
@@ -579,9 +740,12 @@ export const ComputerSidebarBase: React.FC<ComputerSidebarProps> = ({
                 </div>
 
                 {/* Content Container */}
-                <div className="flex flex-col rounded-lg overflow-hidden bg-muted/20 border border-border/30 dark:border-black/30 shadow-md flex-1 min-h-0 mt-[16px]">
+                <div
+                  data-computer-detail-body
+                  className="flex flex-col rounded-lg overflow-hidden bg-muted/20 border border-border/30 dark:border-black/30 shadow-[0px_4px_32px_0px_rgba(0,0,0,0.04)] flex-1 min-h-0 mt-[16px]"
+                >
                   {/* Unified Header */}
-                  <div className="h-[36px] flex items-center justify-between px-3 w-full bg-muted/30 border-b border-border rounded-t-lg">
+                  <div className="h-[36px] flex items-center justify-between px-3 w-full bg-muted/30 border-b border-border rounded-t-lg shadow-[inset_0px_1px_0px_0px_rgba(255,255,255,0.1)]">
                     {/* Title - far left */}
                     <div className="flex items-center gap-2">
                       {isProxy ? (
@@ -634,19 +798,18 @@ export const ComputerSidebarBase: React.FC<ComputerSidebarProps> = ({
                                 : ""
                         }
                         filename={
-                          isFile
-                            ? sidebarContent.action === "searching"
+                          fileContent
+                            ? fileContent.action === "searching"
                               ? "search-results.txt"
-                              : sidebarContent.path.split("/").pop() ||
-                                "code.txt"
+                              : fileContent.path.split("/").pop() || "code.txt"
                             : "terminal-output.txt"
                         }
                         language={
-                          isFile
-                            ? sidebarContent.action === "searching"
+                          fileContent
+                            ? fileContent.action === "searching"
                               ? "text"
-                              : sidebarContent.language ||
-                                getLanguageFromPath(sidebarContent.path)
+                              : fileContent.language ||
+                                getLanguageFromPath(fileContent.path)
                             : "ansi"
                         }
                         isWrapped={isWrapped}
@@ -674,6 +837,12 @@ export const ComputerSidebarBase: React.FC<ComputerSidebarProps> = ({
                             overflowWrap: "break-word",
                             wordBreak: "break-word",
                             whiteSpace: "pre-wrap",
+                            // Classic terminal face (native macOS / Linux mono)
+                            // instead of the UI code font, so the computer panel
+                            // reads like a real terminal.
+                            fontFamily: isCodeScreen
+                              ? 'ui-monospace, "SF Mono", "SFMono-Regular", Menlo, Monaco, "Cascadia Code", "Roboto Mono", monospace'
+                              : undefined,
                           }}
                         >
                           {isFile && resolvedFile && (
@@ -720,23 +889,41 @@ export const ComputerSidebarBase: React.FC<ComputerSidebarProps> = ({
                               )}
                             </>
                           )}
-                          {isTerminal && resolvedTerminal && (
-                            <TerminalCodeBlock
-                              command={resolvedTerminal.command}
-                              output={resolvedTerminal.output}
-                              isExecuting={resolvedTerminal.isExecuting}
-                              isBackground={resolvedTerminal.isBackground}
-                              status={
-                                resolvedTerminal.isExecuting
-                                  ? "streaming"
-                                  : "ready"
-                              }
-                              variant="sidebar"
-                              wrap={isWrapped}
-                              shellAction={resolvedTerminal.shellAction}
-                              rawBytes={resolvedTerminal.rawBytes}
-                            />
-                          )}
+                          {isTerminal &&
+                            resolvedTerminal &&
+                            (awaitingApproval ? (
+                              <div className="p-4 text-sm text-foreground">
+                                <p>
+                                  Waiting for your approval. This command has
+                                  not run.
+                                </p>
+                                {approvals.onReview && (
+                                  <button
+                                    type="button"
+                                    onClick={approvals.onReview}
+                                    className="mt-3 rounded-md border border-border px-3 py-2 font-medium"
+                                  >
+                                    Review in chat
+                                  </button>
+                                )}
+                              </div>
+                            ) : (
+                              <TerminalCodeBlock
+                                command={resolvedTerminal.command}
+                                output={resolvedTerminal.output}
+                                isExecuting={resolvedTerminal.isExecuting}
+                                isBackground={resolvedTerminal.isBackground}
+                                status={
+                                  resolvedTerminal.isExecuting
+                                    ? "streaming"
+                                    : "ready"
+                                }
+                                variant="sidebar"
+                                wrap={isWrapped}
+                                shellAction={resolvedTerminal.shellAction}
+                                rawBytes={resolvedTerminal.rawBytes}
+                              />
+                            ))}
                           {isProxy && resolvedProxy && (
                             <TerminalCodeBlock
                               command={resolvedProxy.command}
@@ -752,27 +939,27 @@ export const ComputerSidebarBase: React.FC<ComputerSidebarProps> = ({
                               wrap={isWrapped}
                             />
                           )}
-                          {isWebSearch && (
+                          {webSearchContent && (
                             <div className="flex-1 min-h-0 h-full overflow-y-auto">
                               <div className="flex flex-col px-4 py-3">
-                                {sidebarContent.isSearching ? (
+                                {webSearchContent.isSearching ? (
                                   <div className="flex items-center justify-center py-8">
                                     <div className="text-muted-foreground text-sm">
                                       Searching...
                                     </div>
                                   </div>
-                                ) : sidebarContent.results.length === 0 ? (
+                                ) : webSearchContent.results.length === 0 ? (
                                   <div className="flex items-center justify-center py-8">
                                     <div className="text-muted-foreground text-sm">
                                       No results found
                                     </div>
                                   </div>
                                 ) : (
-                                  sidebarContent.results.map(
+                                  webSearchContent.results.map(
                                     (result, index) => (
                                       <div
                                         key={`${result.url}-${index}`}
-                                        className={`py-3 ${index === 0 ? "pt-0" : ""} ${index < sidebarContent.results.length - 1 ? "border-b border-border/30" : ""}`}
+                                        className={`py-3 ${index === 0 ? "pt-0" : ""} ${index < webSearchContent.results.length - 1 ? "border-b border-border/30" : ""}`}
                                       >
                                         <a
                                           href={result.url}
@@ -780,12 +967,9 @@ export const ComputerSidebarBase: React.FC<ComputerSidebarProps> = ({
                                           rel="noreferrer"
                                           className="block text-foreground text-sm font-medium hover:underline line-clamp-2 cursor-pointer"
                                         >
-                                          <img
-                                            width={16}
-                                            height={16}
-                                            alt="favicon"
-                                            className="float-left mr-2 mt-0.5 rounded-full border border-border"
-                                            src={`https://s2.googleusercontent.com/s2/favicons?domain=${encodeURIComponent(result.url)}&sz=32`}
+                                          <SourceDomainBadge
+                                            source={result.url}
+                                            className="float-left mr-2 mt-0.5"
                                           />
                                           {result.title}
                                         </a>
@@ -801,61 +985,65 @@ export const ComputerSidebarBase: React.FC<ComputerSidebarProps> = ({
                               </div>
                             </div>
                           )}
-                          {isSharedFiles && (
+                          {sharedFilesContent && (
                             <div className="flex-1 min-h-0 h-full overflow-y-auto">
                               <div className="flex flex-col gap-2 px-4 py-3">
-                                {sidebarContent.isExecuting &&
-                                sidebarContent.files.length === 0 ? (
+                                {sharedFilesContent.isExecuting &&
+                                sharedFilesContent.files.length === 0 ? (
                                   <div className="flex items-center justify-center py-8">
                                     <div className="text-muted-foreground text-sm">
                                       Preparing files...
                                     </div>
                                   </div>
-                                ) : sidebarContent.files.length === 0 ? (
+                                ) : sharedFilesContent.files.length === 0 ? (
                                   <div className="flex items-center justify-center py-8">
                                     <div className="text-muted-foreground text-sm">
                                       No files shared
                                     </div>
                                   </div>
                                 ) : (
-                                  sidebarContent.files.map((file, index) => (
-                                    <FilePartRenderer
-                                      key={file.fileId || `file-${index}`}
-                                      part={{
-                                        fileId: file.fileId as
-                                          | Id<"files">
-                                          | undefined,
-                                        s3Key: file.s3Key,
-                                        storageId: file.storageId,
-                                        name: file.name,
-                                        filename: file.name,
-                                        mediaType: file.mediaType,
-                                      }}
-                                      partIndex={index}
-                                      messageId={sidebarContent.toolCallId}
-                                      totalFileParts={
-                                        sidebarContent.files.length
-                                      }
-                                    />
-                                  ))
+                                  sharedFilesContent.files.map(
+                                    (file, index) => (
+                                      <FilePartRenderer
+                                        key={file.fileId || `file-${index}`}
+                                        part={{
+                                          fileId: file.fileId as
+                                            | Id<"files">
+                                            | undefined,
+                                          s3Key: file.s3Key,
+                                          storageId: file.storageId,
+                                          name: file.name,
+                                          filename: file.name,
+                                          mediaType: file.mediaType,
+                                        }}
+                                        partIndex={index}
+                                        messageId={
+                                          sharedFilesContent.toolCallId
+                                        }
+                                        totalFileParts={
+                                          sharedFilesContent.files.length
+                                        }
+                                      />
+                                    ),
+                                  )
                                 )}
                               </div>
                             </div>
                           )}
-                          {isNotes && (
+                          {notesContent && (
                             <div className="flex-1 min-h-0 h-full overflow-y-auto">
                               <div className="flex flex-col px-4 py-3">
-                                {sidebarContent.isExecuting ? (
+                                {notesContent.isExecuting ? (
                                   <div className="flex items-center justify-center py-8">
                                     <div className="text-muted-foreground text-sm">
                                       Processing...
                                     </div>
                                   </div>
-                                ) : sidebarContent.action === "update" &&
-                                  sidebarContent.modified ? (
+                                ) : notesContent.action === "update" &&
+                                  notesContent.modified ? (
                                   // Update action: show before/after comparison
                                   <div className="space-y-4">
-                                    {sidebarContent.original && (
+                                    {notesContent.original && (
                                       <div>
                                         <div className="text-xs text-muted-foreground font-medium mb-2">
                                           Before
@@ -863,21 +1051,21 @@ export const ComputerSidebarBase: React.FC<ComputerSidebarProps> = ({
                                         <div className="bg-muted/30 rounded-md p-3">
                                           <div className="flex items-center gap-2 mb-1">
                                             <span className="text-foreground text-sm font-medium">
-                                              {sidebarContent.original.title}
+                                              {notesContent.original.title}
                                             </span>
                                             <span
-                                              className={`text-xs flex-shrink-0 ${getCategoryColor(sidebarContent.original.category as NoteCategory)}`}
+                                              className={`text-xs flex-shrink-0 ${getCategoryColor(notesContent.original.category as NoteCategory)}`}
                                             >
-                                              {sidebarContent.original.category}
+                                              {notesContent.original.category}
                                             </span>
                                           </div>
                                           <div className="text-muted-foreground text-sm whitespace-pre-wrap">
-                                            {sidebarContent.original.content}
+                                            {notesContent.original.content}
                                           </div>
-                                          {sidebarContent.original.tags.length >
+                                          {notesContent.original.tags.length >
                                             0 && (
                                             <div className="flex gap-1 mt-2 flex-wrap">
-                                              {sidebarContent.original.tags.map(
+                                              {notesContent.original.tags.map(
                                                 (tag) => (
                                                   <span
                                                     key={tag}
@@ -899,21 +1087,21 @@ export const ComputerSidebarBase: React.FC<ComputerSidebarProps> = ({
                                       <div className="bg-muted/30 rounded-md p-3">
                                         <div className="flex items-center gap-2 mb-1">
                                           <span className="text-foreground text-sm font-medium">
-                                            {sidebarContent.modified.title}
+                                            {notesContent.modified.title}
                                           </span>
                                           <span
-                                            className={`text-xs flex-shrink-0 ${getCategoryColor(sidebarContent.modified.category as NoteCategory)}`}
+                                            className={`text-xs flex-shrink-0 ${getCategoryColor(notesContent.modified.category as NoteCategory)}`}
                                           >
-                                            {sidebarContent.modified.category}
+                                            {notesContent.modified.category}
                                           </span>
                                         </div>
                                         <div className="text-muted-foreground text-sm whitespace-pre-wrap">
-                                          {sidebarContent.modified.content}
+                                          {notesContent.modified.content}
                                         </div>
-                                        {sidebarContent.modified.tags.length >
+                                        {notesContent.modified.tags.length >
                                           0 && (
                                           <div className="flex gap-1 mt-2 flex-wrap">
-                                            {sidebarContent.modified.tags.map(
+                                            {notesContent.modified.tags.map(
                                               (tag) => (
                                                 <span
                                                   key={tag}
@@ -928,25 +1116,25 @@ export const ComputerSidebarBase: React.FC<ComputerSidebarProps> = ({
                                       </div>
                                     </div>
                                   </div>
-                                ) : sidebarContent.action === "delete" ? (
+                                ) : notesContent.action === "delete" ? (
                                   // Delete action: show confirmation
                                   <div className="flex items-center justify-center py-8">
                                     <div className="text-muted-foreground text-sm">
-                                      Note &quot;{sidebarContent.affectedTitle}
+                                      Note &quot;{notesContent.affectedTitle}
                                       &quot; deleted
                                     </div>
                                   </div>
-                                ) : sidebarContent.notes.length === 0 ? (
+                                ) : notesContent.notes.length === 0 ? (
                                   <div className="flex items-center justify-center py-8">
                                     <div className="text-muted-foreground text-sm">
                                       No notes found
                                     </div>
                                   </div>
                                 ) : (
-                                  sidebarContent.notes.map((note, index) => (
+                                  notesContent.notes.map((note, index) => (
                                     <div
                                       key={note.note_id}
-                                      className={`py-3 ${index === 0 ? "pt-0" : ""} ${index < sidebarContent.notes.length - 1 ? "border-b border-border/30" : ""}`}
+                                      className={`py-3 ${index === 0 ? "pt-0" : ""} ${index < notesContent.notes.length - 1 ? "border-b border-border/30" : ""}`}
                                     >
                                       <div className="flex items-center gap-2 mb-1">
                                         <span className="text-foreground text-sm font-medium">
@@ -985,7 +1173,10 @@ export const ComputerSidebarBase: React.FC<ComputerSidebarProps> = ({
                   </div>
 
                   {/* Navigation Footer */}
-                  <div className="mt-auto flex w-full items-center gap-2 px-4 h-[44px] relative bg-background border-t border-border">
+                  <div
+                    data-computer-detail-navigation
+                    className="mt-auto flex w-full items-center gap-2 px-4 h-[44px] relative bg-background border-t border-border"
+                  >
                     <div className="flex items-center" dir="ltr">
                       <button
                         type="button"
@@ -994,7 +1185,7 @@ export const ComputerSidebarBase: React.FC<ComputerSidebarProps> = ({
                         className={`flex items-center justify-center w-[24px] h-[24px] transition-colors cursor-pointer ${
                           !canGoPrev
                             ? "text-muted-foreground/30 cursor-not-allowed"
-                            : "text-muted-foreground hover:text-signal"
+                            : "text-muted-foreground hover:text-primary"
                         }`}
                         aria-label="Previous tool execution"
                       >
@@ -1007,7 +1198,7 @@ export const ComputerSidebarBase: React.FC<ComputerSidebarProps> = ({
                         className={`flex items-center justify-center w-[24px] h-[24px] transition-colors cursor-pointer ${
                           !canGoNext
                             ? "text-muted-foreground/30 cursor-not-allowed"
-                            : "text-muted-foreground hover:text-signal"
+                            : "text-muted-foreground hover:text-primary"
                         }`}
                         aria-label="Next tool execution"
                       >
@@ -1030,7 +1221,7 @@ export const ComputerSidebarBase: React.FC<ComputerSidebarProps> = ({
                     >
                       <span className="relative h-full w-full rounded-full bg-muted">
                         <span
-                          className="absolute h-full rounded-full bg-signal"
+                          className="absolute h-full rounded-full bg-primary"
                           style={{
                             left: "0%",
                             width: `${getProgressPercentage}%`,
@@ -1051,33 +1242,15 @@ export const ComputerSidebarBase: React.FC<ComputerSidebarProps> = ({
                             aria-valuemax={maxIndex}
                             aria-valuenow={currentIndex}
                             aria-label={`Tool execution ${currentIndex + 1}`}
-                            className="relative block h-[14px] w-[14px] rounded-full bg-signal transition-all focus:outline-none focus:ring-2 focus:ring-signal focus:ring-offset-2 border-2 border-background drop-shadow-sm"
+                            className="relative block h-[14px] w-[14px] rounded-full bg-primary transition-[box-shadow] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring focus-visible:ring-offset-1 border-2 border-background drop-shadow-[0px_1px_4px_rgba(0,0,0,0.06)]"
                           ></span>
                         </span>
                       )}
                     </div>
-                    <div className="flex items-center gap-1 text-sm ms-[2px] cursor-default">
-                      <div
-                        className={`h-[8px] w-[8px] rounded-full ${
-                          status === "streaming"
-                            ? "bg-success"
-                            : "bg-muted-foreground"
-                        }`}
-                      ></div>
-                      <span
-                        className={
-                          status === "streaming"
-                            ? "text-foreground"
-                            : "text-muted-foreground"
-                        }
-                      >
-                        live
-                      </span>
-                    </div>
                     {!isAtLive && (
                       <button
                         onClick={handleJumpToLive}
-                        className="h-10 px-4 border border-border flex items-center gap-2 bg-background hover:bg-muted shadow-lg rounded-full cursor-pointer absolute left-[50%] translate-x-[-50%]"
+                        className="h-10 px-4 border border-border flex items-center gap-2 bg-background hover:bg-muted shadow-[0px_5px_16px_0px_rgba(0,0,0,0.1),0px_0px_1.25px_0px_rgba(0,0,0,0.1)] rounded-full cursor-pointer absolute left-[50%] translate-x-[-50%]"
                         style={{ bottom: "calc(100% + 10px)" }}
                         aria-label="Jump to live"
                       >
@@ -1092,7 +1265,9 @@ export const ComputerSidebarBase: React.FC<ComputerSidebarProps> = ({
                 </div>
               </>
             )}
-            <TodoPanel status={status} placement="sidebar" />
+            {!showingActivity ? (
+              <TodoPanel status={status} placement="sidebar" />
+            ) : null}
           </div>
         </div>
       </div>
@@ -1103,19 +1278,101 @@ export const ComputerSidebarBase: React.FC<ComputerSidebarProps> = ({
 // Wrapper for normal chats using GlobalState
 export const ComputerSidebar: React.FC<{
   messages?: any[];
+  currentRunMessages?: any[];
+  currentRunExecutions?: readonly SidebarContent[];
+  navigationExecutions?: readonly SidebarContent[];
+  currentRunTodos?: readonly Todo[];
   status?: ChatStatus;
-}> = ({ messages, status }) => {
-  const { sidebarOpen, sidebarContent, closeSidebar, openSidebar } =
-    useGlobalState();
+  selectedSubagentToolCallId?: string | null;
+  onSelectSubagent?: (toolCallId: string | null) => void;
+  subagents?: readonly AgentActivitySubagent[];
+  onCreateSubagent?: (draft: CreateSubagentDraft) => boolean | void;
+  /** Switch the shared pane to the live Build preview; omitted when none exists. */
+}> = ({
+  messages,
+  currentRunMessages,
+  currentRunExecutions,
+  navigationExecutions,
+  currentRunTodos,
+  status,
+  subagents,
+  selectedSubagentToolCallId,
+  onSelectSubagent,
+  onCreateSubagent,
+}) => {
+  const {
+    sidebarOpen,
+    sidebarContent,
+    closeSidebar,
+    openSidebar,
+    setSidebarOpen,
+    todos,
+    queueMessage,
+    chatMode,
+    selectedModel,
+    subscription,
+    chatPurpose,
+    hasPaidContext,
+  } = useGlobalState();
+  const { user: pricingUser } = useAuth();
+  const liveSidebarContent = useLiveSidebarContent();
+  const resolvedSidebarContent = React.useMemo(
+    () => resolveLiveSidebarContent(sidebarContent, liveSidebarContent),
+    [liveSidebarContent, sidebarContent],
+  );
+  const { enabled: proShell } = useProShell();
+  const handleCloseSidebar = React.useCallback(() => {
+    if (proShell) {
+      setSidebarOpen(false);
+      return;
+    }
+    closeSidebar();
+  }, [closeSidebar, proShell, setSidebarOpen]);
+  const handleCreateSubagent = React.useCallback(
+    (draft: CreateSubagentDraft) => {
+      if (!canCreateSubagentInMode(chatMode)) return false;
+
+      if (onCreateSubagent) {
+        return onCreateSubagent(draft);
+      }
+
+      const prompt = buildSubagentPrompt(draft);
+      if (status === "streaming" || status === "submitted") {
+        return queueMessage(prompt).accepted;
+      }
+      submitChatMessage(prompt);
+    },
+    [chatMode, onCreateSubagent, queueMessage, status],
+  );
 
   return (
     <ComputerSidebarBase
       sidebarOpen={sidebarOpen}
-      sidebarContent={sidebarContent}
-      closeSidebar={closeSidebar}
+      sidebarContent={resolvedSidebarContent}
+      closeSidebar={handleCloseSidebar}
       messages={messages}
+      currentRunMessages={currentRunMessages}
+      currentRunExecutions={currentRunExecutions}
+      navigationExecutions={navigationExecutions}
+      currentRunTodos={currentRunTodos}
       onNavigate={openSidebar}
       status={status}
+      todos={todos}
+      selectedSubagentToolCallId={selectedSubagentToolCallId}
+      onSelectSubagent={onSelectSubagent}
+      subagents={subagents}
+      onCreateSubagent={
+        canCreateSubagentInMode(chatMode) ? handleCreateSubagent : undefined
+      }
+      contextWindowTokens={getMaxTokensForSubscription(subscription, {
+        model: selectedModel,
+        purpose: chatPurpose,
+        hasPaidContext,
+      })}
+      modelPrice={formatModelPrice(
+        getEffectiveBuildModel(selectedModel).providerKey,
+        getAccountPricingMargin({ email: pricingUser?.email }),
+      )}
     />
   );
 };

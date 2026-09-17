@@ -86,6 +86,61 @@ describe("utils", () => {
       });
     });
 
+    it("carries a durable stopReason so a stopped turn stays recognizable", () => {
+      // The chat row's canceled_at is cleared by the next run; the message-level
+      // stop_reason is what survives. It must reach the UI metadata intact.
+      const messages: MessageRecord[] = [
+        {
+          id: "msg1",
+          role: "assistant",
+          parts: [{ type: "text", text: "Partial" }],
+          mode: "agent",
+          stop_reason: "user",
+        },
+      ];
+
+      const result = convertToUIMessages(messages);
+
+      expect(result[0].metadata?.stopReason).toBe("user");
+    });
+
+    it("ignores an unrecognized stop_reason", () => {
+      const messages: MessageRecord[] = [
+        {
+          id: "msg1",
+          role: "assistant",
+          parts: [{ type: "text", text: "Done" }],
+          stop_reason: "something-else",
+        },
+      ];
+
+      expect(convertToUIMessages(messages)[0].metadata).toBeUndefined();
+    });
+
+    it.each([
+      "budget-exhausted",
+      "context-limit",
+      "doom-loop",
+      "preemptive-timeout",
+      "timeout",
+      "stop",
+    ])(
+      "preserves the per-message finish_reason %s across history hydration",
+      (finishReason) => {
+        const messages: MessageRecord[] = [
+          {
+            id: "answer",
+            role: "assistant",
+            parts: [{ type: "text", text: "Saved output" }],
+            finish_reason: finishReason,
+          },
+        ];
+        expect(convertToUIMessages(messages)[0].metadata?.finishReason).toBe(
+          finishReason,
+        );
+      },
+    );
+
     it("should handle messages with file details", () => {
       const messages: MessageRecord[] = [
         {

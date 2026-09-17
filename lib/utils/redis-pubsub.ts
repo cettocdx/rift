@@ -30,6 +30,11 @@ export const createRedisSubscriber = async (): Promise<RedisClient | null> => {
 /**
  * Get the cancellation channel name for a chat.
  */
-export const getCancelChannel = (chatId: string): string => {
+export const getCancelChannel = (
+  chatId: string,
+  executionId?: string,
+): string => {
+  if (executionId !== undefined)
+    return `stream:cancel:execution:${encodeURIComponent(chatId)}:${encodeURIComponent(executionId)}`;
   return `stream:cancel:${chatId}`;
 };

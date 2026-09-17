@@ -86,5 +86,27 @@ describe("acquireFreeRunConcurrencyLock", () => {
 
     expect(lock.rateLimitSkipped).toBe(true);
     await expect(lock.release()).resolves.toBeUndefined();
+    await expect(lock.refresh()).resolves.toBeUndefined();
+  });
+
+  it("refreshes the lock TTL by token while held, and not after release", async () => {
+    mockCreateRedisClient.mockReturnValue({ set: mockSet, eval: mockEval });
+    const { acquireFreeRunConcurrencyLock } = getIsolatedModule();
+
+    const lock = await acquireFreeRunConcurrencyLock("user-123", 60);
+
+    await lock.refresh(120);
+    expect(mockEval).toHaveBeenCalledWith(
+      expect.any(String),
+      ["free_run_lock:user-123"],
+      [expect.any(String), "120"],
+    );
+
+    await lock.release();
+    mockEval.mockClear();
+
+    // A refresh after release must be a no-op (run is over; don't revive it).
+    await lock.refresh(120);
+    expect(mockEval).not.toHaveBeenCalled();
   });
 });

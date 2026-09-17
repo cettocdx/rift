@@ -1,4 +1,4 @@
-import { POINTS_PER_DOLLAR } from "@/lib/rate-limit/token-bucket";
+import { POINTS_PER_DOLLAR } from "@/lib/billing/credit-units";
 
 /**
  * RIFT token packages — pay-as-you-go top-ups.

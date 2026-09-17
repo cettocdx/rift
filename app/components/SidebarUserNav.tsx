@@ -1,31 +1,27 @@
 "use client";
 
-import React, { useState, useCallback, useEffect } from "react";
-import { useAuth } from "@/app/hooks/useAuth";
-import { useAction, useQuery } from "convex/react";
+import React, { useState } from "react";
+import { mockBillingQueryArgs } from "@/lib/billing/mock-billing";
+import { useAuth, type AuthUser } from "@/app/hooks/useAuth";
+import { useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import {
   LogOut,
   LifeBuoy,
-  ChevronRight,
   ChevronDown,
+  ChevronsUpDown,
+  MoreHorizontal,
   Settings,
-  CircleUserRound,
-  Gauge,
   Download,
-  ExternalLink,
-  RefreshCw,
   Gift,
   X,
-  Zap,
+  Gem,
   Sun,
   Moon,
 } from "lucide-react";
 import { useTheme } from "next-themes";
 import Link from "next/link";
 import { useGlobalState } from "@/app/contexts/GlobalState";
-import { useIsMobile } from "@/hooks/use-mobile";
-import { useIsStandalone } from "@/hooks/use-is-standalone";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -44,19 +40,82 @@ import {
 } from "@/components/ui/tooltip";
 import { clientLogout } from "@/lib/utils/logout";
 import { useAuthActions } from "@convex-dev/auth/react";
-import { openSettingsDialog } from "@/lib/utils/settings-dialog";
+import { useSettingsNavigation } from "@/app/components/settings/useSettingsNavigation";
 import { ReferralRewardDialog } from "./ReferralRewardDialog";
 import { formatBalanceTokens } from "@/lib/billing/token-display";
-import { BuyExtraUsageDialog } from "./extra-usage/BuyExtraUsageDialog";
 import { RiftPixelMark } from "@/components/icons/rift-pixel-mark";
-import { RiftWordmark } from "@/components/icons/rift-wordmark";
+import { MonthlyUsageSummary } from "./usage/MonthlyUsageSummary";
+import type { SubscriptionTier } from "@/types";
 
 import { toast } from "sonner";
+
+/*
+ * A row in the account menu.
+ *
+ * The menu inherited the primitive's 14px row with a full-strength foreground
+ * icon, which put the heaviest type in the product inside its smallest surface
+ * -- every glyph competed with its own label. 13px on a muted glyph is the step
+ * the reference menu uses, and it matches the sidebar rows the menu opens from.
+ */
+const ACCOUNT_MENU_ITEM_CLASS =
+  "h-8 gap-2 rounded-[6px] px-2 text-ui leading-5 [&_svg]:text-[var(--cursor-icon-secondary)]";
 
 const NEXT_PUBLIC_HELP_CENTER_URL =
   process.env.NEXT_PUBLIC_HELP_CENTER_URL || "https://help.rift.co/en/";
 
 const REFERRAL_CARD_DISMISSED_COOKIE = "referral_sidebar_dismissed";
+
+type SidebarIdentityMode = "standard" | "name-only";
+
+type SidebarIdentityUser = Pick<
+  AuthUser,
+  "email" | "firstName" | "lastName" | "name"
+>;
+
+const normalizeDisplayName = (value: string | null | undefined) =>
+  value?.trim().replace(/\s+/g, " ") ?? "";
+
+const isGenericDisplayName = (value: string) => value.toLowerCase() === "user";
+
+const capitalizeEmailWord = (word: string) =>
+  word ? `${word.charAt(0).toUpperCase()}${word.slice(1)}` : "";
+
+/**
+ * Prefer the exact profile name. Older accounts without one get a readable,
+ * non-sensitive label from the local part of their existing email address.
+ */
+export const getSidebarDisplayName = (user: SidebarIdentityUser): string => {
+  const profileName = normalizeDisplayName(user.name);
+  if (profileName && !isGenericDisplayName(profileName)) return profileName;
+
+  const splitProfileName = normalizeDisplayName(
+    [user.firstName, user.lastName].filter(Boolean).join(" "),
+  );
+  if (splitProfileName && !isGenericDisplayName(splitProfileName)) {
+    return splitProfileName;
+  }
+
+  const emailLocalPart = (user.email.split("@")[0] ?? "").split("+")[0];
+  const readableEmailName = emailLocalPart
+    .normalize("NFKC")
+    .replace(/[._-]+/g, " ")
+    .trim()
+    .split(/\s+/)
+    .filter(Boolean)
+    .map(capitalizeEmailWord)
+    .join(" ");
+
+  return readableEmailName || "Account";
+};
+
+/** Current public plan names; legacy paid tiers stay in the Pro family. */
+export const getSidebarPlanLabel = (
+  subscription: SubscriptionTier,
+): "Free" | "Pro" | "Max" => {
+  if (subscription === "free") return "Free";
+  if (subscription === "ultra") return "Max";
+  return "Pro";
+};
 
 const readCookie = (name: string): string | null => {
   if (typeof document === "undefined") return null;
@@ -125,7 +184,7 @@ const ReferralSidebarCard = ({
         type="button"
         onClick={onOpen}
         aria-label="Refer a friend and earn credits per paid referral"
-        className="bg-muted/50 hover:bg-muted/80 border-sidebar-border flex w-full cursor-pointer items-center gap-3 rounded-xl border p-3 pr-9 text-left transition-colors focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
+        className="bg-muted/50 hover:bg-muted/80 border-sidebar-border flex w-full cursor-pointer items-center gap-3 rounded-xl border p-3 pr-9 text-left transition-colors focus-visible:outline-none"
       >
         <div className="bg-background/70 border-sidebar-border flex size-8 shrink-0 items-center justify-center rounded-full border">
           <Gift className="size-4" />
@@ -144,7 +203,7 @@ const ReferralSidebarCard = ({
         onClick={handleDismiss}
         aria-label="Dismiss referral card"
         title="Dismiss"
-        className="bg-background/80 text-muted-foreground hover:bg-background hover:text-foreground border-sidebar-border absolute top-2 right-2 flex size-6 items-center justify-center rounded-full border opacity-100 shadow-sm transition-[opacity,colors] focus-visible:opacity-100 focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none [@media(hover:hover)]:opacity-0 [@media(hover:hover)]:group-hover/referral-card:opacity-100"
+        className="bg-background/80 text-muted-foreground hover:bg-background hover:text-foreground border-sidebar-border absolute top-2 right-2 flex size-6 items-center justify-center rounded-full border opacity-100 shadow-sm transition-[opacity,colors] focus-visible:opacity-100 focus-visible:outline-none [@media(hover:hover)]:opacity-0 [@media(hover:hover)]:group-hover/referral-card:opacity-100"
       >
         <X className="size-3.5" />
       </button>
@@ -164,111 +223,36 @@ const XIcon = ({ className, ...props }: React.SVGProps<SVGSVGElement>) => (
   </svg>
 );
 
-const SidebarUserNav = ({ isCollapsed = false }: { isCollapsed?: boolean }) => {
+const SidebarUserNav = ({
+  isCollapsed = false,
+  identityMode = "standard",
+}: {
+  isCollapsed?: boolean;
+  identityMode?: SidebarIdentityMode;
+}) => {
   const { user } = useAuth();
   const { signOut } = useAuthActions();
-  const { isCheckingProPlan, subscription, chatMode } = useGlobalState();
-  const { theme, setTheme } = useTheme();
-  const [rateLimitsExpanded, setRateLimitsExpanded] = useState(false);
+  const { hrefFor } = useSettingsNavigation();
+  const settingsHref = hrefFor(null);
+  const {
+    subscription,
+    isCheckingProPlan = false,
+    isSubscriptionReady = true,
+  } = useGlobalState();
+  const { resolvedTheme, setTheme } = useTheme();
   const [referralDialogOpen, setReferralDialogOpen] = useState(false);
-  const [tokenUsage, setTokenUsage] = useState<{
-    monthly: {
-      remaining: number;
-      limit: number;
-      used: number;
-      usagePercentage: number;
-      resetTime: string | null;
-    };
-    monthlyBudgetUsd: number;
-  } | null>(null);
-  const [isLoadingUsage, setIsLoadingUsage] = useState(false);
-  const [usageFetchFailed, setUsageFetchFailed] = useState(false);
-  const isMobile = useIsMobile();
-  const isStandalone = useIsStandalone();
   const isPaidUser = subscription !== "free";
+  // Free / Pro / Pro-plus can still move up a tier; Max & Team can't.
+  const canUpgradePlan =
+    subscription === "free" ||
+    subscription === "pro" ||
+    subscription === "pro-plus";
 
-  const getAgentRateLimitStatus = useAction(
-    api.rateLimitStatus.getAgentRateLimitStatus,
+  const extraUsageSettings = useQuery(
+    api.extraUsage.getExtraUsageSettings,
+    mockBillingQueryArgs(subscription),
   );
-
-  const createCryptoInvoice = useAction(
-    api.extraUsageActions.createCryptoInvoice,
-  );
-  const [showBuyDialog, setShowBuyDialog] = useState(false);
-  const [isPurchasing, setIsPurchasing] = useState(false);
-
-  const handleBuyTokens = useCallback(
-    async (amountDollars: number) => {
-      setIsPurchasing(true);
-      try {
-        const result = await createCryptoInvoice({
-          amountDollars,
-          baseUrl: window.location.origin,
-        });
-        if (result.url) {
-          window.location.href = result.url;
-        } else {
-          toast.error(result.error || "Could not start checkout");
-          setIsPurchasing(false);
-        }
-      } catch {
-        toast.error("Could not start checkout");
-        setIsPurchasing(false);
-      }
-    },
-    [createCryptoInvoice],
-  );
-
-  const extraUsageSettings = useQuery(api.extraUsage.getExtraUsageSettings);
-  const userCustomization = useQuery(
-    api.userCustomization.getUserCustomization,
-  );
-  const extraUsageEnabled = userCustomization?.extra_usage_enabled ?? false;
-  const extraUsageBalanceDollars = extraUsageSettings?.balanceDollars ?? 0;
   const tokenBalancePoints = extraUsageSettings?.balancePoints ?? 0;
-  const extraUsageMonthlySpentDollars =
-    extraUsageSettings?.monthlySpentDollars ?? 0;
-  const extraUsageMonthlyCapDollars = extraUsageSettings?.monthlyCapDollars;
-  const extraUsageMonthlyLimitLabel =
-    extraUsageMonthlyCapDollars != null
-      ? `$${extraUsageMonthlyCapDollars.toFixed(2)} limit`
-      : "No limit";
-
-  const fetchTokenUsage = useCallback(async () => {
-    if (!isPaidUser) return;
-    setIsLoadingUsage(true);
-    try {
-      const status = await getAgentRateLimitStatus({ subscription });
-      setTokenUsage(status);
-      setUsageFetchFailed(false);
-    } catch {
-      setUsageFetchFailed(true);
-    } finally {
-      setIsLoadingUsage(false);
-    }
-  }, [subscription, isPaidUser, getAgentRateLimitStatus]);
-
-  // Reset error state when subscription changes so it can retry
-  useEffect(() => {
-    setUsageFetchFailed(false);
-  }, [subscription]);
-
-  useEffect(() => {
-    if (
-      rateLimitsExpanded &&
-      !tokenUsage &&
-      !isLoadingUsage &&
-      !usageFetchFailed
-    ) {
-      fetchTokenUsage();
-    }
-  }, [
-    rateLimitsExpanded,
-    tokenUsage,
-    isLoadingUsage,
-    usageFetchFailed,
-    fetchTokenUsage,
-  ]);
 
   if (!user) return null;
 
@@ -298,7 +282,7 @@ const SidebarUserNav = ({ isCollapsed = false }: { isCollapsed?: boolean }) => {
 
   const handleGitHub = () => {
     const newWindow = window.open(
-      "https://github.com/rift-tech/rift",
+      "https://github.com/cettocdx/rift",
       "_blank",
       "noopener,noreferrer",
     );
@@ -309,7 +293,7 @@ const SidebarUserNav = ({ isCollapsed = false }: { isCollapsed?: boolean }) => {
 
   const handleXCom = () => {
     const newWindow = window.open(
-      "https://x.com/PentestGPT",
+      "https://x.com/rift_sys",
       "_blank",
       "noopener,noreferrer",
     );
@@ -333,14 +317,11 @@ const SidebarUserNav = ({ isCollapsed = false }: { isCollapsed?: boolean }) => {
     return user.email?.charAt(0)?.toUpperCase() || "U";
   };
 
-  const getDisplayName = () => {
-    if (user.firstName && user.lastName) {
-      return `${user.firstName} ${user.lastName}`;
-    }
-    return user.firstName || user.lastName || "User";
-  };
-
-  const modeLabel = chatMode === "agent" ? "EXECUTOR" : "ASK";
+  const displayName = getSidebarDisplayName(user);
+  const membershipReady = isSubscriptionReady && !isCheckingProPlan;
+  const membershipLabel = membershipReady
+    ? getSidebarPlanLabel(subscription)
+    : "…";
 
   const tokenBalanceLabel =
     subscription === "team"
@@ -349,159 +330,113 @@ const SidebarUserNav = ({ isCollapsed = false }: { isCollapsed?: boolean }) => {
         ? "··· tokens"
         : `${formatBalanceTokens(tokenBalancePoints)} tokens`;
 
-  const handleTokenClick = () => {
-    if (subscription !== "team") {
-      setShowBuyDialog(true);
-    }
-  };
-
   const sessionDockMenu = (
     <>
-      <DropdownMenuLabel className="font-normal py-1.5">
-        <div className="flex items-center space-x-2">
-          <CircleUserRound className="h-4 w-4 text-muted-foreground flex-shrink-0" />
-          <p
-            data-testid="user-email"
-            className="leading-none text-muted-foreground truncate min-w-0 text-sm"
-          >
-            {user.email}
-          </p>
-        </div>
+      <DropdownMenuLabel className="px-2 pb-1 pt-1.5 font-normal">
+        <p
+          data-testid="user-email"
+          className="min-w-0 truncate text-ui-label leading-4 text-muted-foreground"
+        >
+          {user.email}
+        </p>
       </DropdownMenuLabel>
 
       <DropdownMenuSeparator />
 
-      {isPaidUser && (
-        <div>
-          <DropdownMenuItem
-            data-testid="referral-menu-item"
-            onSelect={() => setReferralDialogOpen(true)}
-            className="py-1.5"
-          >
-            <Gift className="mr-2 h-4 w-4 text-foreground" />
-            <span>Refer a friend</span>
-          </DropdownMenuItem>
-
-          <DropdownMenuItem
-            onSelect={(e) => {
-              e.preventDefault();
-              setRateLimitsExpanded(!rateLimitsExpanded);
-            }}
-            className="py-1.5"
-          >
-            <Gauge className="mr-2 h-4 w-4 text-foreground" />
-            <span className="flex-1">Usage</span>
-            {rateLimitsExpanded ? (
-              <ChevronDown className="ml-auto h-4 w-4 text-muted-foreground" />
-            ) : (
-              <ChevronRight className="ml-auto h-4 w-4 text-muted-foreground" />
-            )}
-          </DropdownMenuItem>
-          {rateLimitsExpanded && (
-            <div className="px-3 pb-2 space-y-0.5">
-              {isLoadingUsage ? (
-                <div className="flex items-center gap-2 py-1.5 text-sm text-muted-foreground">
-                  <RefreshCw className="h-3.5 w-3.5 animate-spin" />
-                  <span>Loading...</span>
-                </div>
-              ) : tokenUsage ? (
-                <>
-                  <div className="flex items-center justify-between py-1.5 text-sm">
-                    <span className="text-muted-foreground">Monthly</span>
-                    <div className="flex items-center gap-3 tabular-nums text-muted-foreground">
-                      <span>{tokenUsage.monthly.usagePercentage}% used</span>
-                      {tokenUsage.monthly.resetTime && (
-                        <span>
-                          {new Date(
-                            tokenUsage.monthly.resetTime,
-                          ).toLocaleDateString(undefined, {
-                            month: "short",
-                            day: "numeric",
-                          })}
-                        </span>
-                      )}
-                    </div>
-                  </div>
-                  {extraUsageEnabled && (
-                    <>
-                      <div className="flex items-center justify-between py-1.5 text-sm">
-                        <span className="text-muted-foreground">
-                          Extra balance
-                        </span>
-                        <span className="min-w-0 text-right tabular-nums text-muted-foreground">
-                          ${extraUsageBalanceDollars.toFixed(2)} available
-                        </span>
-                      </div>
-                      <div className="flex items-center justify-between py-1.5 text-sm">
-                        <span className="text-muted-foreground">
-                          This month
-                        </span>
-                        <div className="ml-3 flex min-w-0 flex-wrap items-center justify-end gap-x-1.5 gap-y-0.5 text-right tabular-nums text-muted-foreground">
-                          <span>
-                            ${extraUsageMonthlySpentDollars.toFixed(2)} spent
-                          </span>
-                          <span className="text-muted-foreground/60">/</span>
-                          <span>{extraUsageMonthlyLimitLabel}</span>
-                        </div>
-                      </div>
-                    </>
-                  )}
-                </>
-              ) : (
-                <div className="py-1.5 text-sm text-muted-foreground">
-                  Unable to load usage
-                </div>
-              )}
-              <button
-                onClick={() => openSettingsDialog("Extra Usage")}
-                className="-mx-3 px-3 w-[calc(100%+1.5rem)] flex items-center gap-2.5 py-1.5 rounded-md text-left text-sm hover:bg-muted transition-colors"
-                aria-label="Open extra usage settings"
-                tabIndex={0}
-              >
-                <span className="flex-1">Extra usage</span>
-                <ExternalLink className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-              </button>
-            </div>
-          )}
-        </div>
-      )}
-
-      {subscription !== "team" && (
+      {canUpgradePlan && (
         <DropdownMenuItem
-          data-testid="buy-tokens-button"
-          onSelect={() => setShowBuyDialog(true)}
-          className="py-1.5 text-primary focus:text-primary"
+          data-testid="upgrade-plan-button"
+          onSelect={() => {
+            window.location.href = "/upgrade";
+          }}
+          className={ACCOUNT_MENU_ITEM_CLASS}
         >
-          <Zap className="mr-2 h-4 w-4 text-primary" />
-          <span>Buy tokens</span>
+          <span className="flex size-[18px] items-center justify-center rounded-md bg-gradient-to-br from-[var(--signal-bright)] to-primary shadow-sm">
+            <Gem className="size-[11px] text-white" strokeWidth={2} />
+          </span>
+          <span className="font-medium">Upgrade plan</span>
         </DropdownMenuItem>
       )}
+
+      {isPaidUser && (
+        <DropdownMenuItem
+          data-testid="referral-menu-item"
+          onSelect={() => setReferralDialogOpen(true)}
+          className={ACCOUNT_MENU_ITEM_CLASS}
+        >
+          <Gift
+            className="size-[15px] text-[var(--cursor-icon-secondary)]"
+            strokeWidth={1.6}
+          />
+          <span>Refer a friend</span>
+        </DropdownMenuItem>
+      )}
+
+      <DropdownMenuItem
+        data-testid="settings-button"
+        asChild
+        className={ACCOUNT_MENU_ITEM_CLASS}
+      >
+        <Link href={settingsHref}>
+          <Settings
+            className="size-[15px] text-[var(--cursor-icon-secondary)]"
+            strokeWidth={1.6}
+          />
+          <span>Settings</span>
+        </Link>
+      </DropdownMenuItem>
+
+      <DropdownMenuItem
+        data-testid="theme-toggle"
+        onSelect={(e) => {
+          e.preventDefault();
+          setTheme(resolvedTheme === "dark" ? "light" : "dark");
+        }}
+        className={ACCOUNT_MENU_ITEM_CLASS}
+      >
+        {resolvedTheme === "dark" ? (
+          <Sun
+            className="size-[15px] text-[var(--cursor-icon-secondary)]"
+            strokeWidth={1.6}
+          />
+        ) : (
+          <Moon
+            className="size-[15px] text-[var(--cursor-icon-secondary)]"
+            strokeWidth={1.6}
+          />
+        )}
+        <span>{resolvedTheme === "dark" ? "Light mode" : "Dark mode"}</span>
+      </DropdownMenuItem>
 
       <DropdownMenuSeparator />
 
       <DropdownMenuItem
         data-testid="logout-button"
         onSelect={handleLogOut}
-        className="py-1.5"
+        className={ACCOUNT_MENU_ITEM_CLASS}
       >
-        <LogOut className="mr-2 h-4 w-4 text-foreground" />
+        <LogOut
+          className="size-[15px] text-[var(--cursor-icon-secondary)]"
+          strokeWidth={1.6}
+        />
         <span>Log out</span>
       </DropdownMenuItem>
     </>
   );
 
   return (
-    <div className="relative">
+    <div
+      className="relative"
+      data-rift-account-footer={identityMode === "name-only" || undefined}
+    >
       <ReferralRewardDialog
         open={referralDialogOpen}
         onOpenChange={setReferralDialogOpen}
       />
 
-      <BuyExtraUsageDialog
-        open={showBuyDialog}
-        onOpenChange={setShowBuyDialog}
-        onPurchase={handleBuyTokens}
-        isLoading={isPurchasing}
+      <MonthlyUsageSummary
+        isCollapsed={isCollapsed}
+        subscription={subscription}
       />
 
       {isCollapsed ? (
@@ -510,15 +445,15 @@ const SidebarUserNav = ({ isCollapsed = false }: { isCollapsed?: boolean }) => {
             <button
               data-testid="user-menu-button-collapsed"
               type="button"
-              className="flex w-full cursor-pointer items-center justify-center rounded-md p-2 transition-colors hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              className="flex w-full cursor-pointer items-center justify-center rounded-md p-2 transition-colors hover:bg-accent focus-visible:outline-none"
               aria-haspopup="menu"
-              aria-label={`Session menu — ${tokenBalanceLabel}`}
+              aria-label={`Session menu, ${tokenBalanceLabel}`}
             >
-              <RiftPixelMark size={22} />
+              <RiftPixelMark size={26} />
             </button>
           </DropdownMenuTrigger>
           <DropdownMenuContent
-            className="min-w-[240px] rounded-xl py-1.5"
+            className="min-w-[240px] rounded-xl py-1"
             align="center"
             side="top"
             sideOffset={4}
@@ -527,89 +462,93 @@ const SidebarUserNav = ({ isCollapsed = false }: { isCollapsed?: boolean }) => {
           </DropdownMenuContent>
         </DropdownMenu>
       ) : (
-        <div className="rounded-md border border-border bg-card/80 p-2">
-          <div className="flex items-start gap-2.5">
-            <RiftPixelMark size={22} className="mt-0.5 shrink-0" />
-            <div className="min-w-0 flex-1">
-              <div className="flex items-center justify-between gap-2">
-                <span className="text-[12px] font-semibold text-foreground">
-                  <RiftWordmark
-                    height={10}
-                    className="inline-block align-middle"
-                  />{" "}
-                  <span className="font-normal text-muted-foreground">
-                    v1.0
-                  </span>
-                </span>
-                <button
-                  type="button"
-                  onClick={() => setTheme(theme === "dark" ? "light" : "dark")}
-                  className="flex items-center justify-center size-5 rounded text-muted-foreground hover:text-foreground hover:bg-accent transition-colors"
-                  aria-label="Toggle theme"
-                >
-                  {theme === "dark" ? (
-                    <Sun className="size-3.5" />
-                  ) : (
-                    <Moon className="size-3.5" />
-                  )}
-                </button>
-              </div>
-
-              <button
-                type="button"
-                data-testid="sidebar-token-balance"
-                onClick={handleTokenClick}
-                disabled={subscription === "team"}
-                className="mt-1 flex w-full min-w-0 items-center gap-1 rounded px-0.5 py-0.5 text-left text-[11px] text-muted-foreground transition-colors hover:bg-accent hover:text-foreground disabled:cursor-default disabled:hover:bg-transparent"
-                aria-label={
-                  subscription === "team"
-                    ? "Team plan"
-                    : `Buy tokens — ${tokenBalanceLabel}`
-                }
-              >
-                <span className="shrink-0 uppercase tracking-[0.04em]">
-                  {modeLabel}
-                </span>
-                <span aria-hidden>·</span>
-                <span
-                  data-testid="subscription-badge"
-                  className="min-w-0 truncate tabular-nums text-foreground"
-                >
-                  {tokenBalanceLabel}
-                </span>
-                {subscription !== "team" ? (
-                  <ChevronRight className="ml-auto size-3 shrink-0 opacity-50" />
-                ) : null}
-              </button>
-
-              <DropdownMenu>
-                <DropdownMenuTrigger asChild>
-                  <button
-                    data-testid="user-menu-button"
-                    type="button"
-                    className="mt-0.5 flex w-full min-w-0 cursor-pointer items-center gap-1 rounded px-0.5 py-0.5 text-left text-[11px] text-muted-foreground transition-colors hover:bg-accent hover:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                    aria-haspopup="menu"
-                    aria-label={`Account menu for ${getDisplayName()}`}
-                  >
-                    <span className="truncate text-muted-foreground">
-                      {getDisplayName()}
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <button
+              data-testid="user-menu-button"
+              type="button"
+              className="flex w-full items-center gap-2.5 rounded-[12px] p-1.5 text-left transition-colors duration-(--duration-hover) hover:bg-accent focus-visible:outline-none active:scale-[0.99] motion-reduce:transition-none motion-reduce:active:scale-100"
+              aria-haspopup="menu"
+              aria-label={`Account menu for ${displayName}${
+                identityMode === "name-only" && membershipReady
+                  ? `, ${membershipLabel}`
+                  : ""
+              }`}
+            >
+              {identityMode === "name-only" ? (
+                /* The reference editor's own account row: a round avatar,
+                   the name with the plan stacked under it in the quiet ink,
+                   and an overflow ellipsis at the far edge. Two quiet lines,
+                   not one strung-out one -- the plan is a fact about the
+                   account, and under the name is where that app files it. */
+                <span className="flex min-w-0 flex-1 items-center gap-2.5 pl-0.5 pr-1">
+                  <Avatar className="size-6 shrink-0">
+                    <AvatarImage
+                      src={user.profilePictureUrl ?? undefined}
+                      alt=""
+                    />
+                    <AvatarFallback className="bg-muted text-[10px] font-normal text-foreground">
+                      {getUserInitials()}
+                    </AvatarFallback>
+                  </Avatar>
+                  <span className="flex min-w-0 flex-1 flex-col text-left">
+                    <span
+                      data-testid="sidebar-user-display-name"
+                      className="min-w-0 truncate text-ui-nav font-[418] leading-[18px] text-foreground"
+                      title={displayName}
+                    >
+                      {displayName}
                     </span>
-                    <span className="shrink-0">· ~/session</span>
-                    <ChevronDown className="ml-auto size-3 shrink-0 opacity-60" />
-                  </button>
-                </DropdownMenuTrigger>
-                <DropdownMenuContent
-                  className="w-[var(--radix-dropdown-menu-trigger-width)] min-w-[240px] rounded-xl py-1.5"
-                  align="center"
-                  side="top"
-                  sideOffset={4}
-                >
-                  {sessionDockMenu}
-                </DropdownMenuContent>
-              </DropdownMenu>
-            </div>
-          </div>
-        </div>
+                    <span
+                      data-testid="sidebar-membership-tier"
+                      aria-label={
+                        membershipReady
+                          ? `${membershipLabel} membership`
+                          : "Membership loading"
+                      }
+                      className="min-w-0 truncate text-ui-label font-[418] leading-4 text-muted-foreground"
+                    >
+                      {membershipLabel}
+                    </span>
+                  </span>
+                  <MoreHorizontal className="size-4 shrink-0 text-[var(--cursor-icon-secondary)]" />
+                </span>
+              ) : (
+                <>
+                  <Avatar className="size-8 shrink-0">
+                    <AvatarImage
+                      src={user.profilePictureUrl ?? undefined}
+                      alt={displayName}
+                    />
+                    <AvatarFallback className="bg-muted text-ui-caption font-medium text-foreground">
+                      {getUserInitials()}
+                    </AvatarFallback>
+                  </Avatar>
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate text-ui-nav font-[418] leading-[18px] text-foreground">
+                      {displayName}
+                    </p>
+                    <p
+                      data-testid="sidebar-user-email"
+                      className="truncate text-ui-caption leading-tight text-muted-foreground"
+                    >
+                      {user.email}
+                    </p>
+                  </div>
+                  <ChevronsUpDown className="size-4 shrink-0 text-[var(--cursor-icon-secondary)]" />
+                </>
+              )}
+            </button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent
+            className="w-[var(--radix-dropdown-menu-trigger-width)] min-w-[240px] rounded-xl py-1"
+            align="center"
+            side="top"
+            sideOffset={8}
+          >
+            {sessionDockMenu}
+          </DropdownMenuContent>
+        </DropdownMenu>
       )}
     </div>
   );

@@ -1,0 +1,21 @@
+module.exports.snapshot = () => ({
+  chatId: "chat-one",
+  status: "ready",
+  entries: [],
+  model: "model-a",
+  modelLabel: "Model A",
+  effort: "high",
+  approval: "ask",
+  mode: "agent",
+  target: "cloud",
+  targetLabel: "Cloud",
+  models: [{ value: "model-a", label: "Model A" }],
+  efforts: [{ value: "high", label: "High" }],
+  targets: [{ value: "cloud", label: "Cloud" }],
+  permissions: [{ value: "ask", label: "Ask first" }],
+  modes: [{ value: "agent", label: "Build" }],
+  approvals: [
+    { id: "approval-one", toolName: "Write file", preview: "Write app.ts" },
+  ],
+  queued: 0,
+});

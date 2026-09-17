@@ -1,0 +1,13 @@
+{
+  "extends": "../tsconfig.json",
+  "compilerOptions": {
+    "target": "ESNext",
+    "lib": ["ES2023", "dom"],
+    "forceConsistentCasingInFileNames": true,
+    "types": ["node", "next"],
+    "incremental": false,
+    "plugins": []
+  },
+  "include": ["./**/*.ts"],
+  "exclude": ["./_generated", "./__tests__", "./**/*.test.ts"]
+}

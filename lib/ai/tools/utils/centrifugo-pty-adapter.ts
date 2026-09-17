@@ -163,7 +163,14 @@ export async function createCentrifugoPtyHandle(
   const tokenExpSeconds = 600;
   const token = await sandbox.issueToken(tokenExpSeconds);
 
-  const client = new Centrifuge(sandbox.getWsUrl(), { token });
+  let cleanedUp = false;
+  const client = new Centrifuge(sandbox.getWsUrl(), {
+    token,
+    getToken: async () => {
+      if (cleanedUp) throw new Error(`${LOG_PREFIX} PTY session is closed`);
+      return sandbox.issueToken(tokenExpSeconds);
+    },
+  });
 
   const listeners = new Set<(bytes: Uint8Array) => void>();
   const encoder = new TextEncoder();
@@ -172,9 +179,19 @@ export async function createCentrifugoPtyHandle(
   let pid = 0;
   let subscription: Subscription | undefined;
   let settled = false;
-  let cleanedUp = false;
+  let createDispatched = false;
 
   const { exited, resolveOnce: resolveExitedOnce } = createResolvableExited();
+  let resolveConfirmed!: (exit: { exitCode: number | null }) => void;
+  let rejectConfirmed!: (error: Error) => void;
+  const confirmedExited = new Promise<{ exitCode: number | null }>(
+    (resolve, reject) => {
+      resolveConfirmed = resolve;
+      rejectConfirmed = reject;
+    },
+  );
+  // Legacy callers do not read the strict proof; still observe its rejection.
+  void confirmedExited.catch(() => {});
 
   const cleanup = () => {
     if (cleanedUp) return;
@@ -262,6 +279,9 @@ export async function createCentrifugoPtyHandle(
         new Promise<void>((resolve) => setTimeout(resolve, 1500)),
       ]);
       resolveExitedOnce({ exitCode: null });
+      rejectConfirmed(
+        new Error(`${LOG_PREFIX} PTY exit was not confirmed before cleanup`),
+      );
       cleanup();
     },
 
@@ -274,6 +294,9 @@ export async function createCentrifugoPtyHandle(
 
     get exited() {
       return exited;
+    },
+    get confirmedExited() {
+      return confirmedExited;
     },
   };
 
@@ -294,6 +317,8 @@ export async function createCentrifugoPtyHandle(
     // post-ready we resolve `exited` with a null exitCode so awaiters of
     // handle.exited don't hang forever on a dropped subscription.
     const failTransport = (message: string) => {
+      if (cleanedUp) return;
+      rejectConfirmed(new Error(`${LOG_PREFIX} ${message}`));
       if (!settled) {
         settled = true;
         clearTimeout(timeoutId);
@@ -336,11 +361,13 @@ export async function createCentrifugoPtyHandle(
         }
 
         case "pty_exit":
+          resolveConfirmed({ exitCode: msg.exitCode });
           resolveExitedOnce({ exitCode: msg.exitCode });
           cleanup();
           break;
 
         case "pty_error":
+          rejectConfirmed(new Error(`${LOG_PREFIX} pty_error: ${msg.message}`));
           if (!settled) {
             settled = true;
             clearTimeout(timeoutId);
@@ -362,6 +389,9 @@ export async function createCentrifugoPtyHandle(
     });
 
     subscription.on("subscribed", () => {
+      // Reconnect restores the transport to the existing process. Recreating
+      // the same command could duplicate side effects and orphan the old PTY.
+      if (cleanedUp || createDispatched) return;
       // Now that we are subscribed, publish pty_create
       const createPayload: PtyCreatePayload = {
         type: "pty_create",
@@ -374,11 +404,19 @@ export async function createCentrifugoPtyHandle(
         targetConnectionId: connectionId,
       };
 
+      createDispatched = true;
       subscription!.publish(createPayload).catch((err: unknown) => {
         failTransport(
           `failed to publish pty_create: ${err instanceof Error ? err.message : String(err)}`,
         );
       });
+    });
+
+    subscription.on("unsubscribed", () => {
+      failTransport("subscription ended before the PTY exit was confirmed");
+    });
+    client.on("disconnected", () => {
+      failTransport("connection ended before the PTY exit was confirmed");
     });
 
     subscription.subscribe();

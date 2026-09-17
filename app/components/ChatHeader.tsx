@@ -5,7 +5,6 @@ import { Button } from "@/components/ui/button";
 import { useAuth } from "@/app/hooks/useAuth";
 import { PanelLeft, SquarePen, HatGlasses, Split, Share } from "lucide-react";
 import { useGlobalState } from "../contexts/GlobalState";
-import { useAppShell } from "../contexts/AppShellContext";
 import { useRouter } from "next/navigation";
 import { useIsMobile } from "@/hooks/use-mobile";
 import {
@@ -16,6 +15,7 @@ import {
 } from "@/components/ui/tooltip";
 import { ShareDialog } from "./ShareDialog";
 import { navigateToAuth } from "@/app/hooks/useTauri";
+import { useChatNavigation } from "@/app/hooks/useChatNavigation";
 
 interface ChatHeaderProps {
   hasMessages: boolean;
@@ -58,7 +58,7 @@ const ChatHeader: React.FC<ChatHeaderProps> = ({
     setTemporaryChatsEnabled,
   } = useGlobalState();
   const router = useRouter();
-  const { basePath } = useAppShell();
+  const { goHome } = useChatNavigation();
   const isMobile = useIsMobile();
   const [showShareDialog, setShowShareDialog] = useState(false);
 
@@ -83,7 +83,7 @@ const ChatHeader: React.FC<ChatHeaderProps> = ({
     // Reset chat state while current Chat is still mounted (so chatResetRef is set)
     initializeNewChat();
     setTemporaryChatsEnabled(false);
-    router.push(basePath);
+    goHome();
   };
 
   // Show empty state header when no messages and no active chat
@@ -190,7 +190,7 @@ const ChatHeader: React.FC<ChatHeaderProps> = ({
                   size="icon"
                   aria-label="Open sidebar"
                   onClick={toggleChatSidebar}
-                  className="h-7 w-7 flex-shrink-0 md:hidden"
+                  className="size-8 flex-shrink-0 md:hidden"
                 >
                   <PanelLeft className="size-5" />
                 </Button>
@@ -227,14 +227,14 @@ const ChatHeader: React.FC<ChatHeaderProps> = ({
               </div>
             </div>
             <div className="flex items-center gap-2 flex-shrink-0">
-              {/* Share button - always in layout for non-temporary chats (desktop only) so its
-                  size is reserved from the start and doesn't shift the header when title loads */}
+              {/* Keep the share action stable while the title loads. */}
               {!temporaryChatsEnabled && (
                 <button
+                  type="button"
                   aria-label="Share"
                   data-testid="share-chat-button"
                   onClick={() => setShowShareDialog(true)}
-                  className={`relative flex-shrink-0 rounded-full h-[34px] px-3 py-0 text-sm font-medium transition-colors hover:bg-[#ffffff1a] max-md:hidden ${
+                  className={`relative h-8 flex-shrink-0 rounded-md px-2 text-[12px] font-medium text-foreground transition-colors hover:bg-accent focus-visible:outline-none ${
                     isExistingChat && id && chatTitle
                       ? ""
                       : "invisible pointer-events-none"
@@ -255,7 +255,7 @@ const ChatHeader: React.FC<ChatHeaderProps> = ({
                     size="icon"
                     aria-label="Start new chat"
                     onClick={handleNewChat}
-                    className="h-7 w-7"
+                    className="size-8"
                   >
                     <SquarePen className="size-5" />
                   </Button>

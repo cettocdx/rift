@@ -208,14 +208,46 @@ export const TerminalToolHandler = memo(function TerminalToolHandler({
             terminalOutput?.output
           : "") ||
         "";
+      // A command that exited non-zero is not "Done". The exit code is already
+      // on the payload and was simply never read, so a failing build and a
+      // passing one rendered identically -- the row asserted a result the
+      // evidence beside it contradicted. run_terminal_cmd nests the code under
+      // `result`; tool-shell reports none at all. An absent code stays neutral:
+      // backgrounded commands report a pid and no status, and unknown is not
+      // failure.
+      const exitCode =
+        typeof terminalOutput === "object"
+          ? (terminalOutput?.result?.exitCode ?? terminalOutput?.exitCode)
+          : undefined;
+      // A command the user stopped never reported an exit code. It is neither a
+      // success nor a failure, so it gets its own honest state rather than a
+      // fabricated one.
+      const aborted =
+        typeof terminalOutput === "object" &&
+        (terminalOutput?.aborted === true ||
+          terminalOutput?.result?.aborted === true);
+      const failed =
+        !aborted && typeof exitCode === "number" && exitCode !== 0;
+      const durationMs =
+        typeof terminalOutput === "object"
+          ? terminalOutput?.result?.durationMs
+          : undefined;
+      const durationSuffix =
+        typeof durationMs === "number" && durationMs >= 1000
+          ? ` · ${(durationMs / 1000).toFixed(1)}s`
+          : "";
+      const outLabel = aborted
+        ? `${labelOut} · stopped`
+        : failed
+          ? `${labelOut} · exit ${exitCode}${durationSuffix}`
+          : `${labelOut}${durationSuffix}`;
       return (
         <CursorToolBlock
           key={toolCallId}
-          label={labelOut}
-          status="done"
+          label={outLabel}
+          status={aborted ? "stopped" : failed ? "error" : "done"}
           command={blockTarget || undefined}
           output={outputText || undefined}
-          defaultOpen={Boolean(outputText)}
           isClickable
           onClick={handleOpenInSidebar}
           onKeyDown={handleKeyDown}

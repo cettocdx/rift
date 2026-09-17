@@ -1,0 +1,41 @@
+.mirror {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  color: var(--foreground);
+  white-space: pre-wrap;
+  overflow-wrap: break-word;
+  pointer-events: none;
+}
+
+/* Keep the final empty line in the same scroll range as a textarea. */
+.mirror::after {
+  content: "\200b";
+}
+
+.token {
+  border-radius: 3px;
+  background: color-mix(in srgb, var(--foreground) 8%, transparent);
+  box-decoration-break: clone;
+  -webkit-box-decoration-break: clone;
+  /* Font, weight and spacing stay identical to the native input underneath. */
+  color: inherit;
+}
+
+.paintedInput,
+.paintedInput:disabled {
+  color: transparent;
+  caret-color: var(--foreground);
+}
+
+@media (forced-colors: active) {
+  .mirror {
+    display: none;
+  }
+
+  .paintedInput,
+  .paintedInput:disabled {
+    color: CanvasText;
+    caret-color: CanvasText;
+  }
+}

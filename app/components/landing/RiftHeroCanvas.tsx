@@ -1,11 +1,12 @@
 "use client";
 
+import { RIFT_SYMBOL_PATH, RIFT_WORDMARK_PATHS } from "@/lib/brand/logo";
 import { useEffect, useRef } from "react";
 
 /**
  * Interactive particle-morph hero for the RIFT landing page.
  * A cyan point-cloud continuously morphs between three target forms —
- * a scattered scan field, the "RIFT" wordmark, and the rift/lightning glyph.
+ * a scattered scan field, the "RIFT" wordmark, and the canonical RIFT glyph.
  * The cursor acts as a live scan probe: nearby particles are displaced and
  * energized, a targeting reticle tracks the pointer, and scan beams connect
  * to the closest points. Pauses offscreen, respects prefers-reduced-motion.
@@ -13,36 +14,8 @@ import { useEffect, useRef } from "react";
 
 type Pt = { x: number; y: number };
 
-const SIGNAL = "52, 210, 230"; // --signal (dark) as rgb
-const FORMS = ["cloud", "wordmark", "panda", "cloud"] as const;
-
-// RIFT panda mark — 8×8 pixel cells (matches RiftPixelMark)
-const PANDA_PIXELS: Array<[number, number]> = [
-  [2, 1],
-  [5, 1],
-  [1, 2],
-  [2, 2],
-  [3, 2],
-  [4, 2],
-  [5, 2],
-  [6, 2],
-  [1, 3],
-  [2, 3],
-  [3, 3],
-  [4, 3],
-  [5, 3],
-  [6, 3],
-  [1, 4],
-  [2, 4],
-  [3, 4],
-  [4, 4],
-  [5, 4],
-  [6, 4],
-  [2, 5],
-  [3, 5],
-  [4, 5],
-  [5, 5],
-];
+const SIGNAL = "217, 119, 87"; // --signal (dark) as rgb
+const FORMS = ["cloud", "wordmark", "mark", "cloud"] as const;
 
 function fitPoints(raw: Pt[], w: number, h: number, scale: number): Pt[] {
   if (raw.length === 0) return raw;
@@ -96,11 +69,12 @@ function buildWordmark(w: number, h: number): Pt[] {
   return sampleDraw(
     (ctx, bw, bh) => {
       ctx.fillStyle = "#fff";
-      ctx.textAlign = "center";
-      ctx.textBaseline = "middle";
-      const size = Math.floor(bh * 0.66);
-      ctx.font = `800 ${size}px Inter, system-ui, sans-serif`;
-      ctx.fillText("RIFT", bw / 2, bh / 2 + size * 0.02);
+      const scale = Math.min(bw / 287, bh / 152);
+      ctx.translate((bw - 287 * scale) / 2, (bh - 152 * scale) / 2);
+      ctx.scale(scale, scale);
+      ctx.translate(24, 27);
+      for (const path of RIFT_WORDMARK_PATHS)
+        ctx.fill(new Path2D(path), "evenodd");
     },
     Math.floor(w),
     Math.floor(h),
@@ -108,15 +82,19 @@ function buildWordmark(w: number, h: number): Pt[] {
   );
 }
 
-function buildPanda(size: number): Pt[] {
+function buildMark(size: number): Pt[] {
   return sampleDraw(
-    (ctx, bw) => {
-      const cell = bw / 8;
+    (ctx, bw, bh) => {
+      ctx.save();
+      ctx.scale(bw / 124, bh / 124);
+      ctx.translate(12, 12);
       ctx.fillStyle = "#fff";
-      // solid cells so the head silhouette + ears read as one cohesive panda
-      for (const [x, y] of PANDA_PIXELS) {
-        ctx.fillRect(x * cell, y * cell, cell + 0.5, cell + 0.5);
-      }
+      const symbol = new Path2D(RIFT_SYMBOL_PATH);
+      ctx.fill(symbol);
+      ctx.translate(100, 100);
+      ctx.rotate(Math.PI);
+      ctx.fill(symbol);
+      ctx.restore();
     },
     Math.floor(size),
     Math.floor(size),
@@ -212,14 +190,14 @@ export function RiftHeroCanvas() {
       count = Math.min(3200, Math.floor((w * h) / 720));
 
       const word = fitPoints(buildWordmark(380, 150), w, h, 0.66);
-      const panda = fitPoints(buildPanda(220), w, h, 0.5);
+      const mark = fitPoints(buildMark(220), w, h, 0.5);
       const cloud = buildCloud(count, w, h);
       forms = FORMS.map((f) =>
         f === "cloud"
           ? resample(cloud, count)
           : f === "wordmark"
             ? resample(word, count)
-            : resample(panda, count),
+            : resample(mark, count),
       );
 
       const start = forms[0];

@@ -5,14 +5,24 @@ import { cva, type VariantProps } from "class-variance-authority";
 import { cn } from "@/lib/utils";
 
 const buttonVariants = cva(
-  "inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-md text-sm font-medium transition-all disabled:pointer-events-none disabled:opacity-50 [&_svg]:pointer-events-none [&_svg:not([class*='size-'])]:size-4 shrink-0 [&_svg]:shrink-0 outline-none focus-visible:border-ring focus-visible:ring-ring/50 focus-visible:ring-[3px] aria-invalid:ring-destructive/20 dark:aria-invalid:ring-destructive/40 aria-invalid:border-destructive",
+  // `transition-all` was transitioning every property that differs between
+  // states — including layout ones, off the GPU. Buttons only ever change
+  // colour, shadow and the press scale, so those are named explicitly.
+  // The press feedback is the other half: responding on pointer-down is what
+  // makes a control feel connected, and it was missing app-wide.
+  //
+  // Focus draws on the control's own edge rather than a 3px ring outside it.
+  // Under a saturated appearance accent that ring was a thick coloured box
+  // that appeared around whatever you clicked; an inset hairline says the same
+  // thing without adding a shape to the layout.
+  "inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-md text-sm font-medium transition-[background-color,border-color,color,box-shadow,opacity,transform] duration-(--duration-press) ease-(--ease-out) active:scale-[0.97] motion-reduce:transition-none motion-reduce:active:scale-100 disabled:pointer-events-none disabled:opacity-50 [&_svg]:pointer-events-none [&_svg:not([class*='size-'])]:size-4 shrink-0 [&_svg]:shrink-0 outline-none focus-visible:bg-accent focus-visible:text-accent-foreground aria-invalid:ring-destructive/20 dark:aria-invalid:ring-destructive/40 aria-invalid:border-destructive",
   {
     variants: {
       variant: {
         default:
-          "bg-primary-foreground text-primary shadow-xs hover:opacity-90",
+          "bg-primary text-primary-foreground shadow-xs hover:opacity-90",
         destructive:
-          "bg-destructive text-white shadow-xs hover:bg-destructive/90 focus-visible:ring-destructive/20 dark:focus-visible:ring-destructive/40 dark:bg-destructive/60",
+          "border border-border bg-transparent text-foreground/85 shadow-xs hover:bg-accent hover:text-foreground dark:bg-input/30 dark:border-input dark:hover:bg-input/50",
         outline:
           "border bg-background shadow-xs hover:bg-accent hover:text-accent-foreground dark:bg-input/30 dark:border-input dark:hover:bg-input/50",
         secondary:

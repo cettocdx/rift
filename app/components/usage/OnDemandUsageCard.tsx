@@ -1,9 +1,11 @@
 "use client";
 
 import { useQuery } from "convex/react";
+import { mockBillingQueryArgs } from "@/lib/billing/mock-billing";
 import { api } from "@/convex/_generated/api";
 import { Button } from "@/components/ui/button";
-import { openSettingsDialog } from "@/lib/utils/settings-dialog";
+import Link from "next/link";
+import { useSettingsNavigation } from "@/app/components/settings/useSettingsNavigation";
 import type { SubscriptionTier } from "@/types";
 
 interface OnDemandUsageCardProps {
@@ -11,7 +13,11 @@ interface OnDemandUsageCardProps {
 }
 
 const OnDemandUsageCard = ({ subscription }: OnDemandUsageCardProps) => {
-  const extraUsageSettings = useQuery(api.extraUsage.getExtraUsageSettings);
+  const { hrefFor } = useSettingsNavigation();
+  const extraUsageSettings = useQuery(
+    api.extraUsage.getExtraUsageSettings,
+    mockBillingQueryArgs(subscription),
+  );
   const userCustomization = useQuery(
     api.userCustomization.getUserCustomization,
   );
@@ -20,10 +26,6 @@ const OnDemandUsageCard = ({ subscription }: OnDemandUsageCardProps) => {
   const monthlyCapDollars = extraUsageSettings?.monthlyCapDollars;
   const monthlySpentDollars = extraUsageSettings?.monthlySpentDollars ?? 0;
   const balanceDollars = extraUsageSettings?.balanceDollars ?? 0;
-
-  const handleOpenExtraUsage = () => {
-    openSettingsDialog("Extra Usage");
-  };
 
   return (
     <div className="rounded-lg border bg-card p-4 space-y-3">
@@ -34,7 +36,7 @@ const OnDemandUsageCard = ({ subscription }: OnDemandUsageCardProps) => {
       {extraUsageEnabled ? (
         <>
           <div className="flex items-baseline gap-1.5">
-            <span className="text-2xl font-semibold tabular-nums">
+            <span className="text-2xl font-medium tabular-nums">
               ${monthlySpentDollars.toFixed(2)}
             </span>
             {monthlyCapDollars ? (
@@ -58,7 +60,7 @@ const OnDemandUsageCard = ({ subscription }: OnDemandUsageCardProps) => {
       ) : (
         <>
           <div className="flex items-baseline gap-1.5">
-            <span className="text-2xl font-semibold tabular-nums text-muted-foreground">
+            <span className="text-2xl font-medium tabular-nums text-muted-foreground">
               Off
             </span>
           </div>
@@ -66,14 +68,10 @@ const OnDemandUsageCard = ({ subscription }: OnDemandUsageCardProps) => {
             Pay for extra usage beyond your plan limits.
           </p>
           <div className="flex items-center gap-3">
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={handleOpenExtraUsage}
-              className="h-7 text-xs"
-              aria-label="Set up extra usage"
-            >
-              Set Limit
+            <Button asChild variant="outline" size="sm" className="h-7 text-xs">
+              <Link href={hrefFor("billing")} aria-label="Set up extra usage">
+                Set Limit
+              </Link>
             </Button>
             <span className="text-xs text-muted-foreground">Off</span>
           </div>

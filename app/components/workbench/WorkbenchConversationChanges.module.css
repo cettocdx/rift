@@ -1,0 +1,200 @@
+.panel {
+  height: 100%;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  font-family: var(--font-cursor-ui);
+  font-size: 13px;
+  color: var(--foreground);
+}
+.summary {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  min-height: 38px;
+  flex-shrink: 0;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--border);
+  color: var(--muted-foreground);
+  font-size: 12px;
+}
+.summary > svg,
+.row > svg {
+  width: 15px;
+  height: 15px;
+  flex-shrink: 0;
+  stroke-width: 1.6;
+  color: var(--muted-foreground);
+}
+.scope {
+  margin-left: auto;
+}
+.counts {
+  display: inline-flex;
+  flex-shrink: 0;
+  gap: 6px;
+  font-variant-numeric: tabular-nums;
+  font-size: 12px;
+}
+.added {
+  color: var(--success);
+}
+.removed {
+  color: var(--destructive);
+}
+.notice {
+  padding: 8px 12px;
+  font-size: 12px;
+  color: var(--muted-foreground);
+  border-bottom: 1px solid var(--border);
+}
+.list {
+  min-height: 0;
+  overflow: auto;
+  padding: 0;
+  margin: 0;
+  list-style: none;
+}
+.fileRow {
+  display: flex;
+  align-items: stretch;
+  border-bottom: 1px solid var(--border);
+}
+.copyPath {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 32px;
+  color: var(--muted-foreground);
+}
+.copyPath:hover,
+.copyPath:focus-visible {
+  background: var(--accent);
+  color: var(--foreground);
+}
+.copyPath:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: -2px;
+}
+.row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 1;
+  min-width: 0;
+  min-height: 38px;
+  padding: 8px 12px;
+  text-align: left;
+  transition: background-color var(--duration-hover, 100ms);
+}
+.row:hover,
+.row:focus-visible {
+  background: color-mix(in srgb, var(--foreground) 6%, transparent);
+}
+.row:focus-visible {
+  outline: 1px solid var(--muted-foreground);
+  outline-offset: -2px;
+}
+.path {
+  display: flex;
+  min-width: 0;
+  flex: 1;
+}
+.directory {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  flex: 0 1 auto;
+  color: var(--muted-foreground);
+}
+.filename {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  flex: 0 0 auto;
+  max-width: 100%;
+}
+.unavailable {
+  flex-shrink: 0;
+  font-size: 11px;
+  color: var(--muted-foreground);
+}
+.empty {
+  margin: auto;
+  padding: 24px;
+  text-align: center;
+  color: var(--muted-foreground);
+}
+.empty > svg {
+  width: 24px;
+  height: 24px;
+  margin: 0 auto 12px;
+}
+.empty h3 {
+  color: var(--foreground);
+  font-size: 13px;
+  font-weight: 500;
+}
+.empty p {
+  margin-top: 6px;
+  font-size: 12px;
+}
+@media (max-width: 767px) {
+  .row {
+    min-height: 44px;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .row {
+    transition: none;
+  }
+}
+
+.expanded {
+  transform: rotate(90deg);
+}
+.detail {
+  border-bottom: 1px solid var(--border);
+}
+.detailToolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 6px 12px;
+  color: var(--muted-foreground);
+  font-size: 12px;
+}
+.detailToolbar button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 6px;
+  border-radius: 4px;
+}
+.detailToolbar button:hover {
+  background: var(--accent);
+  color: var(--foreground);
+}
+.detailToolbar button:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 2px;
+}
+.diff {
+  height: clamp(200px, 40vh, 420px);
+  min-width: 0;
+  overflow: hidden;
+}
+@media (pointer: coarse) {
+  .detailToolbar button {
+    min-height: 44px;
+  }
+}
+
+@media (pointer: coarse) {
+  .copyPath {
+    flex-basis: 44px;
+    min-height: 44px;
+  }
+}

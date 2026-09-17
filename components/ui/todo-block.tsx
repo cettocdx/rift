@@ -1,17 +1,24 @@
 import React, { useState, useMemo, useEffect } from "react";
 import { Button } from "@/components/ui/button";
-import { ListTodo, CircleArrowRight, ChevronsUpDown } from "lucide-react";
+import { ChevronRight, CircleArrowRight, CircleCheck, ListTodo } from "lucide-react";
+import { RollingCount } from "@/components/ui/rolling-count";
 import type { TodoBlockProps } from "@/types";
 import { useTodoBlockContext } from "@/app/contexts/TodoBlockContext";
 import { SharedTodoItem } from "@/components/ui/shared-todo-item";
-import { getTodoStats } from "@/lib/utils/todo-utils";
+import { getLiveTodoBlockTodos, getTodoStats } from "@/lib/utils/todo-utils";
+import { useGlobalState } from "@/app/contexts/GlobalState";
 
 export const TodoBlock = ({
-  todos,
+  todos: snapshotTodos,
   inputTodos,
   blockId,
   messageId,
 }: TodoBlockProps) => {
+  const { todos: liveTodos } = useGlobalState();
+  const todos = useMemo(
+    () => getLiveTodoBlockTodos(snapshotTodos, liveTodos, messageId),
+    [snapshotTodos, liveTodos, messageId],
+  );
   const { autoOpenTodoBlock, toggleTodoBlock, isBlockExpanded } =
     useTodoBlockContext();
   const [showAllTodos, setShowAllTodos] = useState(false);
@@ -62,15 +69,26 @@ export const TodoBlock = ({
       };
     }
 
-    // When expanded OR no in-progress task, show list-todo icon with progress text
-    const progressText =
-      stats.done === 0
-        ? `To-dos (${stats.total})`
-        : `${stats.done} of ${stats.total} Done`;
+    // When expanded OR no in-progress task: the state glyph carries the
+    // progress -- a pie filling as tasks complete (the aicss task-list's
+    // header), a filled check once everything is done, the plain checklist
+    // before anything starts. The count itself rolls at the right edge.
+    const allDone = todoData.allCompleted;
+    const running = stats.done > 0 && !allDone;
 
     return {
-      text: progressText,
-      icon: <ListTodo className="text-foreground" />,
+      text: "To-dos",
+      icon: allDone ? (
+        <CircleCheck className="text-[var(--success)]" fill="currentColor" stroke="var(--background)" />
+      ) : running ? (
+        <span
+          className="rift-todo-pie"
+          aria-hidden
+          style={{ "--todo-pie": `${Math.round((stats.done / Math.max(1, stats.total)) * 100)}%` } as React.CSSProperties}
+        />
+      ) : (
+        <ListTodo className="text-foreground" />
+      ),
       showViewAll: stats.total > 1 && stats.done > 0,
     };
   }, [todoData, isExpanded]);
@@ -154,57 +172,49 @@ export const TodoBlock = ({
   };
 
   return (
-    <div className="flex-1 min-w-0">
-      <div className="rounded-[15px] border border-border bg-muted/20 overflow-hidden">
-        {/* Header */}
+    <div className="min-w-0 flex-1">
+      <div className="flex min-h-[30px] items-center">
         <Button
           variant="ghost"
           onClick={handleToggleExpanded}
-          className="flex w-full items-center justify-between px-[10px] py-[6px] h-[36px] hover:bg-muted/40 transition-colors rounded-none"
+          className="flex h-[30px] min-w-0 flex-1 items-center justify-start gap-1.5 rounded-none px-0.5 py-1.5 text-left hover:bg-foreground/[0.035]"
           aria-label={isExpanded ? "Collapse todos" : "Expand todos"}
+          aria-expanded={isExpanded}
         >
-          <div className="flex items-center gap-[4px]">
-            <div className="w-[21px] inline-flex items-center flex-shrink-0 text-foreground [&>svg]:h-4 [&>svg]:w-4">
-              {headerContent.icon}
-            </div>
-            <div className="max-w-[100%] truncate text-foreground relative top-[-1px]">
-              <span className="text-[13px] font-medium">
-                {headerContent.text}
-              </span>
-            </div>
-            {isExpanded && headerContent.showViewAll && (
-              <span
-                onClick={handleToggleViewAll}
-                className="text-[12px] text-muted-foreground/70 hover:text-muted-foreground transition-colors cursor-pointer p-1 ml-2"
-                role="button"
-                tabIndex={0}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter" || e.key === " ") {
-                    e.preventDefault();
-                    handleToggleViewAll(e);
-                  }
-                }}
-              >
-                {showAllTodos ? "Hide" : "View All"}
-              </span>
-            )}
-          </div>
-          <div className="flex items-center gap-[4px]">
-            <div className="w-[21px] inline-flex items-center flex-shrink-0 text-muted-foreground [&>svg]:h-4 [&>svg]:w-4">
-              <ChevronsUpDown />
-            </div>
-          </div>
+          <ChevronRight
+            className={`size-3 shrink-0 text-muted-foreground/50 transition-transform duration-150 motion-reduce:transition-none ${isExpanded ? "rotate-90" : ""}`}
+            aria-hidden="true"
+          />
+          <span className="inline-flex size-4 shrink-0 items-center justify-center text-muted-foreground/65 [&>svg]:size-3.5">
+            {headerContent.icon}
+          </span>
+          <span className="min-w-0 truncate text-[12px] font-medium text-[var(--cursor-text-secondary)]">
+            {headerContent.text}
+          </span>
+          <span title="Resolved tasks (completed or cancelled)" className="ml-auto shrink-0 pr-1 text-[11px] font-medium text-muted-foreground">
+            <RollingCount
+              value={`${todoData.stats.done}/${todoData.stats.total}`}
+            />
+          </span>
         </Button>
-
-        {/* Expanded list */}
-        {isExpanded && (
-          <div className="border-t border-border p-2 space-y-2">
-            {getVisibleTodos().map((todo) => (
-              <SharedTodoItem key={todo.id} todo={todo} />
-            ))}
-          </div>
-        )}
+        {isExpanded && headerContent.showViewAll ? (
+          <button
+            type="button"
+            onClick={handleToggleViewAll}
+            className="h-7 shrink-0 rounded-sm px-2 text-[11px] text-muted-foreground transition-colors hover:bg-foreground/[0.035] hover:text-foreground focus-visible:outline-none"
+          >
+            {showAllTodos ? "Hide" : "View all"}
+          </button>
+        ) : null}
       </div>
+
+      {isExpanded && (
+        <div className="ml-1.5 space-y-0 border-l border-border/70 pb-1 pl-3 [&>*:last-child]:border-b-0">
+          {getVisibleTodos().map((todo) => (
+            <SharedTodoItem key={todo.id} todo={todo} />
+          ))}
+        </div>
+      )}
     </div>
   );
 };

@@ -9,7 +9,7 @@ import { LandingHeaderRift2, Rift2OutlineButton } from "./LandingHeaderRift2";
 import { AttackSurfaceCanvas } from "./AttackSurfaceCanvas";
 import { ReconFlowAscii } from "./ReconFlowAscii";
 import { RiftHeroCanvas } from "./RiftHeroCanvas";
-import { AppPreview } from "./AppPreview";
+import { CapabilityFlow } from "./CapabilityFlow";
 import { HeroDemoStage } from "./HeroDemoStage";
 import { StatsBar } from "./StatsBar";
 import { ReconProgressDemo } from "./ReconProgressDemo";
@@ -116,7 +116,7 @@ export function LandingPageRift2() {
           <div className="absolute inset-x-0 top-0 h-[640px] opacity-[0.28]">
             <RiftHeroCanvas />
           </div>
-          <div className="absolute inset-0 bg-[radial-gradient(ellipse_70%_50%_at_80%_20%,rgba(52,210,230,0.1),transparent_55%)]" />
+          <div className="absolute inset-0 bg-[radial-gradient(ellipse_70%_50%_at_80%_20%,rgba(217, 119, 87,0.1),transparent_55%)]" />
           <div className="absolute inset-0 bg-gradient-to-b from-background/40 via-background/70 to-background" />
         </div>
 
@@ -154,7 +154,7 @@ export function LandingPageRift2() {
 
             <Reveal>
               <HeroDemoStage compact>
-                <AppPreview live />
+                <CapabilityFlow variant="embedded" />
               </HeroDemoStage>
             </Reveal>
           </div>
@@ -456,8 +456,8 @@ export function LandingPageRift2() {
       <footer className="border-t border-border/30 py-10 pb-24">
         <div className="mx-auto flex max-w-7xl flex-col items-start justify-between gap-4 px-4 sm:flex-row sm:items-center sm:px-8">
           <div className="flex items-center gap-2">
-            <RiftPixelMark size={18} />
-            <RiftWordmark height={11} />
+            <RiftPixelMark size={21} />
+            <RiftWordmark height={17} />
           </div>
           <p className="text-[12px] text-muted-foreground">
             <Link href="/terms-of-service" className="hover:text-foreground">

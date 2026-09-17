@@ -1,0 +1,527 @@
+.dock {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-width: 0;
+  min-height: 0;
+  background: var(--background);
+  color: var(--foreground);
+  font-family: var(--font-sans);
+  font-size: 13px;
+  line-height: 1.5;
+}
+.toolbar {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  height: 40px;
+  flex-shrink: 0;
+  padding: 4px 8px;
+  border-bottom: 1px solid color-mix(in srgb, var(--foreground) 9%, transparent);
+}
+.tabs {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  overflow: auto;
+  scrollbar-width: none;
+  flex: 1;
+  min-width: 0;
+}
+.tab {
+  display: flex;
+  align-items: center;
+  flex-shrink: 0;
+  max-width: 180px;
+  border-radius: 7px;
+  height: 28px;
+  color: var(--muted-foreground);
+  transition:
+    background 140ms,
+    color 140ms;
+}
+.tab[data-active="true"] {
+  background: color-mix(in srgb, var(--foreground) 6%, transparent);
+  color: var(--foreground);
+}
+.tab > button[role="tab"] {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  min-width: 0;
+  padding: 4px 7px;
+  font-size: 12px;
+  outline: none;
+}
+.tab > button[role="tab"] > span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.tab svg {
+  width: 14px;
+  height: 14px;
+  flex-shrink: 0;
+  stroke-width: 1.6;
+}
+.tab button:focus-visible,
+.iconButton:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--foreground) 45%, transparent);
+  outline-offset: -2px;
+  border-radius: 5px;
+}
+.closeTab {
+  display: grid;
+  place-items: center;
+  height: 22px;
+  width: 22px;
+  flex-shrink: 0;
+  margin-right: 3px;
+  border-radius: 4px;
+  opacity: 0;
+}
+.tab:hover .closeTab,
+.tab:focus-within .closeTab,
+.tab[data-active="true"] .closeTab {
+  opacity: 0.65;
+}
+.controls {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+.iconButton {
+  display: grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  border-radius: 6px;
+  flex-shrink: 0;
+  color: var(--muted-foreground);
+  outline: none;
+  transition:
+    background 140ms,
+    color 140ms,
+    transform 120ms;
+}
+.iconButton svg {
+  width: 15px;
+  height: 15px;
+  stroke-width: 1.6;
+}
+.iconButton:hover,
+.closeTab:hover {
+  background: color-mix(in srgb, var(--foreground) 7%, transparent);
+  color: var(--foreground);
+}
+.iconButton:active {
+  transform: scale(0.96);
+}
+.iconButton:disabled {
+  opacity: 0.3;
+  pointer-events: none;
+}
+.addMenu {
+  width: min(300px, calc(100vw - 24px));
+  padding: 0;
+  overflow: hidden;
+  animation: none !important;
+  border-radius: 12px;
+  box-shadow:
+    0 8px 28px #00000012,
+    0 2px 6px #0000000a;
+  font-size: 13px;
+}
+.addMenu [cmdk-item] {
+  min-height: 31px;
+  font-size: 13px;
+  border-radius: 6px;
+}
+.bodies {
+  position: relative;
+  min-height: 0;
+  flex: 1;
+  overflow: hidden;
+}
+.tabBody {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+  overflow: hidden;
+}
+.tabBody[hidden] {
+  display: none;
+}
+.terminalHost {
+  height: 100%;
+  width: 100%;
+  min-height: 0;
+  flex: 1;
+}
+.browser {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  height: 100%;
+}
+.addressBar {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  flex-shrink: 0;
+  min-height: 38px;
+  padding: 4px 8px;
+  border-bottom: 1px solid color-mix(in srgb, var(--foreground) 9%, transparent);
+}
+.addressBar input {
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  min-width: 0;
+  flex: 1;
+  height: 28px;
+  padding: 3px 8px;
+  font-size: 12px;
+  text-align: center;
+  outline: none;
+  color: var(--foreground);
+}
+.addressBar input:focus {
+  background: color-mix(in srgb, var(--foreground) 4%, transparent);
+  border-color: color-mix(in srgb, var(--foreground) 16%, transparent);
+  text-align: left;
+}
+.addressBar input::placeholder {
+  color: var(--muted-foreground);
+}
+.browserViewport {
+  position: relative;
+  min-height: 0;
+  flex: 1;
+  overflow: hidden;
+}
+.browserViewport iframe {
+  border: 0;
+  width: 100%;
+  height: 100%;
+  background: white;
+}
+.empty {
+  height: 100%;
+  min-height: 160px;
+  padding: 24px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  color: var(--muted-foreground);
+  gap: 10px;
+}
+.empty > svg {
+  width: 28px;
+  height: 28px;
+  margin-bottom: 4px;
+  stroke-width: 1.4;
+}
+.empty h3 {
+  font-size: 15px;
+  font-weight: 500;
+  color: var(--foreground);
+}
+.empty p {
+  font-size: 13px;
+  line-height: 1.6;
+  max-width: 290px;
+}
+.browserNote {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  border-top: 1px solid var(--border);
+  padding: 5px 10px;
+  color: var(--muted-foreground);
+  font-size: 11px;
+}
+.browserNote span {
+  margin-left: auto;
+}
+.browserNote button {
+  display: flex;
+  gap: 3px;
+  align-items: center;
+  color: var(--foreground);
+}
+.browserNote svg {
+  width: 12px;
+  height: 12px;
+}
+.browserError {
+  padding: 8px 12px;
+  font-size: 12px;
+  background: color-mix(in srgb, var(--destructive) 7%, var(--background));
+  color: var(--destructive);
+}
+.dock :global([data-docked-detail]) {
+  position: relative;
+  inset: auto;
+  z-index: auto;
+}
+.dock :global([data-docked-detail] > div > div) {
+  border: 0;
+}
+.dock :global([data-docked-detail] > div > div > div) {
+  padding: 0;
+}
+.dock :global([data-computer-detail-header]),
+.dock :global([data-computer-detail-status]),
+.dock :global([data-computer-detail-navigation]) {
+  display: none;
+}
+.dock :global([data-computer-detail-body]) {
+  margin: 0;
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+  background: var(--background);
+}
+.dock :global([data-computer-detail-body] > div:first-child) {
+  border-radius: 0;
+  box-shadow: none;
+}
+@media (prefers-reduced-motion: reduce) {
+  .tab,
+  .iconButton {
+    transition: none;
+  }
+}
+.container {
+  min-width: 0;
+  min-height: 0;
+  flex-shrink: 0;
+  overflow: hidden;
+  border-left: 1px solid var(--border);
+  background: var(--background);
+  /* Commit the reading width once. Animating dimensions reflows the entire
+     transcript and refits embedded terminals on every animation frame. */
+}
+.container[data-visible="true"] {
+  animation: dockReveal 160ms ease-out;
+}
+@keyframes dockReveal {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+.container[data-visible="false"] {
+  border: 0;
+  visibility: hidden;
+}
+.container[data-placement="bottom"] {
+  border-left: 0;
+  border-top: 1px solid var(--border);
+}
+:global([data-rift-dock-resizing="true"]) > .container {
+  animation: none;
+}
+.bottomResizer {
+  height: 4px;
+  margin-block: -2px;
+  z-index: 1;
+  cursor: row-resize;
+  flex-shrink: 0;
+  outline: none;
+}
+.bottomResizer:hover,
+.bottomResizer:focus-visible {
+  background: color-mix(in srgb, var(--foreground) 20%, transparent);
+}
+@media (min-width: 768px) {
+  :global([data-rift-dock-placement="right"][data-rift-dock-visible="true"])
+    > .container {
+    position: relative;
+    z-index: 26;
+  }
+  :global([data-rift-dock-placement="right"][data-rift-dock-visible="true"])
+    .toolbar {
+    height: var(--rift-window-titlebar-height, 45px);
+    -webkit-app-region: no-drag;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .container[data-visible="true"] {
+    animation: none;
+  }
+}
+
+/* Preview shares the dock's titlebar instead of stacking another toolbar. */
+.dock {
+  container-type: inline-size;
+}
+.previewToolbar {
+  flex: 1;
+  min-width: 0;
+}
+.previewToolbar[hidden],
+.addressBar button[hidden] {
+  display: none;
+}
+.toolbar[data-preview-toolbar="true"] .tabs {
+  flex: 0 1 110px;
+}
+.toolbar[data-preview-toolbar="true"] .tab {
+  max-width: 106px;
+}
+.addressBar[data-compact="true"] {
+  margin: 0;
+  min-height: 0;
+  height: 30px;
+  padding: 0;
+  border: 0;
+  width: 100%;
+}
+.addressBar[data-compact="true"] input {
+  width: 0;
+  text-overflow: ellipsis;
+  background: color-mix(in srgb, var(--foreground) 4%, transparent);
+}
+.previewOptions {
+  width: auto;
+  min-width: 140px;
+  padding: 8px;
+  border-radius: 10px;
+  font-family: var(--font-sans);
+  font-size: 12px;
+}
+.previewOptions > span {
+  display: block;
+  color: var(--muted-foreground);
+  padding: 0 4px 6px;
+}
+.previewOptions > div {
+  display: flex;
+  align-items: center;
+  justify-content: space-around;
+  gap: 8px;
+}
+@container (max-width: 520px) {
+  .toolbar[data-preview-toolbar="true"] .tabs {
+    flex-basis: 57px;
+  }
+  .toolbar[data-preview-toolbar="true"] .tab > button[role="tab"] > span {
+    display: none;
+  }
+}
+
+.addMenu [cmdk-input] {
+  font-family: var(--font-sans);
+  font-size: 13px;
+  height: 40px;
+}
+.addMenu [cmdk-group] {
+  padding: 5px;
+}
+.addMenu [cmdk-group-heading] {
+  font-weight: 400;
+  font-size: 12px;
+}
+.pickerLabel {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.pickerCurrent {
+  margin-left: auto;
+  flex-shrink: 0;
+  color: var(--muted-foreground);
+  font-size: 11px;
+}
+@media (pointer: coarse) {
+  .addMenu [cmdk-item] {
+    min-height: 44px;
+  }
+  .addMenu [cmdk-input] {
+    font-size: 16px;
+    height: 44px;
+  }
+}
+.addMenu [cmdk-input],
+.addMenu [cmdk-input]:focus,
+.addMenu [cmdk-input]:focus-visible {
+  border: 0;
+  outline: none;
+  box-shadow: none;
+}
+
+.overview {
+  height: 100%;
+  overflow: auto;
+  padding: 12px;
+  font-size: 13px;
+}
+.overviewHeading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 8px;
+}
+.overview h3 {
+  font-size: 12px;
+  font-weight: 400;
+  color: var(--muted-foreground);
+}
+.overviewSection {
+  padding: 20px 8px 8px;
+}
+.overview ul {
+  list-style: none;
+  padding: 0;
+  margin: 4px 0 0;
+}
+.overview li > button {
+  display: flex;
+  width: 100%;
+  min-width: 0;
+  align-items: center;
+  gap: 9px;
+  padding: 8px;
+  min-height: 34px;
+  text-align: left;
+  border-radius: 7px;
+  color: var(--muted-foreground);
+}
+.overview li > button > span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.overview li > button > svg {
+  width: 16px;
+  height: 16px;
+  flex-shrink: 0;
+  stroke-width: 1.6;
+}
+.overview li[data-active="true"] > button,
+.overview li > button:hover {
+  background: color-mix(in srgb, var(--foreground) 6%, transparent);
+  color: var(--foreground);
+}
+.overview li > button:focus-visible {
+  outline: 1px solid var(--ring);
+  outline-offset: -1px;
+}
+.overview li > button:disabled {
+  opacity: 0.4;
+  pointer-events: none;
+}
+@media (pointer: coarse) {
+  .overview li > button {
+    min-height: 44px;
+  }
+}

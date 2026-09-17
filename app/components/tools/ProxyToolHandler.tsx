@@ -32,7 +32,7 @@ export const PROXY_COMPLETED_LABELS: Record<string, string> = {
 };
 
 // ---------------------------------------------------------------------------
-// Output formatters — produce clean plain text for the sidebar code block
+// Output formatters produce clean plain text for the sidebar code block.
 // ---------------------------------------------------------------------------
 
 function padRight(str: string, len: number): string {

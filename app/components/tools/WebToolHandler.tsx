@@ -59,7 +59,9 @@ export const WebToolHandler = memo(function WebToolHandler({
   // Determine if this is an open_url action
   const isOpenUrl =
     toolName === "open_url" ||
+    toolName === "browse_url" ||
     type === "tool-open_url" ||
+    type === "tool-browse_url" ||
     (input as LegacyWebInput)?.command === "open_url";
 
   const icon = useMemo(
@@ -182,15 +184,53 @@ export const WebToolHandler = memo(function WebToolHandler({
 
     case "output-available":
       return (
-        <ToolBlock
-          key={toolCallId}
-          icon={icon}
-          action={briefLabel(getAction(true))}
-          target={briefTarget(target)}
-          isClickable={canOpenSidebar}
-          onClick={canOpenSidebar ? handleOpenInSidebar : undefined}
-          onKeyDown={canOpenSidebar ? handleKeyDown : undefined}
-        />
+        <div key={toolCallId} className="min-w-0">
+          <ToolBlock
+            icon={icon}
+            action={briefLabel(getAction(true))}
+            target={briefTarget(target)}
+            isClickable={canOpenSidebar}
+            onClick={canOpenSidebar ? handleOpenInSidebar : undefined}
+            onKeyDown={canOpenSidebar ? handleKeyDown : undefined}
+          />
+          {/* The sources, as numbered chips (aicss inline-citations' footer).
+              These are the search's own results, so every chip is a real
+              destination; the prose carries no [n] markers to bind to, so the
+              chips stand under the block rather than pretending to be
+              citations inline. Capped: a glance-row, not a bibliography. */}
+          {!isOpenUrl && parsedResults.length > 0 ? (
+            <div
+              data-ui="web-sources"
+              className="mt-1 flex flex-wrap items-center gap-1 pl-6"
+            >
+              {parsedResults.slice(0, 4).map((result, index) =>
+                result.url ? (
+                  <a
+                    key={`${result.url}-${index}`}
+                    href={result.url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    title={result.title || result.url}
+                    className="inline-flex max-w-[220px] items-center gap-1.5 rounded-full border border-border bg-foreground/[0.03] py-0.5 pl-1 pr-2 text-[11px] leading-4 text-muted-foreground transition-colors duration-(--duration-hover) hover:border-[var(--composer-command)]/40 hover:text-foreground focus-visible:outline-none"
+                  >
+                    <span className="flex size-3.5 shrink-0 items-center justify-center rounded-full bg-foreground/[0.07] text-[9px] font-medium tabular-nums text-[var(--cursor-text-secondary)]">
+                      {index + 1}
+                    </span>
+                    <span className="truncate">
+                      {(() => {
+                        try {
+                          return new URL(result.url).hostname.replace(/^www\./, "");
+                        } catch {
+                          return result.url;
+                        }
+                      })()}
+                    </span>
+                  </a>
+                ) : null,
+              )}
+            </div>
+          ) : null}
+        </div>
       );
 
     case "output-error":

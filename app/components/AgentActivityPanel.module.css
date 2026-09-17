@@ -1,0 +1,78 @@
+.disclosure {
+  min-width: 0;
+}
+
+.summary {
+  display: flex;
+  min-height: 32px;
+  align-items: center;
+  gap: 6px;
+  border-radius: 6px;
+  padding: 4px 6px;
+  color: var(--muted-foreground);
+  font-size: var(--rift-type-label);
+  font-weight: 500;
+  line-height: 18px;
+  list-style: none;
+  cursor: pointer;
+}
+
+.summary::-webkit-details-marker {
+  display: none;
+}
+
+.summary:focus-visible,
+.operation:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: -2px;
+}
+
+.summary:active {
+  background: var(--muted);
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .summary:hover {
+    background: color-mix(in srgb, var(--foreground) 3.5%, transparent);
+    color: var(--foreground);
+  }
+}
+
+.chevron {
+  width: 14px;
+  height: 14px;
+  flex: none;
+  stroke-width: 1.5;
+}
+
+.disclosure[open] > .summary > .chevron {
+  transform: rotate(90deg);
+}
+
+.facts {
+  display: grid;
+  gap: 8px;
+  margin: 8px 6px 12px;
+  font-size: var(--rift-type-label);
+  line-height: 18px;
+}
+
+.fact {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1.5fr);
+  gap: 12px;
+  align-items: baseline;
+}
+
+.fact > dt {
+  overflow-wrap: anywhere;
+  color: var(--muted-foreground);
+}
+
+.fact > dd {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  text-align: right;
+  color: var(--cursor-text-secondary, var(--foreground));
+  font-variant-numeric: tabular-nums;
+}

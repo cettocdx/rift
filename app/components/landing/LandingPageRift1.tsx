@@ -10,15 +10,15 @@ import {
   Radar,
   Bug,
   Lock,
-  Zap,
+  MessageCircle,
 } from "lucide-react";
-import { RiftMascot } from "../rift/RiftMascot";
+import { RiftLogo } from "@/components/icons/rift-logo";
 import { RiftPixelMark } from "@/components/icons/rift-pixel-mark";
 import { RiftWordmark } from "@/components/icons/rift-wordmark";
 import { LandingHeader } from "./LandingHeader";
 import { RiftHeroCanvas } from "./RiftHeroCanvas";
 import { AttackSurfaceCanvas } from "./AttackSurfaceCanvas";
-import { AppPreview } from "./AppPreview";
+import { CapabilityFlow } from "./CapabilityFlow";
 import { StatsBar } from "./StatsBar";
 import { TrustedByStrip } from "./TrustedByStrip";
 import { SectionHeading } from "./SectionHeading";
@@ -148,7 +148,7 @@ export function LandingPageRift1() {
             <RiftHeroCanvas />
           </div>
           <div
-            className="absolute inset-0 bg-[radial-gradient(ellipse_80%_55%_at_50%_-10%,rgba(52,210,230,0.08),transparent_60%)]"
+            className="absolute inset-0 bg-[radial-gradient(ellipse_80%_55%_at_50%_-10%,rgba(217, 119, 87,0.08),transparent_60%)]"
             aria-hidden
           />
         </div>
@@ -199,7 +199,7 @@ export function LandingPageRift1() {
             </div>
 
             <Reveal>
-              <AppPreview />
+              <CapabilityFlow />
             </Reveal>
           </div>
         </div>
@@ -335,9 +335,9 @@ export function LandingPageRift1() {
             <Reveal delay={80}>
               <div className="overflow-hidden rounded-xl border border-border bg-surface-2 shadow-lg">
                 <div className="flex items-center gap-2 border-b border-border/60 px-4 py-2.5">
-                  <RiftMascot cell={2} />
+                  <RiftLogo size={37} />
                   <div className="text-left leading-tight">
-                    <RiftWordmark height={9} className="text-foreground" />
+                    <RiftWordmark height={14} className="text-foreground" />
                     <div className="text-[10px] text-muted-foreground">
                       ~/session · Agent
                     </div>
@@ -390,7 +390,7 @@ export function LandingPageRift1() {
             <Reveal>
               <div className="h-full rounded-xl border border-border/60 bg-card/30 p-5">
                 <div className="mb-2 flex items-center gap-2">
-                  <Zap className="size-4 text-muted-foreground" />
+                  <MessageCircle className="size-4 text-muted-foreground" />
                   <span className="text-[13px] font-semibold">Ask mode</span>
                 </div>
                 <p className="text-[13px] leading-relaxed text-muted-foreground">
@@ -517,7 +517,7 @@ export function LandingPageRift1() {
       <section className="border-t border-border/40 py-20">
         <Reveal className="mx-auto flex max-w-6xl flex-col items-center px-4 text-center sm:px-6">
           <div className="mb-6 scale-125">
-            <RiftMascot cell={4} />
+            <RiftLogo size={74} />
           </div>
           <h2 className="text-2xl font-semibold tracking-tight sm:text-3xl">
             Ready to run your first op?
@@ -538,8 +538,8 @@ export function LandingPageRift1() {
       <footer className="border-t border-border/40 py-8">
         <div className="mx-auto flex max-w-6xl flex-col items-center justify-between gap-4 px-4 text-center text-[12px] text-muted-foreground sm:flex-row sm:px-6 sm:text-left">
           <div className="flex items-center gap-2">
-            <RiftPixelMark size={18} />
-            <RiftWordmark height={11} />
+            <RiftPixelMark size={21} />
+            <RiftWordmark height={17} />
             <span className="text-muted-foreground">· Pentest AI</span>
           </div>
           <p>

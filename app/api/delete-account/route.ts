@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getUserID } from "@/lib/auth/get-user-id";
 import { deleteUserRateLimitKeys } from "@/lib/rate-limit/token-bucket";
 import { ChatSDKError } from "@/lib/errors";
+import { deleteUserSandboxes } from "@/lib/workbench/delete-sandboxes";
 
 /**
  * Account deletion. The user's Convex data is removed client-side (via the
@@ -19,6 +20,7 @@ export const POST = async (req: NextRequest) => {
         err,
       );
     });
+    await deleteUserSandboxes(userId);
 
     return NextResponse.json({ ok: true });
   } catch (error) {

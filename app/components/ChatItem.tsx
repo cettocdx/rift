@@ -46,15 +46,24 @@ import {
   Share,
   Pin,
   PinOff,
-  LoaderCircle,
+  CircleAlert,
+  SquarePen,
+  Clock3,
 } from "lucide-react";
 import { useMutation } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import { removeDraft } from "@/lib/utils/client-storage";
-import { openSettingsDialog } from "@/lib/utils/settings-dialog";
+import Link from "next/link";
+import { useSettingsNavigation } from "@/app/components/settings/useSettingsNavigation";
 import { ShareDialog } from "./ShareDialog";
 import { usePinChat, useUnpinChat } from "../hooks/useChats";
-import { chatRoute, useAppShell } from "../contexts/AppShellContext";
+import { useChatNavigation } from "@/app/hooks/useChatNavigation";
+import { RiftReasoningOrb } from "@/components/ui/rift-reasoning-orb";
+
+import {
+  CONVERSATION_STATUS_LABELS,
+  type ConversationStatus,
+} from "@/lib/ui/conversation-status";
 
 interface ChatItemProps {
   id: string;
@@ -65,6 +74,7 @@ interface ChatItemProps {
   shareDate?: number;
   isPinned?: boolean;
   isStreaming?: boolean;
+  status?: ConversationStatus;
 }
 
 const ChatItem: React.FC<ChatItemProps> = ({
@@ -76,9 +86,11 @@ const ChatItem: React.FC<ChatItemProps> = ({
   shareDate,
   isPinned = false,
   isStreaming = false,
+  status,
 }) => {
   const router = useRouter();
   const pathname = usePathname();
+  const settingsHref = useSettingsNavigation().hrefFor(null);
   const [isHovered, setIsHovered] = useState(false);
   const [isDropdownOpen, setIsDropdownOpen] = useState(false);
   const [showRenameDialog, setShowRenameDialog] = useState(false);
@@ -99,10 +111,10 @@ const ChatItem: React.FC<ChatItemProps> = ({
   const renameChat = useMutation(api.chats.renameChat);
   const pinChat = usePinChat();
   const unpinChat = useUnpinChat();
-  const { basePath } = useAppShell();
+  const { isActiveChat, goChat } = useChatNavigation();
 
   // Check if this chat is currently active based on URL (usePathname so we re-render when route changes)
-  const isCurrentlyActive = pathname === chatRoute(basePath, id);
+  const isCurrentlyActive = isActiveChat(id, pathname);
 
   const handleClick = () => {
     // Don't navigate if dialog is open or dropdown is open
@@ -122,7 +134,7 @@ const ChatItem: React.FC<ChatItemProps> = ({
     }
 
     // Navigate to the chat route
-    router.push(chatRoute(basePath, id));
+    goChat(id);
   };
 
   const [isDeleting, setIsDeleting] = useState(false);
@@ -150,7 +162,7 @@ const ChatItem: React.FC<ChatItemProps> = ({
       // If we're deleting the currently active chat, navigate to home
       if (isCurrentlyActive) {
         initializeNewChat();
-        router.push(basePath);
+        router.push("/");
       }
     } catch (error: any) {
       // Extract error message
@@ -169,7 +181,7 @@ const ChatItem: React.FC<ChatItemProps> = ({
         removeDraft(id);
         if (isCurrentlyActive) {
           initializeNewChat();
-          router.push(basePath);
+          router.push("/");
         }
       } else {
         console.error("Failed to delete chat:", error);
@@ -288,60 +300,94 @@ const ChatItem: React.FC<ChatItemProps> = ({
 
   return (
     <div
-      className={`group relative flex w-full cursor-pointer items-center rounded-md px-2 py-1.5 text-[12.5px] transition-colors hover:bg-sidebar-accent focus:outline-none focus-visible:ring-1 focus-visible:ring-ring ${
+      /* Literally the same row as the navigation above it: 32px, 6px radius,
+         8px of padding -- the explicit ask, and what cursor.com/agents runs
+         rail-wide. A 30px row on 6px of padding was close enough to look like
+         a mistake rather than a distinction: the longest list in the rail drew
+         its fill two pixels shorter and its text two pixels further left than
+         every row above it.
+         Hover stays the lighter of the two fills; the full strength belongs to
+         the row you are actually on. Matching them made every hover look like
+         a selection. */
+      className={`group relative flex h-[30px] w-full cursor-pointer items-center rounded-[6px] px-1.5 text-ui-nav font-[418] leading-[18px] tracking-[-0.08px] transition-colors duration-(--duration-press) ease-(--ease-out) hover:bg-sidebar-accent/60 hover:text-foreground active:bg-sidebar-accent focus:outline-none ${
         isCurrentlyActive
-          ? "bg-sidebar-accent text-sidebar-accent-foreground"
-          : "text-muted-foreground"
+          ? "bg-sidebar-accent text-sidebar-foreground"
+          : "text-[var(--cursor-text-secondary)]"
       }`}
       onMouseEnter={() => setIsHovered(true)}
       onMouseLeave={() => setIsHovered(false)}
       onClick={handleClick}
       onKeyDown={handleKeyDown}
-      title={title}
+      title={
+        status ? `${title} · ${CONVERSATION_STATUS_LABELS[status]}` : title
+      }
       role="button"
       tabIndex={0}
-      aria-label={`Open chat: ${title}`}
+      aria-label={`Open chat: ${title}${status ? `, ${CONVERSATION_STATUS_LABELS[status]}` : ""}`}
+      aria-current={isCurrentlyActive ? "page" : undefined}
+      data-active={isCurrentlyActive ? "true" : "false"}
       data-testid={`chat-item-${id}`}
     >
-      <div
-        className={`mr-2 min-w-0 flex-1 overflow-hidden text-ellipsis whitespace-nowrap text-sm font-medium ${
-          isHovered || isCurrentlyActive || isDropdownOpen || isMobile
-            ? "[-webkit-mask-image:var(--sidebar-mask-active)] [mask-image:var(--sidebar-mask-active)]"
-            : "[-webkit-mask-image:var(--sidebar-mask)] [mask-image:var(--sidebar-mask)]"
-        }`}
-        dir="auto"
-      >
-        <span className="flex items-center gap-1.5">
-          {isStreaming && (
-            <LoaderCircle
-              className="size-3 flex-shrink-0 animate-spin text-muted-foreground"
-              data-testid="chat-item-streaming-icon"
-            />
-          )}
-          {isPinned && !isStreaming && (
-            <Pin
-              className="size-3 flex-shrink-0 text-muted-foreground"
-              data-testid="chat-item-pin-icon"
-            />
-          )}
-          {isBranched && branchedFromTitle && !isStreaming && (
-            <TooltipProvider delayDuration={300}>
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <Split className="size-3 flex-shrink-0 text-muted-foreground" />
-                </TooltipTrigger>
-                <TooltipContent side="right">
-                  <p className="text-xs">Branched from: {branchedFromTitle}</p>
-                </TooltipContent>
-              </Tooltip>
-            </TooltipProvider>
-          )}
-          {title}
+      {/* The title truncates on its own element. It used to sit as bare text
+          inside the flex row, and `text-overflow: ellipsis` does not apply to
+          an anonymous flex item — which is why long titles were cut through
+          the middle of a glyph with no ellipsis at all. */}
+      <div className="mr-5 min-w-0 flex-1 overflow-hidden" dir="auto">
+        <span className="flex items-center gap-2">
+          {/* A fixed leading slot aligns titles with navigation labels, even
+              when a conversation has no status glyph. */}
+          <span className="flex size-4 shrink-0 items-center justify-center">
+            {status && status !== "running" ? (
+              <span
+                title={CONVERSATION_STATUS_LABELS[status]}
+                aria-label={CONVERSATION_STATUS_LABELS[status]}
+                className={`shrink-0 ${status === "failed" ? "text-destructive" : status === "draft" ? "text-muted-foreground" : "text-amber-600 dark:text-amber-400"}`}
+              >
+                {status === "draft" ? (
+                  <SquarePen aria-hidden className="size-3" />
+                ) : status === "waiting" ? (
+                  <Clock3 aria-hidden className="size-3" />
+                ) : (
+                  <CircleAlert aria-hidden className="size-3" />
+                )}
+              </span>
+            ) : isStreaming ? (
+              <span
+                data-testid="chat-item-streaming-icon"
+                className="inline-flex"
+              >
+                <RiftReasoningOrb />
+              </span>
+            ) : isPinned ? (
+              <Pin
+                className="size-3 flex-shrink-0 text-muted-foreground"
+                data-testid="chat-item-pin-icon"
+                strokeWidth={1.75}
+              />
+            ) : isBranched && branchedFromTitle ? (
+              <TooltipProvider delayDuration={300}>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Split
+                      className="size-3 flex-shrink-0 text-muted-foreground"
+                      strokeWidth={1.75}
+                    />
+                  </TooltipTrigger>
+                  <TooltipContent side="right">
+                    <p className="text-xs">
+                      Branched from: {branchedFromTitle}
+                    </p>
+                  </TooltipContent>
+                </Tooltip>
+              </TooltipProvider>
+            ) : null}
+          </span>
+          <span className="min-w-0 truncate">{title}</span>
         </span>
       </div>
 
       <div
-        className={`absolute right-2 opacity-0 transition-opacity ${
+        className={`absolute right-1 opacity-0 transition-opacity duration-100 ${
           isHovered || isCurrentlyActive || isDropdownOpen || isMobile
             ? "opacity-100"
             : ""
@@ -352,14 +398,14 @@ const ChatItem: React.FC<ChatItemProps> = ({
             <Button
               variant="ghost"
               size="sm"
-              className="h-6 w-6 p-0 hover:bg-sidebar-accent"
+              className="size-5 rounded-[8px] p-0 hover:bg-sidebar-accent"
               onClick={(e) => {
                 e.stopPropagation();
                 e.preventDefault();
               }}
               aria-label="Open conversation options"
             >
-              <Ellipsis className="h-4 w-4" />
+              <Ellipsis className="size-[14px]" />
             </Button>
           </DropdownMenuTrigger>
           <DropdownMenuContent
@@ -390,7 +436,7 @@ const ChatItem: React.FC<ChatItemProps> = ({
             </DropdownMenuItem>
             <DropdownMenuItem
               onClick={handleDeleteClick}
-              className="text-destructive focus:text-destructive"
+              className="text-muted-foreground focus:text-foreground"
             >
               <Trash2 className="mr-2 h-4 w-4" />
               Delete
@@ -463,16 +509,13 @@ const ChatItem: React.FC<ChatItemProps> = ({
                 </p>
                 <p className="mt-2 text-sm text-muted-foreground">
                   Visit{" "}
-                  <button
-                    type="button"
+                  <Link
+                    href={settingsHref}
                     className="underline hover:text-foreground"
-                    onClick={() => {
-                      setShowDeleteDialog(false);
-                      openSettingsDialog();
-                    }}
+                    onClick={() => setShowDeleteDialog(false)}
                   >
                     settings
-                  </button>{" "}
+                  </Link>{" "}
                   to delete any notes saved during this chat.
                 </p>
               </div>
@@ -483,7 +526,7 @@ const ChatItem: React.FC<ChatItemProps> = ({
             <AlertDialogAction
               onClick={handleDeleteConfirm}
               disabled={isDeleting}
-              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              className="bg-foreground text-background hover:bg-foreground/90"
             >
               {isDeleting ? "Deleting..." : "Delete"}
             </AlertDialogAction>

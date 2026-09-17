@@ -171,6 +171,26 @@ describe("pruneToolOutputs", () => {
     expect(result.prunedCount).toBe(0);
   });
 
+  it.each(["generate_image", "generate_video"])(
+    "never prunes the %s deliverable reference",
+    (toolName) => {
+      const output = {
+        ok: true,
+        fileId: `file-${toolName}`,
+        storageId: `storage-${toolName}`,
+        url: `https://media.example/${"x".repeat(5_000)}`,
+      };
+      const messages: UIMessage[] = [
+        makeAssistantMessage([makeToolPart(toolName, output, {})]),
+      ];
+
+      const result = pruneToolOutputs(messages, 0, NO_MIN);
+
+      expect(result.prunedCount).toBe(0);
+      expect((result.messages[0].parts[0] as any).output).toEqual(output);
+    },
+  );
+
   it("generates correct placeholder for file read tool", () => {
     const fileContent = Array.from({ length: 100 }, (_, i) => `line ${i}`).join(
       "\n",
@@ -288,6 +308,36 @@ describe("pruneToolOutputs", () => {
     const result = pruneToolOutputs(messages, 5, NO_MIN);
     const searchPart = result.messages[0].parts[0] as any;
     expect(searchPart.output).toBe("[Search: 'how to fix bug']");
+  });
+
+  it("compacts rendered browser pages without retaining their full text", () => {
+    const messages: UIMessage[] = [
+      makeAssistantMessage([
+        makeToolPart(
+          "browse_url",
+          {
+            ok: true,
+            url: "https://example.com/docs",
+            text: "documentation ".repeat(1_000),
+          },
+          { url: "https://example.com/docs" },
+        ),
+      ]),
+      makeAssistantMessage(
+        [
+          makeToolPart(
+            "run_terminal_cmd",
+            { stdout: "recent", exitCode: 0 },
+            { command: "echo" },
+          ),
+        ],
+        "msg-new",
+      ),
+    ];
+
+    const result = pruneToolOutputs(messages, 5, NO_MIN);
+    const browserPart = result.messages[0].parts[0] as any;
+    expect(browserPart.output).toBe("[URL: opened https://example.com/docs]");
   });
 
   it("generates correct placeholder for unknown tools", () => {
@@ -563,6 +613,41 @@ describe("pruneToolOutputs", () => {
     }
   });
 
+  it("compacts old delegate_task results while preserving their decision summary", () => {
+    const messages: UIMessage[] = [
+      makeAssistantMessage([
+        makeToolPart(
+          "delegate_task",
+          {
+            ok: true,
+            agent: { name: "Ada" },
+            summary: "Keep the verification gate request-scoped.",
+            findings: [{ detail: "x".repeat(5_000) }],
+          },
+          { name: "Ada", role: "reviewer" },
+        ),
+      ]),
+      makeAssistantMessage(
+        [
+          makeToolPart(
+            "run_terminal_cmd",
+            { stdout: "ok", exitCode: 0 },
+            { command: "echo" },
+          ),
+        ],
+        "msg-new",
+      ),
+    ];
+
+    const result = pruneToolOutputs(messages, 5, NO_MIN);
+    const delegatePart = result.messages[0].parts[0] as any;
+
+    expect(result.prunedCount).toBe(1);
+    expect(delegatePart.output).toBe(
+      "[Subagent: Ada — Keep the verification gate request-scoped.]",
+    );
+  });
+
   // --- Minimum savings threshold ---
 
   it("skips pruning when token savings are below minimum threshold", () => {
@@ -713,6 +798,114 @@ describe("pruneToolOutputs", () => {
     expect(result.toolOutputCount).toBe(2);
     expect(result.totalToolOutputTokens).toBeGreaterThan(0);
     expect(result.tokensSaved).toBeGreaterThan(0);
+  });
+});
+
+describe("compactMessageForStorage — evidence is offloaded, not destroyed", () => {
+  const terminalPart = (toolCallId: string, text: string) => ({
+    type: "data-terminal",
+    id: `pty-${toolCallId}-${text.length}`,
+    data: { terminal: text, toolCallId, action: "exec" },
+  });
+
+  it("folds streamed terminal parts into one evidence blob and removes them", () => {
+    // Each emit is its own part with its own id, so one long command leaves
+    // hundreds on a message. Nothing in the pipeline could shrink them, which
+    // is why assistant messages kept approaching Convex's 1 MiB cap.
+    const chunks = Array.from({ length: 200 }, (_, index) =>
+      terminalPart("call-1", `line ${index} ${"x".repeat(200)}\n`),
+    );
+    const message = makeAssistantMessage([
+      { type: "text", text: "ran the build" },
+      ...chunks,
+    ]);
+
+    const result = compactMessageForStorage(message, {
+      softLimitBytes: 5_000,
+    });
+
+    expect(result.compacted).toBe(true);
+    expect(result.strippedTerminalParts).toBe(200);
+    expect(
+      result.message.parts.some((part: any) => part.type === "data-terminal"),
+    ).toBe(false);
+    expect(result.afterSizeBytes).toBeLessThan(result.beforeSizeBytes);
+
+    // The output is preserved in one piece, in order.
+    expect(result.offloaded).toHaveLength(1);
+    const evidence = result.offloaded[0];
+    expect(evidence.kind).toBe("terminal_output");
+    expect(evidence.toolCallId).toBe("call-1");
+    expect(evidence.content).toContain("line 0 ");
+    expect(evidence.content).toContain("line 199 ");
+  });
+
+  it("keeps each tool call's streamed output separate", () => {
+    const message = makeAssistantMessage([
+      terminalPart("call-a", "a".repeat(4000)),
+      terminalPart("call-b", "b".repeat(4000)),
+    ]);
+
+    const result = compactMessageForStorage(message, { softLimitBytes: 2_000 });
+
+    expect(result.offloaded).toHaveLength(2);
+    const byId = Object.fromEntries(
+      result.offloaded.map((item) => [item.toolCallId, item.content]),
+    );
+    expect(byId["call-a"]).toBe("a".repeat(4000));
+    expect(byId["call-b"]).toBe("b".repeat(4000));
+  });
+
+  it("hands back the full tool output it replaced with a placeholder", () => {
+    // Pruning overwrites structured output with a one-line placeholder. The
+    // content it overwrote has to come back out, or the run's evidence is gone
+    // the moment the message is read again.
+    const message = makeAssistantMessage([
+      makeToolPart(
+        "run_terminal_cmd",
+        {
+          result: {
+            exitCode: 1,
+            output: "compilation failed\n".repeat(2000),
+            durationMs: 4200,
+            startedAt: 1000,
+            endedAt: 5200,
+          },
+        },
+        { command: "npm run build" },
+      ),
+    ]);
+
+    const result = compactMessageForStorage(message, {
+      softLimitBytes: 1_000,
+      toolOutputTokenBudget: 0,
+    });
+
+    expect(result.prunedCount).toBeGreaterThan(0);
+    const offloadedTerminal = result.offloaded.find(
+      (item) => item.toolName === "run_terminal_cmd",
+    );
+    expect(offloadedTerminal).toBeDefined();
+    expect(offloadedTerminal!.content).toContain("compilation failed");
+    // The evidence keeps what the placeholder cannot carry.
+    expect(offloadedTerminal!.command).toBe("npm run build");
+    expect(offloadedTerminal!.exitCode).toBe(1);
+    expect(offloadedTerminal!.durationMs).toBe(4200);
+  });
+
+  it("offloads nothing when the message is small enough to store as-is", () => {
+    const message = makeAssistantMessage([
+      { type: "text", text: "short" },
+      terminalPart("call-1", "tiny"),
+    ]);
+
+    const result = compactMessageForStorage(message, {
+      softLimitBytes: 100_000,
+    });
+
+    expect(result.compacted).toBe(false);
+    expect(result.offloaded).toEqual([]);
+    expect(result.strippedTerminalParts).toBe(0);
   });
 });
 
@@ -1005,6 +1198,72 @@ describe("pruneModelMessages", () => {
     expect(filePart.output).toMatch(
       /\[File: read \/src\/index\.ts \(50 lines\)\]/,
     );
+  });
+
+  it("supports AI SDK v6 tool-call input and structured tool-result output", () => {
+    const messages = [
+      {
+        role: "assistant",
+        content: [
+          {
+            type: "tool-call",
+            toolCallId: "delegate-old",
+            toolName: "delegate_task",
+            input: { name: "Grace", role: "debugger" },
+          },
+        ],
+      },
+      {
+        role: "tool",
+        content: [
+          {
+            type: "tool-result",
+            toolCallId: "delegate-old",
+            toolName: "delegate_task",
+            output: {
+              type: "json",
+              value: {
+                ok: true,
+                agent: { name: "Grace" },
+                summary: "The abort signal is wired correctly.",
+                findings: [{ detail: "x".repeat(5_000) }],
+              },
+            },
+          },
+        ],
+      },
+      {
+        role: "assistant",
+        content: [
+          {
+            type: "tool-call",
+            toolCallId: "terminal-new",
+            toolName: "run_terminal_cmd",
+            input: { command: "echo ok" },
+          },
+        ],
+      },
+      {
+        role: "tool",
+        content: [
+          {
+            type: "tool-result",
+            toolCallId: "terminal-new",
+            toolName: "run_terminal_cmd",
+            output: { type: "json", value: { stdout: "ok", exitCode: 0 } },
+          },
+        ],
+      },
+    ];
+
+    const result = pruneModelMessages(messages, 5, NO_MIN);
+    const delegateOutput = (result.messages[1] as any).content[0].output;
+
+    expect(result.prunedCount).toBe(1);
+    expect(delegateOutput).toEqual({
+      type: "text",
+      value: "[Subagent: Grace — The abort signal is wired correctly.]",
+    });
   });
 
   it("does not prune protected tools", () => {
@@ -1453,5 +1712,161 @@ describe("repairAnthropicModelMessages", () => {
 
     expect(repairAnthropicModelMessages(userEnding)).toBe(userEnding);
     expect(repairAnthropicModelMessages(toolEnding)).toBe(toolEnding);
+  });
+});
+
+/*
+ * The production failure this pass exists for.
+ *
+ * A Build run wrote many files, and the `file` tool carries each whole file
+ * body in its INPUT. Every earlier pass trims OUTPUT, so the cascade ran out of
+ * moves and returned the message anyway: prod logged 2,342,009 bytes reduced to
+ * 1,992,384 — still roughly twice the 1MB document limit — and the database
+ * refused it, taking 58 minutes of finished work with it.
+ */
+describe("compactMessageForStorage — tool inputs are the last resort", () => {
+  const bigFileWrite = (path: string, size: number) =>
+    makeToolPart(
+      "file",
+      { content: "written" },
+      { action: "write", path, text: "x".repeat(size) },
+    );
+
+  it("excerpts tool inputs when trimming outputs cannot get under the limit", () => {
+    const message = makeAssistantMessage([
+      bigFileWrite("/app/a.tsx", 60_000),
+      bigFileWrite("/app/b.tsx", 60_000),
+      bigFileWrite("/app/c.tsx", 60_000),
+    ]);
+
+    const result = compactMessageForStorage(message, {
+      softLimitBytes: 20_000,
+      toolOutputTokenBudget: 0,
+    });
+
+    expect(result.fitsSoftLimit).toBe(true);
+    expect(result.afterSizeBytes).toBeLessThanOrEqual(20_000);
+    expect(result.excerptedInputs).toBeGreaterThan(0);
+  });
+
+  it("keeps the original input as offloaded evidence rather than destroying it", () => {
+    const original = "x".repeat(60_000);
+    const message = makeAssistantMessage([
+      makeToolPart(
+        "file",
+        { content: "written" },
+        { action: "write", path: "/app/a.tsx", text: original },
+      ),
+    ]);
+
+    const result = compactMessageForStorage(message, {
+      softLimitBytes: 5_000,
+      toolOutputTokenBudget: 0,
+    });
+
+    const offloadedInput = result.offloaded.find((e) => e.kind === "tool_input");
+    expect(offloadedInput?.content).toBe(original);
+    expect(offloadedInput?.toolName).toBe("file");
+  });
+
+  it("leaves the rest of the input intact — only the bulky string is excerpted", () => {
+    const message = makeAssistantMessage([
+      bigFileWrite("/app/a.tsx", 60_000),
+    ]);
+
+    const result = compactMessageForStorage(message, {
+      softLimitBytes: 5_000,
+      toolOutputTokenBudget: 0,
+    });
+
+    const input = (result.message.parts[0] as any).input;
+    expect(input.action).toBe("write");
+    expect(input.path).toBe("/app/a.tsx");
+    expect(input.text).toContain("characters moved to run evidence");
+    expect(input.text.length).toBeLessThan(5_000);
+  });
+
+  // Largest-first is what keeps this gentle: one big file usually buys the
+  // whole budget, and the run's smaller inputs are left alone.
+  it("stops as soon as it fits, leaving smaller inputs whole", () => {
+    const small = "s".repeat(3_000);
+    const message = makeAssistantMessage([
+      bigFileWrite("/app/huge.tsx", 400_000),
+      makeToolPart(
+        "file",
+        { content: "written" },
+        { action: "write", path: "/app/small.tsx", text: small },
+      ),
+    ]);
+
+    const result = compactMessageForStorage(message, {
+      softLimitBytes: 50_000,
+      toolOutputTokenBudget: 0,
+    });
+
+    expect(result.fitsSoftLimit).toBe(true);
+    expect(result.excerptedInputs).toBe(1);
+    expect((result.message.parts[1] as any).input.text).toBe(small);
+  });
+
+  it("nests into arrays, so an edit's find/replace halves are reachable", () => {
+    const body = "y".repeat(80_000);
+    const message = makeAssistantMessage([
+      makeToolPart(
+        "file",
+        { content: "edited" },
+        {
+          action: "edit",
+          path: "/app/a.tsx",
+          edits: [{ find: body, replace: body }],
+        },
+      ),
+    ]);
+
+    const result = compactMessageForStorage(message, {
+      softLimitBytes: 10_000,
+      toolOutputTokenBudget: 0,
+    });
+
+    expect(result.fitsSoftLimit).toBe(true);
+    const edit = (result.message.parts[0] as any).input.edits[0];
+    expect(edit.find).toContain("characters moved to run evidence");
+  });
+
+  // Honest reporting matters more than a green flag: a caller logs this to
+  // catch a message that is still too big BEFORE the database refuses it.
+  it("uses an archive reference when inline prose cannot fit", () => {
+    const message = makeAssistantMessage([
+      { type: "text", text: "z".repeat(60_000) },
+    ]);
+
+    const result = compactMessageForStorage(message, {
+      softLimitBytes: 1_000,
+      toolOutputTokenBudget: 0,
+    });
+
+    expect(result.fitsSoftLimit).toBe(true);
+  });
+});
+
+describe("storage overflow guard", () => {
+  it("bounds large string results that token pruning deliberately skips", () => {
+    const original = makeAssistantMessage([
+      makeToolPart("get_terminal_files", "ğ".repeat(560_000)),
+      { type: "text", text: "Completed the requested changes." },
+    ]);
+    const result = compactMessageForStorage(original);
+    expect(result.fitsSoftLimit).toBe(true);
+    expect(result.afterSizeBytes).toBeLessThan(850 * 1024);
+    expect(result.message.parts).toContainEqual(original.parts[1]);
+    expect((original.parts[0] as any).output).toHaveLength(560_000);
+  });
+  it("bounds oversized prose too, including the duplicated searchable content", () => {
+    const result = compactMessageForStorage(makeAssistantMessage([
+      { type: "text", text: "x".repeat(900_000) },
+    ]));
+    expect(result.fitsSoftLimit).toBe(true);
+    const texts = result.message.parts.filter(p => p.type === "text").map(p => (p as any).text).join("\n");
+    expect(estimateSerializedSizeBytes({parts: result.message.parts, content: texts})).toBeLessThan(950 * 1024);
   });
 });

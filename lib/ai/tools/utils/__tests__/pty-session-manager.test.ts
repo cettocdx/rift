@@ -67,6 +67,36 @@ describe("PtySessionManager", () => {
     jest.useRealTimers();
   });
 
+  it("isolates concurrent runs in the same chat across asynchronous work and late cleanup", async () => {
+    const oldHandle = makeFakeHandle();
+    const newHandle = makeFakeHandle();
+    const create = (handle: FakeHandle) => manager.create("same-chat", {
+      createHandle: makeCreateHandleFactory(handle), cols: 120, rows: 30,
+    });
+    const [oldSession, newSession] = await Promise.all([
+      manager.withScope("old-run", async () => { await Promise.resolve(); return create(oldHandle); }),
+      manager.withScope("new-run", async () => { await Promise.resolve(); return create(newHandle); }),
+    ]);
+    expect(oldSession.chatId).toBe("same-chat");
+    expect(manager.withScope("old-run", () => manager.get("same-chat", newSession.sessionId))).toBeUndefined();
+    expect(manager.withScope("new-run", () => manager.list("same-chat"))).toEqual([newSession]);
+    oldHandle.__exit(0);
+    await manager.withScope("old-run", () => manager.closeAll("same-chat"));
+    expect(oldHandle.kill).toHaveBeenCalledTimes(1);
+    expect(newHandle.kill).not.toHaveBeenCalled();
+    expect(manager.withScope("new-run", () => manager.get("same-chat", newSession.sessionId))).toBe(newSession);
+  });
+
+  it("does not close a run's terminals from a denied worker or unscoped cleanup", async () => {
+    const handle = makeFakeHandle();
+    await manager.withScope("current-run", () => manager.create("same-chat", {
+      createHandle: makeCreateHandleFactory(handle), cols: 120, rows: 30,
+    }));
+    await manager.withScope("denied-run", () => manager.closeAll("same-chat"));
+    await manager.closeAll("same-chat");
+    expect(handle.kill).not.toHaveBeenCalled();
+  });
+
   describe("create", () => {
     it("returns a session with sessionId, pid, cols, rows and handle", async () => {
       const handle = makeFakeHandle({ pid: 4242 });
@@ -396,6 +426,28 @@ describe("PtySessionManager", () => {
       expect(manager.get("chat-1", session.sessionId)).toBeUndefined();
     });
 
+    it("removes local state within 2s even when kill and exited never settle", async () => {
+      const handle = makeFakeHandle();
+      handle.kill.mockImplementation(() => new Promise<void>(() => {}));
+      const session = await manager.create("chat-1", {
+        createHandle: makeCreateHandleFactory(handle),
+        cols: 80,
+        rows: 24,
+      });
+
+      const closePromise = manager.close("chat-1", session.sessionId);
+      await Promise.resolve();
+      expect(handle.kill).toHaveBeenCalledTimes(1);
+      expect(manager.get("chat-1", session.sessionId)).toBe(session);
+
+      jest.advanceTimersByTime(1_999);
+      expect(manager.get("chat-1", session.sessionId)).toBe(session);
+      jest.advanceTimersByTime(1);
+      await closePromise;
+
+      expect(manager.get("chat-1", session.sessionId)).toBeUndefined();
+    });
+
     it("close on unknown session is a no-op", async () => {
       await expect(manager.close("chat-1", "missing")).resolves.toBeUndefined();
     });
@@ -454,6 +506,60 @@ describe("PtySessionManager", () => {
 
     it("get returns undefined for unknown session", () => {
       expect(manager.get("chat-1", "missing")).toBeUndefined();
+    });
+  });
+
+  describe("reconnectable cursor reads", () => {
+    it("attaches an existing handle under a stable session id", () => {
+      const handle = makeFakeHandle({ pid: 8080 });
+      const session = manager.attach("workbench-user", {
+        sessionId: "stable-session",
+        handle,
+        cols: 100,
+        rows: 28,
+        createdAt: 1_700_000_000_000,
+      });
+
+      expect(session.sessionId).toBe("stable-session");
+      expect(session.pid).toBe(8080);
+      expect(manager.get("workbench-user", "stable-session")).toBe(session);
+    });
+
+    it("uses absolute cursors and reports reset after ring eviction", async () => {
+      const handle = makeFakeHandle();
+      const session = await manager.create("chat-1", {
+        createHandle: makeCreateHandleFactory(handle),
+        cols: 80,
+        rows: 24,
+      });
+      const chunkSize = MAX_BUFFER_BYTES / 2;
+      handle.__emit(new Uint8Array(chunkSize).fill(1));
+      handle.__emit(new Uint8Array(chunkSize).fill(2));
+
+      const first = manager.readFromCursor(session, 0);
+      expect(first.reset).toBe(false);
+      expect(first.nextCursor).toBe(MAX_BUFFER_BYTES);
+
+      handle.__emit(new Uint8Array(chunkSize).fill(3));
+      const stale = manager.readFromCursor(session, 0);
+      expect(stale.reset).toBe(true);
+      expect(stale.retainedFrom).toBe(chunkSize);
+      expect(stale.nextCursor).toBe(MAX_BUFFER_BYTES + chunkSize);
+      expect(stale.bytes.byteLength).toBe(MAX_BUFFER_BYTES);
+    });
+
+    it("touch refreshes the idle timer for client input", async () => {
+      const handle = makeFakeHandle();
+      const session = await manager.create("chat-1", {
+        createHandle: makeCreateHandleFactory(handle),
+        cols: 80,
+        rows: 24,
+      });
+
+      jest.advanceTimersByTime(SESSION_IDLE_TIMEOUT_MS - 100);
+      manager.touch(session);
+      jest.advanceTimersByTime(200);
+      expect(handle.kill).not.toHaveBeenCalled();
     });
   });
 
@@ -529,6 +635,34 @@ describe("PtySessionManager", () => {
       expect(handle.kill).toHaveBeenCalledTimes(1);
       // Session must be removed after both resolve
       expect(manager.get("chat-1", session.sessionId)).toBeUndefined();
+    });
+  });
+
+  describe("expected teardown failures", () => {
+    it("removes an expired sandbox session without logging an application error", async () => {
+      const handle = makeFakeHandle();
+      handle.kill.mockRejectedValueOnce(
+        Object.assign(new Error("The sandbox was not found"), {
+          name: "TimeoutError",
+        }),
+      );
+      const errorSpy = jest
+        .spyOn(console, "error")
+        .mockImplementation(() => {});
+      const session = await manager.create("chat-1", {
+        createHandle: makeCreateHandleFactory(handle),
+        cols: 80,
+        rows: 24,
+      });
+
+      const closePromise = manager.close("chat-1", session.sessionId);
+      handle.__exit(null);
+      jest.advanceTimersByTime(2500);
+      await closePromise;
+
+      expect(manager.get("chat-1", session.sessionId)).toBeUndefined();
+      expect(errorSpy).not.toHaveBeenCalled();
+      errorSpy.mockRestore();
     });
   });
 });

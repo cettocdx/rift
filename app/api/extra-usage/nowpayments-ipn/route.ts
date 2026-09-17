@@ -7,6 +7,13 @@ import { bonusPointsForDollars } from "@/lib/billing/token-packages";
 const convex = new ConvexHttpClient(process.env.NEXT_PUBLIC_CONVEX_URL!);
 
 /**
+ * RIFT no longer creates new crypto invoices (card-only via LemonSqueezy now)
+ * — see convex/extraUsageActions.ts, `createCryptoInvoice` was removed. This
+ * receiver stays live only to correctly credit any invoices created before
+ * that change; do not wire new crypto purchase flows to it.
+ */
+
+/**
  * Recursively sort object keys so the JSON string is canonical — NowPayments
  * computes the IPN HMAC over the body with keys sorted alphabetically, so we
  * must reproduce the exact same serialization to verify the signature.

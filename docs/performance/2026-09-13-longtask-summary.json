@@ -1,0 +1,269 @@
+{
+  "sourceRevision": "6e9557a",
+  "diagnostic": true,
+  "run": "rift-longtask-quiet-20260913",
+  "units": "milliseconds except sample counts",
+  "clock": {
+    "validated": true,
+    "uncertaintyMs": 0.19750000536441803,
+    "markers": [
+      {
+        "phase": "before-replay",
+        "sampleCount": 24,
+        "validated": true
+      },
+      {
+        "phase": "after-replay",
+        "sampleCount": 25,
+        "validated": true
+      }
+    ]
+  },
+  "metrics": {
+    "durationMs": 61071,
+    "frameP95Ms": 16.799999999995634,
+    "frameMaxMs": 250,
+    "longTaskCount": 5,
+    "longTaskMaxMs": 259,
+    "longTaskEntriesDropped": 0
+  },
+  "tasks": [
+    {
+      "startTime": 52748.39999997616,
+      "duration": 259,
+      "sampleCount": 200,
+      "maxSampleDeltaMs": 5.542,
+      "topSelf": [
+        {
+          "function": "(program)",
+          "samples": 180
+        },
+        {
+          "function": "resize",
+          "samples": 7,
+          "source": "app/hooks/useMessageScroll.ts",
+          "line": 176,
+          "column": 19
+        },
+        {
+          "function": "",
+          "samples": 6,
+          "source": "app/hooks/useMessageScroll.ts",
+          "line": 336,
+          "column": 40
+        },
+        {
+          "function": "requestAnimationFrame",
+          "samples": 4
+        },
+        {
+          "function": "getBoundingClientRect",
+          "samples": 2
+        },
+        {
+          "function": "contains",
+          "samples": 1
+        }
+      ],
+      "overlappingLoAFs": [
+        {
+          "startTime": 52632.29999998212,
+          "duration": 327.5,
+          "scripts": [
+            {
+              "startTime": 52632.29999998212,
+              "duration": 20,
+              "invoker": "MessagePort.onmessage",
+              "sourceFunctionName": "performWorkUntilDeadline",
+              "forcedLayoutMs": 0
+            },
+            {
+              "startTime": 52652.69999998808,
+              "duration": 94,
+              "invoker": "MessagePort.onmessage",
+              "sourceFunctionName": "performWorkUntilDeadline",
+              "forcedLayoutMs": 0
+            },
+            {
+              "startTime": 52781.5,
+              "duration": 9,
+              "invoker": "FrameRequestCallback",
+              "sourceFunctionName": "",
+              "forcedLayoutMs": 0
+            },
+            {
+              "startTime": 52933.5,
+              "duration": 25,
+              "invoker": "ResizeObserverCallback",
+              "sourceFunctionName": "",
+              "forcedLayoutMs": 0
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "startTime": 23397.5,
+      "duration": 101,
+      "sampleCount": 88,
+      "maxSampleDeltaMs": 1.625,
+      "topSelf": [
+        {
+          "function": "(program)",
+          "samples": 86
+        },
+        {
+          "function": "(idle)",
+          "samples": 1
+        },
+        {
+          "function": "requestAnimationFrame",
+          "samples": 1
+        }
+      ],
+      "overlappingLoAFs": [
+        {
+          "startTime": 23366.69999998808,
+          "duration": 115,
+          "scripts": [
+            {
+              "startTime": 23388.09999999404,
+              "duration": 8,
+              "invoker": "TimerHandler:setInterval",
+              "sourceFunctionName": "",
+              "forcedLayoutMs": 0
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "startTime": 51206.59999999404,
+      "duration": 96,
+      "sampleCount": 77,
+      "maxSampleDeltaMs": 1.334,
+      "topSelf": [
+        {
+          "function": "(program)",
+          "samples": 77
+        }
+      ],
+      "overlappingLoAFs": [
+        {
+          "startTime": 51203.39999997616,
+          "duration": 98.60000002384186,
+          "scripts": []
+        }
+      ]
+    },
+    {
+      "startTime": 52652.69999998808,
+      "duration": 94,
+      "sampleCount": 69,
+      "maxSampleDeltaMs": 9.5,
+      "topSelf": [
+        {
+          "function": "Tooltip",
+          "samples": 27,
+          "source": "@radix-ui/react-tooltip/src/tooltip.tsx",
+          "line": 152,
+          "column": 40
+        },
+        {
+          "function": "renderWithHooks",
+          "samples": 23,
+          "source": "react-dom/cjs/react-dom-client.production.js",
+          "line": 4333,
+          "column": 9
+        },
+        {
+          "function": "(garbage collector)",
+          "samples": 7
+        },
+        {
+          "function": "",
+          "samples": 7,
+          "source": "streamdown/dist/chunk-BO2N2NFS.js",
+          "line": 23,
+          "column": 6099
+        },
+        {
+          "function": "shallowEqual",
+          "samples": 2,
+          "source": "react-dom/cjs/react-dom-client.production.js",
+          "line": 2109,
+          "column": 9
+        },
+        {
+          "function": "toolName",
+          "samples": 1,
+          "source": "lib/chat/transcript-presentation.ts",
+          "line": 60,
+          "column": 17
+        }
+      ],
+      "overlappingLoAFs": [
+        {
+          "startTime": 52632.29999998212,
+          "duration": 327.5,
+          "scripts": [
+            {
+              "startTime": 52632.29999998212,
+              "duration": 20,
+              "invoker": "MessagePort.onmessage",
+              "sourceFunctionName": "performWorkUntilDeadline",
+              "forcedLayoutMs": 0
+            },
+            {
+              "startTime": 52652.69999998808,
+              "duration": 94,
+              "invoker": "MessagePort.onmessage",
+              "sourceFunctionName": "performWorkUntilDeadline",
+              "forcedLayoutMs": 0
+            },
+            {
+              "startTime": 52781.5,
+              "duration": 9,
+              "invoker": "FrameRequestCallback",
+              "sourceFunctionName": "",
+              "forcedLayoutMs": 0
+            },
+            {
+              "startTime": 52933.5,
+              "duration": 25,
+              "invoker": "ResizeObserverCallback",
+              "sourceFunctionName": "",
+              "forcedLayoutMs": 0
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "startTime": 51114.79999998212,
+      "duration": 75,
+      "sampleCount": 60,
+      "maxSampleDeltaMs": 1.334,
+      "topSelf": [
+        {
+          "function": "(program)",
+          "samples": 60
+        }
+      ],
+      "overlappingLoAFs": [
+        {
+          "startTime": 51114.79999998212,
+          "duration": 74.2000000178814,
+          "scripts": []
+        }
+      ]
+    }
+  ],
+  "limitations": [
+    "Coordinated quiet period, not continuous system-wide isolation.",
+    "CPU program samples do not identify browser phases or JavaScript source.",
+    "LoAF, Long Task and script intervals differ; overlap is not causality.",
+    "Clock bracket excludes browser timer quantization and profiler overhead.",
+    "No tooltip React owner identity, allocation source or outlier-resolution claim."
+  ]
+}

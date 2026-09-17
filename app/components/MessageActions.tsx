@@ -8,13 +8,13 @@ import {
   Split,
 } from "lucide-react";
 import { useState } from "react";
-import Image from "next/image";
 import type { ChatStatus } from "@/types";
 import { WithTooltip } from "@/components/ui/with-tooltip";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { formatMessageActionTimestamp } from "@/lib/utils/message-time";
 import { SourcesDialog } from "./SourcesDialog";
+import { SourceDomainBadge } from "./SourceDomainBadge";
 
 interface MessageActionsProps {
   messageText: string;
@@ -50,7 +50,7 @@ interface MessageActionVisibility {
 }
 
 const timestampClassName =
-  "flex h-7 items-center px-1.5 text-sm leading-none text-muted-foreground tabular-nums whitespace-nowrap transition-opacity duration-200 ease-in-out";
+  "flex h-6 items-center px-1 text-[11px] leading-none text-muted-foreground tabular-nums whitespace-nowrap transition-opacity duration-150 ease-in-out";
 
 export function getMessageActionVisibility({
   isUser,
@@ -102,7 +102,7 @@ function MessageTimestamp({
         timestampClassName,
         isVisible
           ? "opacity-70"
-          : "opacity-0 group-focus-within/message-actions:opacity-70",
+          : "opacity-0 group-hover/message:opacity-70 group-focus-within/message-actions:opacity-70",
       )}
     >
       {display}
@@ -133,19 +133,6 @@ export const MessageActions = ({
   const [copied, setCopied] = useState(false);
   const [isSourcesOpen, setIsSourcesOpen] = useState(false);
   const [isRegenerating, setIsRegenerating] = useState(false);
-
-  const getFaviconUrl = (domain: string) => {
-    return `https://www.google.com/s2/favicons?domain=${domain}&sz=32`;
-  };
-
-  const getDomain = (url: string) => {
-    try {
-      const u = new URL(url);
-      return `${u.protocol}//${u.hostname}`;
-    } catch {
-      return url;
-    }
-  };
 
   const handleCopy = async () => {
     try {
@@ -202,11 +189,11 @@ export const MessageActions = ({
   return (
     <div
       className={cn(
-        "group/message-actions mt-1 flex flex-wrap items-center gap-2 transition-opacity duration-200 ease-in-out",
+        "group/message-actions mt-1 flex min-h-6 flex-wrap items-center gap-1 transition-opacity duration-150 ease-in-out",
         isUser ? "justify-end" : "justify-start",
         actionsAreVisible
           ? "opacity-100"
-          : "pointer-events-none opacity-0 focus-within:pointer-events-auto focus-within:opacity-100",
+          : "pointer-events-none opacity-0 group-hover/message:pointer-events-auto group-hover/message:opacity-100 focus-within:pointer-events-auto focus-within:opacity-100",
       )}
     >
       {shouldRenderActions ? (
@@ -219,16 +206,16 @@ export const MessageActions = ({
             />
           )}
 
-          <div className="flex items-center space-x-2">
+          <div className="flex items-center gap-0.5">
             <WithTooltip
               display={copied ? "Copied!" : "Copy message"}
               trigger={
                 <button
                   onClick={handleCopy}
-                  className="p-1.5 opacity-70 hover:opacity-100 transition-opacity rounded hover:bg-secondary text-muted-foreground"
+                  className="flex size-6 items-center justify-center rounded-md text-muted-foreground opacity-70 transition-colors hover:bg-accent hover:text-foreground hover:opacity-100 focus-visible:outline-none"
                   aria-label={copied ? "Copied!" : "Copy message"}
                 >
-                  {copied ? <Check size={16} /> : <Copy size={16} />}
+                  {copied ? <Check size={14} /> : <Copy size={14} />}
                 </button>
               }
               side="bottom"
@@ -242,10 +229,10 @@ export const MessageActions = ({
                 trigger={
                   <button
                     onClick={onEdit}
-                    className="p-1.5 opacity-70 hover:opacity-100 transition-opacity rounded hover:bg-secondary text-muted-foreground"
+                    className="flex size-6 items-center justify-center rounded-md text-muted-foreground opacity-70 transition-colors hover:bg-accent hover:text-foreground hover:opacity-100 focus-visible:outline-none"
                     aria-label="Edit message"
                   >
-                    <Pencil size={16} />
+                    <Pencil size={14} />
                   </button>
                 }
                 side="bottom"
@@ -264,7 +251,7 @@ export const MessageActions = ({
                       <button
                         type="button"
                         onClick={() => handleFeedback("positive")}
-                        className={`p-1.5 transition-opacity rounded hover:bg-secondary ${
+                        className={`flex size-6 items-center justify-center rounded-md transition-colors hover:bg-accent focus-visible:outline-none ${
                           existingFeedback === "positive"
                             ? "opacity-100 text-foreground"
                             : "opacity-70 hover:opacity-100 text-muted-foreground"
@@ -272,7 +259,7 @@ export const MessageActions = ({
                         aria-label="Good response"
                       >
                         <ThumbsUp
-                          size={16}
+                          size={14}
                           fill={
                             existingFeedback === "positive"
                               ? "currentColor"
@@ -291,7 +278,7 @@ export const MessageActions = ({
                     <button
                       type="button"
                       onClick={() => handleFeedback("negative")}
-                      className={`p-1.5 transition-opacity rounded hover:bg-secondary ${
+                      className={`flex size-6 items-center justify-center rounded-md transition-colors hover:bg-accent focus-visible:outline-none ${
                         existingFeedback === "negative" ||
                         isAwaitingFeedbackDetails
                           ? "opacity-100 text-foreground"
@@ -300,7 +287,7 @@ export const MessageActions = ({
                       aria-label="Poor response"
                     >
                       <ThumbsDown
-                        size={16}
+                        size={14}
                         fill={
                           existingFeedback === "negative" ||
                           isAwaitingFeedbackDetails
@@ -325,10 +312,10 @@ export const MessageActions = ({
                     type="button"
                     onClick={handleRegenerate}
                     disabled={!canRegenerate || isRegenerating}
-                    className="p-1.5 opacity-70 hover:opacity-100 disabled:opacity-50 transition-opacity rounded hover:bg-secondary text-muted-foreground"
+                    className="flex size-6 items-center justify-center rounded-md text-muted-foreground opacity-70 transition-colors hover:bg-accent hover:text-foreground hover:opacity-100 focus-visible:outline-none disabled:opacity-40"
                     aria-label="Regenerate response"
                   >
-                    <RotateCcw size={16} />
+                    <RotateCcw size={14} />
                   </button>
                 }
                 side="bottom"
@@ -344,10 +331,10 @@ export const MessageActions = ({
                   <button
                     type="button"
                     onClick={onBranch}
-                    className="p-1.5 opacity-70 hover:opacity-100 transition-opacity rounded hover:bg-secondary text-muted-foreground"
+                    className="flex size-6 items-center justify-center rounded-md text-muted-foreground opacity-70 transition-colors hover:bg-accent hover:text-foreground hover:opacity-100 focus-visible:outline-none"
                     aria-label="Branch in new chat"
                   >
-                    <Split size={16} />
+                    <Split size={14} />
                   </button>
                 }
                 side="bottom"
@@ -362,34 +349,27 @@ export const MessageActions = ({
               variant="ghost"
               size="sm"
               onClick={() => setIsSourcesOpen(true)}
-              className="group/footnote bg-background hover:bg-muted flex w-fit items-center gap-1.5 rounded-3xl px-3 py-1.5 h-auto"
+              className="group/footnote flex h-6 w-fit items-center gap-1.5 rounded-md border border-border bg-transparent px-2 text-[11px] text-muted-foreground hover:bg-accent hover:text-foreground"
               aria-label="View sources"
             >
               <div className="flex flex-row-reverse">
                 {sources.slice(0, 3).map((src, idx) => {
-                  const domain = getDomain(src.url);
                   return (
                     <div
                       key={`src-${idx}`}
                       className="border-background bg-background flex items-center overflow-clip rounded-full -ms-1.5 first:me-0 border-2 group-hover/footnote:border-muted relative"
                     >
                       <div className="relative inline-block shrink-0">
-                        <Image
-                          alt=""
-                          width={20}
-                          height={20}
-                          className="w-5 h-5 rounded-full shadow-[inset_0_0_0_1px_rgba(0,0,0,0.05)] duration-200 motion-safe:transition-opacity opacity-100"
-                          src={getFaviconUrl(domain)}
-                          unoptimized
+                        <SourceDomainBadge
+                          source={src.url}
+                          className="opacity-80 transition-opacity motion-reduce:transition-none"
                         />
                       </div>
                     </div>
                   );
                 })}
               </div>
-              <div className="text-muted-foreground mt-[-1px] text-[13px] font-medium">
-                Sources
-              </div>
+              <div className="text-[11px] font-medium">Sources</div>
             </Button>
           )}
 
@@ -404,7 +384,7 @@ export const MessageActions = ({
       ) : (
         <>
           {/* Invisible spacer buttons to maintain layout */}
-          <div className="p-1.5 w-7 h-7" />
+          <div className="size-6" />
         </>
       )}
 

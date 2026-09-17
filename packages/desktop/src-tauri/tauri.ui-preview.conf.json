@@ -1,0 +1,27 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "build": {
+    "devUrl": "http://localhost:3020"
+  },
+  "app": {
+    "security": {
+      "csp": "default-src 'self' http://localhost:3020 https://riftsys.app https://*.riftsys.app https://*.convex.cloud https://*.convex.dev https://api.workos.com; script-src 'self' 'unsafe-inline' 'unsafe-eval' http://localhost:3020 https://riftsys.app https://*.riftsys.app https://*.convex.cloud; style-src 'self' 'unsafe-inline' http://localhost:3020 https://riftsys.app https://*.riftsys.app; img-src 'self' data: https: http: blob:; font-src 'self' data: https: http:; connect-src 'self' ws://localhost:8000 http://localhost:3020 ws://localhost:3020 https://riftsys.app https://*.riftsys.app wss://*.riftsys.app https://*.convex.cloud wss://*.convex.cloud https://api.workos.com https://*.posthog.com https://*.stripe.com https://api.trigger.dev https://*.trigger.dev wss://*.trigger.dev; frame-src 'self' https://*.stripe.com; media-src 'self' blob:;",
+      "capabilities": ["ui-preview"]
+    }
+  },
+  "productName": "RIFT UI Preview",
+  "identifier": "app.riftsys.ui-preview",
+  "bundle": {
+    "active": false,
+    "resources": {
+      "native-codex/": "native-codex/"
+    }
+  },
+  "plugins": {
+    "deep-link": {
+      "desktop": {
+        "schemes": ["rift-preview"]
+      }
+    }
+  }
+}

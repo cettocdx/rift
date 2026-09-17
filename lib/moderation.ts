@@ -1,30 +1,61 @@
+import {
+  getProviderContext,
+  type ProviderContext,
+} from "./ai/provider-context";
 import OpenAI from "openai";
 import { encode, decode } from "gpt-tokenizer";
+import { isStandaloneGreetingTurn } from "./api/standalone-greeting";
 
 const MODERATION_TOKEN_LIMIT = 512;
 
-// Build the OpenAI client once per process instead of on every request — the
-// constructor sets up connection pooling/keep-alive, so reusing it avoids a
-// fresh TLS handshake to the moderation endpoint on the chat hot path.
-let openaiSingleton: OpenAI | null = null;
-function getOpenAIClient(apiKey: string): OpenAI {
-  if (!openaiSingleton) {
-    openaiSingleton = new OpenAI({ apiKey });
+// Reuse the last matching configuration without retaining another deployment's
+// credentials. Each returned SDK client owns explicit configuration for its life.
+let openaiSingleton: { context: ProviderContext; client: OpenAI } | undefined;
+function getOpenAIClient(context: ProviderContext): OpenAI {
+  const previous = openaiSingleton?.context;
+  if (
+    !previous ||
+    previous.openaiApiKey !== context.openaiApiKey ||
+    previous.openaiBaseUrl !== context.openaiBaseUrl ||
+    previous.openaiOrganization !== context.openaiOrganization ||
+    previous.openaiProject !== context.openaiProject
+  ) {
+    openaiSingleton = {
+      context,
+      client: new OpenAI({
+        apiKey: context.openaiApiKey,
+        baseURL: context.openaiBaseUrl ?? "https://api.openai.com/v1",
+        organization: context.openaiOrganization ?? null,
+        project: context.openaiProject ?? null,
+      }),
+    };
   }
-  return openaiSingleton;
+  return openaiSingleton!.client;
 }
 
 export async function getModerationResult(
   messages: any[],
   isPaidUser: boolean,
+  options: { signal?: AbortSignal; standaloneGreeting?: boolean } = {},
 ): Promise<{ shouldUncensorResponse: boolean; moderationText: string }> {
-  const openaiApiKey = process.env.OPENAI_API_KEY;
+  options.signal?.throwIfAborted();
+  // Pure greetings need no authorization-reinforcing prompt. Keep the
+  // conservative default, rather than waiting for a classification whose
+  // positive result is unnecessary. Validate content as well as caller context.
+  if (
+    options.standaloneGreeting &&
+    isStandaloneGreetingTurn(messages, { purpose: "app" })
+  ) {
+    return { shouldUncensorResponse: false, moderationText: "" };
+  }
+  const providerContext = getProviderContext();
+  const openaiApiKey = providerContext.openaiApiKey;
 
   if (!openaiApiKey) {
     return { shouldUncensorResponse: false, moderationText: "" };
   }
 
-  const openai = getOpenAIClient(openaiApiKey);
+  const openai = getOpenAIClient(providerContext);
 
   // Find the last user message that exceeds the minimum length
   const targetMessage = findTargetMessage(messages, 30);
@@ -36,10 +67,14 @@ export async function getModerationResult(
   const input = prepareInput(targetMessage);
 
   try {
-    const moderation = await openai.moderations.create({
-      model: "omni-moderation-latest",
-      input: input,
-    });
+    const moderation = await openai.moderations.create(
+      {
+        model: "omni-moderation-latest",
+        input: input,
+      },
+      { timeout: 4000, maxRetries: 0, signal: options.signal },
+    );
+    options.signal?.throwIfAborted();
 
     // Check if moderation results exist and are not empty
     if (!moderation?.results || moderation.results.length === 0) {
@@ -68,6 +103,7 @@ export async function getModerationResult(
 
     return { shouldUncensorResponse, moderationText: input };
   } catch (_error: any) {
+    options.signal?.throwIfAborted();
     // console.error('Error in getModerationResult:', error);
     return { shouldUncensorResponse: false, moderationText: "" };
   }

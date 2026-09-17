@@ -30,9 +30,19 @@ export interface ShellToolOutput {
     error?: string;
     sessionSnapshot?: string;
     rawSnapshot?: string;
+    // run_terminal_cmd nests the real exit code here, not at the top level.
+    exitCode?: number | null;
+    // Set when a command was stopped before it reported an exit code.
+    aborted?: boolean;
+    // Evidence timing, in epoch ms, persisted with the command result.
+    startedAt?: number;
+    endedAt?: number;
+    durationMs?: number;
   };
   output?: string;
   exitCode?: number | null;
+  // Set when a shell command was stopped before it finished.
+  aborted?: boolean;
   pid?: number;
   session?: string;
   error?: boolean | string;

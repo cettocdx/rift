@@ -1,3 +1,8 @@
+import {
+  reportBillingReservation,
+  type BillingReservationDiagnostics,
+} from "./reservation-diagnostics";
+import type { PaidLedgerSnapshot } from "@/lib/billing/paid-ledger-migration";
 /**
  * Rate Limiting Module
  *
@@ -9,11 +14,11 @@
  *    - Single monthly bucket: credits = subscription price, refills every 30 days
  *    - Supports extra usage (prepaid balance) when limits exceeded
  *
- * 2. Fixed Window (Free users):
- *    - Shared request-unit counting within a daily fixed window (resets at midnight UTC)
- *    - Ask mode costs 1 unit
- *    - Agent mode (local sandbox only) costs 2 units
- *    - Default free budget: 10 units/day (FREE_RATE_LIMIT_REQUESTS)
+ * 2. Free users (PAYG):
+ *    - Ask mode: daily fixed-window allowance (FREE_RATE_LIMIT_REQUESTS/day,
+ *      resets at midnight UTC), then the prepaid balance.
+ *    - Agent mode: ONE free run for life (claimed in Convex extra_usage), then
+ *      the prepaid balance — must buy tokens.
  */
 
 import { isAgentMode } from "@/lib/utils/mode-helpers";
@@ -27,6 +32,7 @@ import type {
 // Re-export token bucket functions
 export {
   checkTokenBucketLimit,
+  checkAccountCreditLimit,
   checkBalanceLimit,
   deductUsage,
   deductBalanceUsage,
@@ -47,6 +53,8 @@ export {
   POINTS_PER_DOLLAR,
 } from "./token-bucket";
 
+export { retireLegacyPaidBucketsForRenewal } from "@/lib/billing/paid-ledger-migration";
+
 // Re-export sliding window functions
 export {
   checkFreeUserRateLimit,
@@ -64,9 +72,14 @@ export {
 } from "./free-monthly-cost";
 
 // Import for internal use
-import { checkTokenBucketLimit, checkBalanceLimit } from "./token-bucket";
+import {
+  checkTokenBucketLimit,
+  checkAccountCreditLimit,
+  checkBalanceLimit,
+} from "./token-bucket";
 import { checkFreeMonthlyCostLimit } from "./free-monthly-cost";
-import { FREE_AGENT_REQUEST_COST, FREE_ASK_REQUEST_COST } from "./free-config";
+import { FREE_ASK_REQUEST_COST } from "./free-config";
+import { claimFreeAgentRun } from "@/lib/extra-usage";
 import {
   checkFreeUserRateLimit,
   checkFreeAgentRateLimit,
@@ -94,13 +107,55 @@ export const checkRateLimit = async (
   extraUsageConfig?: ExtraUsageConfig,
   modelName?: string,
   organizationId?: string,
+  ledgerSnapshot?: PaidLedgerSnapshot,
+  diagnostics?: BillingReservationDiagnostics,
+  pricingMargin?: number,
 ): Promise<RateLimitInfo> => {
-  // Free users (PAYG): daily + monthly free budget first, then prepaid balance.
+  // Only the account-ledger path reports autoReloadAllowed: its exact action option.
+  if (subscription !== "pro" && subscription !== "ultra") {
+    reportBillingReservation(diagnostics, {
+      type: "strategy",
+      strategy:
+        subscription === "free"
+          ? isAgentMode(mode)
+            ? "free_agent_then_balance"
+            : "free_ask_then_balance"
+          : "legacy_token_bucket",
+    });
+  }
+  // Free users (PAYG).
   if (subscription === "free") {
-    const requestCost = isAgentMode(mode)
-      ? FREE_AGENT_REQUEST_COST
-      : FREE_ASK_REQUEST_COST;
+    // Agent mode: ONE free run per calendar month, then it must be paid from
+    // the prepaid balance. The monthly claim lives in Convex (extra_usage,
+    // keyed by month), separate from the daily ask-mode window.
+    if (isAgentMode(mode)) {
+      const granted = await claimFreeAgentRun(userId);
+      if (granted) {
+        // This month's free agent run — served free, no balance charge.
+        const now = new Date();
+        const nextMonth = new Date(
+          Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 1),
+        );
+        return {
+          remaining: 0,
+          limit: 1,
+          resetTime: nextMonth,
+          servedFrom: "free",
+        };
+      }
+      // Free agent run already spent — draw from the prepaid balance; throws a
+      // "buy tokens" error when empty and auto-reload is off.
+      return checkBalanceLimit(
+        userId,
+        estimatedInputTokens || 0,
+        modelName,
+        extraUsageConfig,
+        ...(pricingMargin === undefined ? [] : [pricingMargin]),
+      );
+    }
 
+    // Ask mode: daily free allowance (FREE_RATE_LIMIT_REQUESTS/day), then the
+    // prepaid balance once the day's allowance or the monthly cost cap is spent.
     // Peek the monthly free-cost cap WITHOUT throwing or consuming, so an
     // exhausted month falls through to the prepaid balance instead of a hard
     // block — mirroring the daily-window fall-through below.
@@ -111,7 +166,7 @@ export const checkRateLimit = async (
     if (!monthly.monthlyExhausted) {
       // Monthly budget still has room — consume the daily free window WITHOUT
       // throwing on exhaustion so we can still fall through to balance.
-      const free = await checkFreeUserRateLimit(userId, requestCost, {
+      const free = await checkFreeUserRateLimit(userId, FREE_ASK_REQUEST_COST, {
         throwOnExhaustion: false,
       });
 
@@ -129,10 +184,36 @@ export const checkRateLimit = async (
       estimatedInputTokens || 0,
       modelName,
       extraUsageConfig,
+      ...(pricingMargin === undefined ? [] : [pricingMargin]),
     );
   }
 
-  // Paid users: token bucket (same budget for both modes)
+  // Consumer paid plans use the single Convex account ledger. Included
+  // credits are spent first, then permanent add-ons; Redis is migration-only.
+  if (subscription === "pro" || subscription === "ultra") {
+    const ledgerArgs: [
+      PaidLedgerSnapshot?,
+      BillingReservationDiagnostics?,
+      number?,
+    ] =
+      pricingMargin !== undefined
+        ? [ledgerSnapshot, diagnostics, pricingMargin]
+        : diagnostics
+          ? [ledgerSnapshot, diagnostics]
+          : ledgerSnapshot
+            ? [ledgerSnapshot]
+            : [];
+    return checkAccountCreditLimit(
+      userId,
+      subscription,
+      estimatedInputTokens || 0,
+      extraUsageConfig,
+      modelName,
+      ...ledgerArgs,
+    );
+  }
+
+  // Team / legacy Pro+ users retain their existing token bucket.
   return checkTokenBucketLimit(
     userId,
     subscription,
@@ -140,5 +221,6 @@ export const checkRateLimit = async (
     extraUsageConfig,
     modelName,
     organizationId,
+    ...(pricingMargin === undefined ? [] : [pricingMargin]),
   );
 };

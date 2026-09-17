@@ -1,6 +1,7 @@
+import { useLayoutEffect } from "react";
 import "@testing-library/jest-dom";
-import { describe, it, expect, jest, beforeEach } from "@jest/globals";
-import { render, screen } from "@testing-library/react";
+import { describe, it, expect, beforeEach } from "@jest/globals";
+import { act, render, screen, waitFor } from "@testing-library/react";
 
 // ===== IMPORTANT: Mock all dependencies BEFORE importing Chat =====
 // These mocks are hoisted by Jest
@@ -22,6 +23,11 @@ const mockSetMessages = jest.fn();
 const mockStop = jest.fn();
 const mockRegenerate = jest.fn();
 const mockResumeStream = jest.fn();
+const mockPrepareWorkingFileRequest = jest.fn<(...args: unknown[]) => Promise<unknown>>().mockResolvedValue(undefined);
+
+jest.mock("@/lib/composer/working-file-request", () => ({
+  prepareWorkingFileRequest: (...args: unknown[]) => mockPrepareWorkingFileRequest(...args),
+}));
 
 jest.mock("@ai-sdk/react", () => ({
   useChat: jest.fn(() => ({
@@ -36,8 +42,38 @@ jest.mock("@ai-sdk/react", () => ({
   })),
 }));
 
+// This integration suite controls SDK state explicitly; real retained-reader
+// navigation is covered by useRetainedChat's streaming transport tests.
+jest.mock("../../hooks/useRetainedChat", () => ({
+  useRetainedChatMessageCount: () => 0,
+  useRetainedChat: (options: unknown) => ({
+    ...require("@ai-sdk/react").useChat(options),
+    retentionEnabled: false,
+    retainedContinuationPending: false,
+    retainedSession: false,
+    retainedDataStream: [],
+    registerResumeAbort: () => () => {},
+    registerRequestContext: () => {},
+    stopRetainedReader: mockStop,
+    getRetainedMessages: () => [],
+  }),
+}));
+
+jest.mock("convex/react", () => {
+  const actual = jest.requireActual("convex/react") as Record<string, unknown>;
+  return { ...actual, usePaginatedQuery: jest.fn(actual.usePaginatedQuery as (...args: unknown[]) => unknown) };
+});
+
+jest.mock("@/lib/chat/agent-long-transport", () => ({
+  preloadAgentLongTransport: jest.fn(),
+  fetchAgentLongStream: jest.fn(async () => ({ ok: true })),
+  resumeAgentLongStream: jest.fn(),
+}));
+
 jest.mock("next/navigation", () => ({
   useParams: jest.fn(() => ({})),
+  usePathname: jest.fn(() => "/"),
+  useSearchParams: jest.fn(() => new URLSearchParams()),
   useRouter: jest.fn(() => ({
     push: jest.fn(),
     replace: jest.fn(),
@@ -57,6 +93,7 @@ jest.mock("@/hooks/use-mobile", () => ({
 }));
 
 jest.mock("@/lib/utils/client-storage", () => ({
+  ...jest.requireActual("@/lib/utils/client-storage"),
   NULL_THREAD_DRAFT_ID: "null-thread",
   getDraftContentById: jest.fn(() => null),
   upsertDraft: jest.fn(),
@@ -181,12 +218,14 @@ jest.mock("@/components/ui/sidebar", () => ({
 import { Chat } from "../chat";
 import { ChatLayout } from "../ChatLayout";
 import { TestWrapper } from "../testUtils";
+import { useGlobalState } from "@/app/contexts/GlobalState";
 
 describe("Chat Component Integration", () => {
   let mockUseChat: jest.Mock;
 
   beforeEach(() => {
     jest.clearAllMocks();
+    mockPrepareWorkingFileRequest.mockResolvedValue(undefined);
     const { useParams } = require("next/navigation");
     useParams.mockReturnValue({});
     const { useChat } = require("@ai-sdk/react");
@@ -204,6 +243,65 @@ describe("Chat Component Integration", () => {
     });
   });
 
+  it("keeps the originating project while working-file preflight awaits across a context change", async () => {
+    let state!: ReturnType<typeof useGlobalState>;
+    function Probe() { const current = useGlobalState(); useLayoutEffect(() => { state = current; }); return null; }
+    render(<TestWrapper><Probe /><Chat autoResume={false} /></TestWrapper>);
+    act(() => {
+      state.setChatPurpose("app");
+      state.setActiveProject({ id: "origin-project" as any, type: "app" });
+    });
+    let release!: () => void;
+    mockPrepareWorkingFileRequest.mockImplementationOnce(() => new Promise<void>(resolve => { release = resolve; }));
+    const options = mockUseChat.mock.calls.at(-1)?.[0] as any;
+    const prepared = options.transport.prepareSendMessagesRequest({
+      id: options.id,
+      messages: [{ id: "user-1", role: "user", parts: [{ type: "text", text: "Continue this project" }] }],
+      body: { mode: "agent", selectedModel: "build-codex" },
+    });
+    expect(mockPrepareWorkingFileRequest).toHaveBeenCalled();
+    act(() => { state.setActiveProject({ id: "other-project" as any, type: "image" }); });
+    release();
+    await expect(prepared).resolves.toMatchObject({ body: { projectId: "origin-project", purpose: "app" } });
+  });
+
+  it("observes a submitted persistent home run even when its acknowledgement is lost", async () => {
+    const convex = require("convex/react");
+    const query = convex.usePaginatedQuery;
+    {
+      render(<TestWrapper><Chat autoResume={false} /></TestWrapper>);
+      await waitFor(() => expect(mockUseChat).toHaveBeenCalled());
+      const options = mockUseChat.mock.calls.at(-1)?.[0] as any;
+      expect(query.mock.calls.some((args: any) => args[1]?.chatId === options.id)).toBe(false);
+      const fetchAgent = require("@/lib/chat/agent-long-transport").fetchAgentLongStream;
+      let rejectPost!: (error: Error) => void;
+      fetchAgent.mockImplementationOnce(() => new Promise((_resolve, reject) => { rejectPost = reject; }));
+      let post!: Promise<unknown>;
+      await act(async () => {
+        post = options.transport.fetch("/api/chat", {
+          method: "POST",
+          body: JSON.stringify({ chatId: options.id, mode: "agent", temporary: false }),
+        }).catch(() => undefined);
+      });
+      expect(query.mock.calls.some((args: any) => args[1]?.chatId === options.id)).toBe(true);
+      expect(screen.queryByText("Chat not found")).not.toBeInTheDocument();
+      await act(async () => { rejectPost(new TypeError("Failed to fetch")); await post; });
+    }
+  });
+
+  it.each(["temporary", "other-chat"])("does not observe an unrelated %s request as this home chat", async (kind) => {
+    const query = require("convex/react").usePaginatedQuery;
+    render(<TestWrapper><Chat autoResume={false} /></TestWrapper>);
+    const options = mockUseChat.mock.calls.at(-1)?.[0] as any;
+    await act(async () => {
+      await options.transport.fetch("/api/chat", {
+        method: "POST",
+        body: JSON.stringify({ chatId: kind === "other-chat" ? "another-chat" : options.id, mode: "agent", temporary: kind === "temporary" }),
+      });
+    });
+    expect(query.mock.calls.some((args: any) => args[1]?.chatId === options.id)).toBe(false);
+  });
+
   describe("Basic Rendering", () => {
     it("should render new chat with welcome message", () => {
       render(
@@ -213,6 +311,7 @@ describe("Chat Component Integration", () => {
       );
 
       expect(screen.getByRole("heading", { level: 1 })).toBeInTheDocument();
+      expect(screen.queryByTestId("rift-brand-bar")).not.toBeInTheDocument();
     });
 
     it("should render with provided chatId", () => {
@@ -256,6 +355,7 @@ describe("Chat Component Integration", () => {
       expect(
         container.querySelector(".flex.bg-transparent"),
       ).toBeInTheDocument();
+      expect(screen.queryByTestId("rift-brand-bar")).not.toBeInTheDocument();
     });
   });
 

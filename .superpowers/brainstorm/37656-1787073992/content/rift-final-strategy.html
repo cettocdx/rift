@@ -1,0 +1,209 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>RIFT Final Strategy</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      --bg:#080808;
+      --surface:#101010;
+      --surface-2:#151515;
+      --line:#282828;
+      --text:#f3f3ef;
+      --muted:#a5a39f;
+      --dim:#75736e;
+      --signal:#ff756a;
+      --green:#9bf5b4;
+      --blue:#8ccbff;
+      --ease:cubic-bezier(.23,1,.32,1);
+    }
+    * { box-sizing:border-box; }
+    body {
+      margin:0;
+      min-height:100dvh;
+      color:var(--text);
+      background:
+        radial-gradient(circle at 68% -10rem, rgba(255,117,106,.065), transparent 34rem),
+        var(--bg);
+      font-family:Geist,"SF Pro Display",-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;
+      line-height:1.5;
+    }
+    button { font:inherit; }
+    .page { width:min(1500px,calc(100% - 40px)); margin:0 auto; padding:38px 0 76px; }
+    .label { color:#8e8c87; font:500 10px/1.2 "SFMono-Regular",Consolas,monospace; letter-spacing:.12em; text-transform:uppercase; }
+    .top { display:grid; grid-template-columns:1.25fr .75fr; gap:50px; align-items:end; margin-bottom:30px; }
+    h1 { margin:12px 0 0; max-width:950px; font-size:clamp(44px,5vw,78px); line-height:.97; letter-spacing:-.062em; font-weight:520; text-wrap:balance; }
+    .top p { margin:0; max-width:52ch; color:var(--muted); font-size:15px; }
+    .locked { display:flex; gap:7px; flex-wrap:wrap; margin-top:16px; }
+    .locked span { padding:6px 9px; border:1px solid var(--line); border-radius:999px; color:#c2c0bb; font:9px/1 monospace; }
+    .recommendation { display:grid; grid-template-columns:minmax(0,1.2fr) minmax(340px,.8fr); gap:14px; }
+    .hybrid { overflow:hidden; border:1px solid var(--line); border-radius:18px; background:#0b0b0b; }
+    .hybrid-head { display:flex; align-items:center; justify-content:space-between; gap:16px; min-height:62px; padding:0 20px; border-bottom:1px solid var(--line); background:#111; }
+    .hybrid-head strong { font-size:14px; font-weight:580; }
+    .recommended { padding:6px 9px; border-radius:999px; background:var(--signal); color:#120907; font:650 9px/1 monospace; }
+    .hero { position:relative; min-height:470px; display:grid; grid-template-columns:.9fr 1.1fr; align-items:center; gap:20px; padding:52px 44px 70px; overflow:hidden; }
+    .hero-copy { position:relative; z-index:2; }
+    .hero h2 { margin:0; max-width:570px; font-size:clamp(48px,5.4vw,78px); line-height:.92; letter-spacing:-.068em; font-weight:520; }
+    .hero p { max-width:42ch; margin:20px 0 0; color:var(--muted); font-size:15px; }
+    .hero-actions { display:flex; gap:8px; margin-top:25px; }
+    .primary,.secondary { min-height:42px; padding:0 16px; border-radius:999px; font-size:11px; font-weight:630; }
+    .primary { border:0; background:var(--text); color:#090909; }
+    .secondary { border:1px solid var(--line); background:#111; color:#d1cfca; }
+    .hero-visual { position:relative; min-height:330px; }
+    .hero-visual > img { position:absolute; width:520px; height:350px; left:50%; top:50%; transform:translate(-50%,-50%); object-fit:cover; opacity:.42; mix-blend-mode:screen; mask-image:radial-gradient(circle,#000 0 56%,transparent 78%); }
+    .mini-product { position:absolute; left:10%; right:0; bottom:0; padding:6px; border:1px solid rgba(255,255,255,.15); border-radius:14px; background:rgba(255,255,255,.035); box-shadow:0 25px 70px rgba(0,0,0,.62); }
+    .mini-product img { display:block; width:100%; border:1px solid rgba(255,255,255,.08); border-radius:9px; }
+    .flow { border-top:1px solid var(--line); }
+    .flow-row { display:grid; grid-template-columns:120px 1fr 160px; gap:18px; min-height:83px; align-items:center; padding:14px 20px; border-bottom:1px solid var(--line); }
+    .flow-row:last-child { border-bottom:0; }
+    .flow-row b { color:#a9a7a1; font:500 9px/1.2 monospace; letter-spacing:.08em; }
+    .flow-row strong { display:block; font-size:14px; font-weight:560; }
+    .flow-row span { color:var(--muted); font-size:11px; }
+    .source { justify-self:end; color:#7b7974; font:9px/1.3 monospace; text-align:right; }
+    .side { display:grid; gap:12px; }
+    .panel { border:1px solid var(--line); border-radius:14px; padding:18px; background:rgba(16,16,16,.94); }
+    .panel h3 { margin:8px 0 12px; font-size:19px; letter-spacing:-.03em; font-weight:560; }
+    .panel p { margin:0; color:var(--muted); font-size:12px; }
+    .identity-system { display:grid; grid-template-columns:repeat(3,1fr); gap:6px; margin-top:14px; }
+    .identity-tile { overflow:hidden; border:1px solid var(--line); border-radius:9px; background:#050505; }
+    .identity-tile img { display:block; width:100%; aspect-ratio:1; object-fit:cover; }
+    .identity-tile span { display:block; padding:7px; color:#96948f; font:8px/1 monospace; text-align:center; }
+    .brand-rule { margin-top:12px; padding:11px; border-left:2px solid var(--signal); background:rgba(255,117,106,.045); color:#c0beb8; font-size:11px; }
+    .tokens { display:grid; grid-template-columns:repeat(5,1fr); gap:5px; margin:13px 0 10px; }
+    .token { aspect-ratio:1; border:1px solid rgba(255,255,255,.1); border-radius:7px; }
+    .specs { margin:0; padding:0; list-style:none; }
+    .specs li { display:grid; grid-template-columns:90px 1fr; gap:10px; padding:9px 0; border-bottom:1px solid rgba(255,255,255,.07); color:#b7b5af; font-size:11px; }
+    .specs li:last-child { border-bottom:0; }
+    .specs b { color:#777570; font:500 9px/1.4 monospace; }
+    .matrix { margin-top:14px; border:1px solid var(--line); border-radius:14px; overflow:hidden; }
+    .matrix-row { display:grid; grid-template-columns:180px repeat(3,1fr); }
+    .matrix-row > div { min-height:46px; padding:12px 14px; border-right:1px solid var(--line); border-bottom:1px solid var(--line); color:#aaa8a2; font-size:11px; }
+    .matrix-row > div:last-child { border-right:0; }
+    .matrix-row:last-child > div { border-bottom:0; }
+    .matrix-row.head > div { background:#111; color:#ededeb; font-weight:570; }
+    .matrix-row .criterion { color:#777570; font:9px/1.4 monospace; text-transform:uppercase; letter-spacing:.08em; }
+    .best { color:var(--signal)!important; }
+    .decision { margin-top:18px; padding:25px; border:1px solid var(--line); border-radius:16px; background:#0d0d0d; }
+    .decision h2 { margin:0; font-size:26px; line-height:1.1; letter-spacing:-.04em; font-weight:550; }
+    .decision > p { margin:7px 0 18px; color:var(--muted); font-size:13px; }
+    .choices { display:grid; grid-template-columns:repeat(3,1fr); gap:9px; }
+    .option { min-height:150px; padding:17px; border:1px solid var(--line); border-radius:12px; background:#111; color:var(--text); text-align:left; cursor:pointer; transition:transform 160ms var(--ease),border-color 160ms ease,background 160ms ease; }
+    .option:active { transform:scale(.98); }
+    .option.selected { border-color:var(--signal); background:rgba(255,117,106,.06); }
+    .option.reco { border-color:rgba(255,117,106,.36); }
+    .option strong { display:block; margin:8px 0 5px; font-size:15px; }
+    .option span { display:block; color:var(--muted); font-size:11px; line-height:1.5; }
+    .option em { display:block; margin-top:12px; color:#7d7b75; font:9px/1.4 monospace; font-style:normal; }
+    @media (hover:hover) and (pointer:fine) { .option:hover { transform:translateY(-2px); border-color:#4b4945; } }
+    @media (max-width:1050px) {
+      .top,.recommendation { grid-template-columns:1fr; }
+      .side { grid-template-columns:repeat(2,1fr); }
+    }
+    @media (max-width:760px) {
+      .page { width:min(100% - 24px,1500px); padding-top:24px; }
+      .hero { grid-template-columns:1fr; padding:42px 22px 64px; }
+      .hero h2 { font-size:52px; }
+      .hero-visual { min-height:310px; }
+      .flow-row { grid-template-columns:1fr; gap:5px; }
+      .source { justify-self:start; text-align:left; }
+      .side,.choices { grid-template-columns:1fr; }
+      .matrix { overflow-x:auto; }
+      .matrix-row { min-width:680px; }
+    }
+    @media (prefers-reduced-motion:reduce) { .option { transition:border-color 120ms ease; } .option:hover,.option:active { transform:none; } }
+  </style>
+</head>
+<body>
+  <main class="page">
+    <header class="top">
+      <div>
+        <div class="label">Final synthesis / A3 + B1 + C2</div>
+        <h1>En güçlü RIFT, üç yönün görevlerini doğru yerde birleştiriyor.</h1>
+      </div>
+      <div>
+        <p>A3 satış netliğini, B1 ürün zenginliğini, C2 ise hatırlanabilir marka anını getiriyor. Bunları üç farklı logo veya üç farklı site gibi kullanmıyoruz.</p>
+        <div class="locked"><span>A3 Bold workstation</span><span>B1 Balanced workspace</span><span>C2 Cinematic system</span></div>
+      </div>
+    </header>
+
+    <section class="recommendation">
+      <article class="hybrid">
+        <div class="hybrid-head"><strong>Önerilen birleşik landing</strong><span class="recommended">RECOMMENDED</span></div>
+        <div class="hero">
+          <div class="hero-copy">
+            <div class="label">RIFT / Agent system</div>
+            <h2>Give RIFT the work.</h2>
+            <p>Build software, create media and investigate systems through the same agent layer.</p>
+            <div class="hero-actions"><button class="primary">Download RIFT</button><button class="secondary">Watch RIFT work</button></div>
+          </div>
+          <div class="hero-visual">
+            <img src="/files/rift-aperture-c-preview.png" alt="Rift Aperture brand field" />
+            <div class="mini-product"><img src="http://localhost:3060/landing-v2/app-build.webp" alt="RIFT Build interface" /></div>
+          </div>
+        </div>
+        <div class="flow">
+          <div class="flow-row"><b>01 / HERO</b><div><strong>Workstation clarity</strong><span>Tek cümlede değer, gerçek ürün ekranı ve iki net CTA.</span></div><div class="source">A3 structure<br />C2 identity</div></div>
+          <div class="flow-row"><b>02 / PROOF</b><div><strong>Live work narrative</strong><span>Plan, execution, verification ve approval akışı.</span></div><div class="source">A3 product proof</div></div>
+          <div class="flow-row"><b>03 / RANGE</b><div><strong>Multimodal output mosaic</strong><span>Studio ve model kataloğu tek güçlü bölümde yoğunlaşır.</span></div><div class="source">B1 product density</div></div>
+          <div class="flow-row"><b>04 / SYSTEM</b><div><strong>Build, Studio, Hack continuity</strong><span>Üç modun aynı context ve ürün kabuğunu kullandığı kanıtlanır.</span></div><div class="source">C2 system story</div></div>
+          <div class="flow-row"><b>05 / TRUST</b><div><strong>Enterprise controls</strong><span>Gerçek müşteri kanıtı, approvals, security ve deployment bilgisi.</span></div><div class="source">A3 trust layer</div></div>
+        </div>
+      </article>
+
+      <aside class="side">
+        <section class="panel">
+          <div class="label">Brand architecture</div>
+          <h3>One logo, three expressions</h3>
+          <p>Mevcut solid glyph ana logo olarak kalır. Procedural görseller logo yerine geçmez, marka alanı olarak çalışır.</p>
+          <div class="identity-system">
+            <div class="identity-tile"><img src="/files/rift-field-a-preview.png" alt="Rift Field" /><span>FIELD</span></div>
+            <div class="identity-tile"><img src="/files/rift-strata-b-preview.png" alt="Rift Strata" /><span>STRATA</span></div>
+            <div class="identity-tile"><img src="/files/rift-aperture-c-preview.png" alt="Rift Aperture" /><span>APERTURE</span></div>
+          </div>
+          <div class="brand-rule">Primary signature: Aperture. Field ve Strata yalnızca bölüm dokusu ve motion materyali.</div>
+        </section>
+
+        <section class="panel">
+          <div class="label">Unified type</div>
+          <h3>Geist carries the company</h3>
+          <ul class="specs"><li><b>Hero</b><span>Geist 520, 72-88px</span></li><li><b>Sections</b><span>Geist 520, 44-54px</span></li><li><b>Body</b><span>Geist 400, 16-18px</span></li><li><b>Data</b><span>JetBrains Mono, 11-13px</span></li><li><b>Measure</b><span>65ch maximum</span></li></ul>
+        </section>
+
+        <section class="panel">
+          <div class="label">Unified palette</div>
+          <h3>Monochrome plus signal coral</h3>
+          <div class="tokens"><div class="token" style="background:#080808"></div><div class="token" style="background:#101010"></div><div class="token" style="background:#282828"></div><div class="token" style="background:#f3f3ef"></div><div class="token" style="background:#ff756a"></div></div>
+          <p>Blue and green remain semantic colors inside real product screens. Landing brand accent stays coral.</p>
+        </section>
+
+        <section class="panel">
+          <div class="label">Motion hierarchy</div>
+          <h3>One memorable moment</h3>
+          <ul class="specs"><li><b>Brand</b><span>900ms Aperture assembly once</span></li><li><b>Story</b><span>A3 scroll reveal, 600-750ms</span></li><li><b>Media</b><span>User-driven B1 gallery focus</span></li><li><b>UI</b><span>150-220ms strong ease-out</span></li><li><b>Reduced</b><span>Static composition, opacity only</span></li></ul>
+        </section>
+      </aside>
+    </section>
+
+    <section class="matrix" aria-label="Strategy comparison">
+      <div class="matrix-row head"><div class="criterion">Kriter</div><div>F1 Hybrid</div><div>F2 A3 Pure</div><div>F3 Three Routes</div></div>
+      <div class="matrix-row"><div class="criterion">İlk bakış netliği</div><div class="best">Çok yüksek</div><div>En yüksek</div><div>Değişken</div></div>
+      <div class="matrix-row"><div class="criterion">Marka farkı</div><div class="best">En yüksek</div><div>Yüksek</div><div>En yüksek</div></div>
+      <div class="matrix-row"><div class="criterion">Ürün genişliği</div><div class="best">Çok yüksek</div><div>Orta</div><div>Çok yüksek</div></div>
+      <div class="matrix-row"><div class="criterion">Kurumsal güven</div><div class="best">Çok yüksek</div><div>En yüksek</div><div>Yüksek</div></div>
+      <div class="matrix-row"><div class="criterion">Uygulama maliyeti</div><div>Orta</div><div class="best">En düşük</div><div>En yüksek</div></div>
+    </section>
+
+    <section class="decision">
+      <h2>Hangisini uygulama spesifikasyonuna çevirelim?</h2>
+      <p>Bu seçimden sonra yazılı tasarım dokümanını hazırlayacağım. Kodlama ondan sonraki ayrı onayla başlayacak.</p>
+      <div class="choices">
+        <button class="option reco" data-choice="F1 - Hybrid recommended" onclick="toggleSelect(this)"><div class="label">F1 / Recommended</div><strong>A3 + B1 + C2 hybrid</strong><span>Axiom kadar net, Wiro kadar ürün zengin, RIFT’e özgü sinematik marka anına sahip tek landing.</span><em>Best overall company impression</em></button>
+        <button class="option" data-choice="F2 - A3 pure" onclick="toggleSelect(this)"><div class="label">F2</div><strong>A3 pure workstation</strong><span>En net ve en hızlı uygulanabilir yön. Studio ve Hack daha geri planda kalır.</span><em>Lowest risk and fastest delivery</em></button>
+        <button class="option" data-choice="F3 - Three experimental routes" onclick="toggleSelect(this)"><div class="label">F3</div><strong>Üç ayrı test route’u</strong><span>A3, B1 ve C2 ayrı route’larda gerçek kodla kurulur. Karar ölçüm ve karşılaştırma sonrası verilir.</span><em>Highest learning, highest effort</em></button>
+      </div>
+    </section>
+  </main>
+</body>
+</html>

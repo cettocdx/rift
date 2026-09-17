@@ -1,0 +1,278 @@
+.header {
+  grid-area: top;
+  min-width: 0;
+  background: #080808;
+  border-bottom: 1px solid #252525;
+  color: #ededed;
+  font-family: var(
+    --font-cursor-ui,
+    -apple-system,
+    BlinkMacSystemFont,
+    sans-serif
+  );
+}
+.titlebar {
+  display: flex;
+  height: 44px;
+  align-items: center;
+  gap: 8px;
+  padding: 0 18px;
+  user-select: none;
+  -webkit-app-region: drag;
+}
+:global(html.rift-vibrancy) .titlebar {
+  padding-left: 96px;
+}
+.header .back,
+.header .tasks,
+.header .navigation {
+  display: inline-flex;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  height: 30px;
+  border: 0;
+  border-radius: 6px;
+  padding: 0 8px;
+  color: #a8a8a8;
+  background: transparent;
+  text-decoration: none;
+  font: 500 var(--rift-type-label)/1.4
+    var(--font-cursor-ui, -apple-system, BlinkMacSystemFont, sans-serif);
+  -webkit-app-region: no-drag;
+  transition:
+    background 120ms,
+    color 120ms;
+}
+.header .back:hover,
+.header .tasks:hover,
+.header .navigation:hover {
+  color: #fff;
+  background: #202020;
+}
+.header .back:active,
+.header .tasks:active,
+.header .navigation:active {
+  background: #2a2a2a;
+}
+.identity {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  min-width: 0;
+  margin-left: 10px;
+  pointer-events: auto;
+}
+.identity h1 {
+  margin: 0;
+  color: #eee;
+  font-size: var(--rift-type-body);
+  font-weight: 500;
+  letter-spacing: -0.1px;
+  line-height: 20px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.logo {
+  display: flex;
+  color: #c2d8c8;
+  pointer-events: none;
+}
+.edition {
+  padding-left: 9px;
+  border-left: 1px solid #333;
+  color: #89958c;
+  font-size: var(--rift-type-caption);
+}
+.dragSpace {
+  flex: 1;
+  align-self: stretch;
+  min-width: 20px;
+}
+.status {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  color: #a3aaa5;
+  font-size: var(--rift-type-caption);
+  white-space: nowrap;
+}
+.status i {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: #84968a;
+  pointer-events: none;
+}
+.status[data-running="true"] i {
+  background: #a1d7ad;
+}
+.status time {
+  margin-left: 5px;
+  color: #9b9b9b;
+  font-variant-numeric: tabular-nums;
+}
+.scopebar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  height: 40px;
+  padding: 0 16px 8px;
+  -webkit-app-region: no-drag;
+}
+.scope {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  flex: 1;
+  min-width: 0;
+  height: 32px;
+  padding: 0 10px;
+  border: 1px solid #303030;
+  border-radius: 7px;
+  background: #101010;
+  color: #919c94;
+  transition: border-color 120ms;
+}
+.scope:focus-within {
+  border-color: #777;
+  box-shadow: none;
+}
+.scope > span {
+  color: #a2a2a2;
+  font-size: var(--rift-type-caption);
+}
+.header .scope input {
+  min-width: 0;
+  width: 100%;
+  height: 100%;
+  padding: 0;
+  border: 0;
+  outline: none;
+  background: transparent;
+  box-shadow: none;
+  color: #eee;
+  font: 400 13px/1.4
+    var(--font-cursor-ui, -apple-system, BlinkMacSystemFont, sans-serif);
+}
+.scope input::placeholder {
+  color: #777;
+}
+.selectedTask {
+  max-width: 220px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: #999;
+  font-size: var(--rift-type-label);
+}
+.header .run {
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  height: 32px;
+  min-width: 91px;
+  padding: 0 12px;
+  border: 1px solid #38483b;
+  border-radius: 6px;
+  background: #18221b;
+  color: #c0d8c5;
+  font: 500 12px/1
+    var(--font-cursor-ui, -apple-system, BlinkMacSystemFont, sans-serif);
+  cursor: pointer;
+}
+.header .run:hover:not(:disabled) {
+  background: #233329;
+  border-color: #647d6b;
+}
+.header .run:disabled {
+  background: #141414;
+  border-color: #252525;
+  color: #686868;
+  cursor: default;
+}
+.header .run[data-running="true"] {
+  border-color: #514239;
+  background: #231e1a;
+  color: #dbc1ae;
+}
+.header :is(button, a):focus-visible {
+  outline: 1px solid #bbb;
+  outline-offset: 2px;
+  box-shadow: none;
+}
+@media (max-width: 1100px) {
+  .header .navigation span {
+    display: none;
+  }
+}
+@media (max-width: 900px) {
+  .edition,
+  .selectedTask {
+    display: none;
+  }
+}
+@media (max-width: 800px), (pointer: coarse) {
+  .header .scope input {
+    /* Match the composer and avoid focus zoom on touch browsers. */
+    font-size: 16px;
+  }
+}
+@media (max-width: 600px) {
+  .titlebar {
+    padding: 0 10px;
+    gap: 3px;
+  }
+  .header .back span,
+  .header .tasks span,
+  .header .navigation span {
+    display: none;
+  }
+  .identity {
+    flex: 1;
+    margin-left: 3px;
+    gap: 6px;
+  }
+  .identity h1 {
+    font-size: var(--rift-type-label);
+  }
+  .status span,
+  .status time {
+    display: none;
+  }
+  .scopebar {
+    padding: 0 12px 8px;
+    gap: 8px;
+  }
+  .scope > span {
+    display: none;
+  }
+  .dragSpace {
+    flex: 0;
+    min-width: 0;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .header * {
+    transition: none !important;
+  }
+}
+
+/* Mobile uses the task dialog; the desktop task rail is hidden at this width. */
+.header .mobileTasks {
+  display: none;
+}
+@media (max-width: 780px) {
+  .header .desktopTasks {
+    display: none;
+  }
+  .header .mobileTasks {
+    display: inline-flex;
+    min-width: 44px;
+    min-height: 44px;
+  }
+}

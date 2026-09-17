@@ -1,5 +1,5 @@
 import { logUsageRecord } from "@/lib/db/actions";
-import { calculateTokenCost, POINTS_PER_DOLLAR } from "@/lib/rate-limit";
+import { calculateRawModelCostDollars } from "@/lib/rate-limit/token-bucket";
 import type { ChatMode, RateLimitInfo, SubscriptionTier } from "@/types";
 
 interface StepUsage {
@@ -10,8 +10,15 @@ interface StepUsage {
     cacheReadTokens?: number;
     cacheWriteTokens?: number;
   };
+  outputTokenDetails?: {
+    reasoningTokens?: number;
+  };
+  /** Some providers report reasoning at the top level. */
+  reasoningTokens?: number;
   raw?: { cost?: number };
 }
+
+type UnpricedTokensByModel = Map<string, { input: number; output: number }>;
 
 export interface UsageCostRecord {
   model: string;
@@ -21,6 +28,10 @@ export interface UsageCostRecord {
   totalTokens: number;
   cacheReadTokens?: number;
   cacheWriteTokens?: number;
+  /** Recorded, not billed: whether output tokens already include these is
+   *  provider-specific, and when raw.cost is present the provider's own total
+   *  wins anyway. Surfaced so the estimate path can be audited per model. */
+  reasoningTokens?: number;
   costDollars: number;
   modelCostDollars: number;
   nonModelCostDollars: number;
@@ -36,12 +47,42 @@ export class UsageTracker {
   outputTokens = 0;
   totalTokens = 0;
   cacheReadTokens = 0;
+  reasoningTokens = 0;
   cacheWriteTokens = 0;
+  private incompleteCacheCoverage = false;
   providerCost = 0;
   /** Model-only cost from per-step usage.raw.cost (excludes tool/sandbox spend). Used to
-   * decide whether the provider reported an authoritative model cost; if zero, fall back
+   * decide whether the provider reported an authoritative model cost; zero is valid. Missing cost falls back
    * to token-based model cost calculation. */
   modelProviderCost = 0;
+  private modelCostReported = false;
+  private hasUnpricedModelStep = false;
+
+  private pricedModelInputTokens = 0;
+  private pricedModelOutputTokens = 0;
+  private summaryProviderCost = 0;
+  private summaryCostReported = false;
+  private hasUnpricedSummary = false;
+  private pricedSummaryInputTokens = 0;
+  private pricedSummaryOutputTokens = 0;
+  // Keep model attribution independently of the final selected-model label.
+  // A fallback and the summaries retained from its primary leg can have
+  // different rates. Grouping tokens avoids growing state for every step.
+  private unpricedMainTokens: UnpricedTokensByModel = new Map();
+  private unpricedSummaryTokens: UnpricedTokensByModel = new Map();
+
+  /** Every observed main-model step has a finite receipt; zero is valid. */
+  get hasModelProviderCost(): boolean {
+    return this.modelCostReported && !this.hasUnpricedModelStep;
+  }
+
+  private get hasCompleteProviderCost(): boolean {
+    return (
+      (this.modelCostReported || this.summaryCostReported) &&
+      !this.hasUnpricedModelStep &&
+      !this.hasUnpricedSummary
+    );
+  }
   /** Costs from sandbox sessions and tool usage (always accurate, even on non-clean streams) */
   nonModelCost = 0;
   lastStepInputTokens = 0;
@@ -56,6 +97,15 @@ export class UsageTracker {
   resetModelLeg() {
     this.providerCost -= this.modelProviderCost;
     this.modelProviderCost = 0;
+    this.modelCostReported = false;
+    this.hasUnpricedModelStep = false;
+    this.pricedModelInputTokens = 0;
+    this.pricedModelOutputTokens = 0;
+    this.pricedSummaryInputTokens = 0;
+    this.unpricedMainTokens.clear();
+    // Preserve the existing waiver: summary input is discarded, output stays.
+    for (const tokens of this.unpricedSummaryTokens.values()) tokens.input = 0;
+    this.reasoningTokens = 0;
     this.inputTokens = 0;
     // Preserve summarization's contribution to outputTokens so the
     // streamOutputTokens getter (outputTokens - summarizationOutputTokens)
@@ -65,19 +115,93 @@ export class UsageTracker {
     this.lastStepInputTokens = 0;
     this.cacheReadTokens = 0;
     this.cacheWriteTokens = 0;
+    this.incompleteCacheCoverage = false;
   }
 
-  accumulateStep(usage: StepUsage) {
+  private attributeUnpricedTokens(
+    target: UnpricedTokensByModel,
+    usage: StepUsage,
+    modelName?: string,
+  ) {
+    // Legacy callers without a model still use computeCostDollars' fallback.
+    if (!modelName) return;
+    const tokens = target.get(modelName) ?? { input: 0, output: 0 };
+    tokens.input += usage.inputTokens || 0;
+    tokens.output += usage.outputTokens || 0;
+    target.set(modelName, tokens);
+  }
+
+  private observeCacheCoverage(usage: StepUsage) {
+    const input = usage.inputTokens;
+    const cacheRead = usage.inputTokenDetails?.cacheReadTokens;
+    const cacheWrite = usage.inputTokenDetails?.cacheWriteTokens;
+    const hasCacheReceipt =
+      Number.isFinite(cacheRead) || Number.isFinite(cacheWrite);
+    // Totals from a later step cannot repair a missing earlier denominator or
+    // establish that an unreported cache count was zero. This is telemetry only.
+    if (
+      (hasCacheReceipt && (!Number.isFinite(input) || (input ?? 0) < 0)) ||
+      ((input ?? 0) > 0 && !hasCacheReceipt) ||
+      (cacheRead ?? 0) < 0 ||
+      (cacheWrite ?? 0) < 0 ||
+      (cacheRead ?? 0) > (input ?? 0)
+    )
+      this.incompleteCacheCoverage = true;
+  }
+
+  accumulateStep(usage: StepUsage, modelName?: string) {
+    this.observeCacheCoverage(usage);
     this.inputTokens += usage.inputTokens || 0;
     this.outputTokens += usage.outputTokens || 0;
-    this.totalTokens += usage.totalTokens || 0;
+    this.totalTokens +=
+      usage.totalTokens ?? (usage.inputTokens || 0) + (usage.outputTokens || 0);
     this.lastStepInputTokens = usage.inputTokens || 0;
     this.cacheReadTokens += usage.inputTokenDetails?.cacheReadTokens || 0;
     this.cacheWriteTokens += usage.inputTokenDetails?.cacheWriteTokens || 0;
+    this.reasoningTokens +=
+      usage.outputTokenDetails?.reasoningTokens ?? usage.reasoningTokens ?? 0;
     const stepCost = usage.raw?.cost;
-    if (stepCost) {
+    if (
+      typeof stepCost === "number" &&
+      Number.isFinite(stepCost) &&
+      stepCost >= 0
+    ) {
+      this.pricedModelInputTokens += usage.inputTokens || 0;
+      this.pricedModelOutputTokens += usage.outputTokens || 0;
+      this.modelCostReported = true;
       this.providerCost += stepCost;
       this.modelProviderCost += stepCost;
+    } else {
+      this.hasUnpricedModelStep = true;
+      this.attributeUnpricedTokens(this.unpricedMainTokens, usage, modelName);
+    }
+  }
+
+  /** Accepted summary usage has its own receipt coverage, separate from response steps. */
+  accumulateSummary(usage: StepUsage, modelName?: string) {
+    this.observeCacheCoverage(usage);
+    const input = usage.inputTokens || 0;
+    const output = usage.outputTokens || 0;
+    this.inputTokens += input;
+    this.outputTokens += output;
+    this.totalTokens += usage.totalTokens ?? input + output;
+    this.summarizationOutputTokens += output;
+    this.cacheReadTokens += usage.inputTokenDetails?.cacheReadTokens || 0;
+    this.cacheWriteTokens += usage.inputTokenDetails?.cacheWriteTokens || 0;
+    const cost = usage.raw?.cost;
+    if (typeof cost === "number" && Number.isFinite(cost) && cost >= 0) {
+      this.summaryCostReported = true;
+      this.summaryProviderCost += cost;
+      this.providerCost += cost;
+      this.pricedSummaryInputTokens += input;
+      this.pricedSummaryOutputTokens += output;
+    } else {
+      this.hasUnpricedSummary = true;
+      this.attributeUnpricedTokens(
+        this.unpricedSummaryTokens,
+        usage,
+        modelName,
+      );
     }
   }
 
@@ -91,40 +215,73 @@ export class UsageTracker {
     return this.cacheReadTokens > 0 || this.cacheWriteTokens > 0;
   }
 
-  /** Cache hit rate: proportion of cached input tokens that were reads (0–1), or null if no cache data */
+  /** Fraction of total input served from cache; absent/inconsistent coverage stays unknown. */
   get cacheHitRate(): number | null {
-    const total = this.cacheReadTokens + this.cacheWriteTokens;
-    if (total === 0) return null;
-    return this.cacheReadTokens / total;
+    if (
+      this.incompleteCacheCoverage ||
+      !this.hasCacheData ||
+      this.inputTokens <= 0 ||
+      this.cacheReadTokens > this.inputTokens
+    )
+      return null;
+    return this.cacheReadTokens / this.inputTokens;
   }
 
   get hasUsage(): boolean {
     return (
-      this.inputTokens > 0 || this.outputTokens > 0 || this.providerCost > 0
+      this.inputTokens > 0 ||
+      this.outputTokens > 0 ||
+      this.providerCost > 0 ||
+      this.hasCompleteProviderCost
     );
   }
 
   computeModelCostDollars(selectedModel: string): number {
-    // Use authoritative per-step provider cost only when the model itself
-    // reported one via raw.cost (tracked in modelProviderCost). providerCost
-    // also includes sandbox/tool spend and summarization cost, so subtract
-    // nonModelCost to isolate the model portion.
-    if (this.modelProviderCost > 0) {
-      return this.providerCost - this.nonModelCost;
+    // Preserve every receipt, including zero. Price known unpriced operations
+    // at the model that ran them, then use the caller's model only for legacy
+    // tokens with no attribution. Tool/sandbox dollars are added separately.
+    let attributedInput = 0;
+    let attributedOutput = 0;
+    let attributedCost = 0;
+    for (const groups of [
+      this.unpricedMainTokens,
+      this.unpricedSummaryTokens,
+    ]) {
+      for (const [model, tokens] of groups) {
+        attributedInput += tokens.input;
+        attributedOutput += tokens.output;
+        attributedCost += calculateRawModelCostDollars(
+          tokens.input,
+          tokens.output,
+          model,
+        );
+      }
     }
     return (
-      (calculateTokenCost(this.inputTokens, "input", selectedModel) +
-        calculateTokenCost(this.outputTokens, "output", selectedModel)) /
-      POINTS_PER_DOLLAR
+      this.modelProviderCost +
+      this.summaryProviderCost +
+      attributedCost +
+      calculateRawModelCostDollars(
+        Math.max(
+          0,
+          this.inputTokens -
+            this.pricedModelInputTokens -
+            this.pricedSummaryInputTokens -
+            attributedInput,
+        ),
+        Math.max(
+          0,
+          this.outputTokens -
+            this.pricedModelOutputTokens -
+            this.pricedSummaryOutputTokens -
+            attributedOutput,
+        ),
+        selectedModel,
+      )
     );
   }
 
   computeCostDollars(selectedModel: string): number {
-    // Mirror deductUsage's gate: providerCost is only authoritative for the
-    // total when modelProviderCost > 0. After resetModelLeg() (fallback retry)
-    // providerCost can be positive from nonModelCost alone, which would
-    // underreport the fallback's model tokens if we used it directly.
-    if (this.modelProviderCost > 0) return this.providerCost;
     return this.computeModelCostDollars(selectedModel) + this.nonModelCost;
   }
 
@@ -180,10 +337,11 @@ export class UsageTracker {
       totalTokens: this.totalTokens || this.inputTokens + this.outputTokens,
       cacheReadTokens: this.cacheReadTokens || undefined,
       cacheWriteTokens: this.cacheWriteTokens || undefined,
+      reasoningTokens: this.reasoningTokens || undefined,
       costDollars: modelCostDollars + this.nonModelCost,
       modelCostDollars,
       nonModelCostDollars: this.nonModelCost,
-      costSource: this.modelProviderCost > 0 ? "provider" : "token_estimate",
+      costSource: this.hasCompleteProviderCost ? "provider" : "token_estimate",
     };
   }
 
@@ -191,7 +349,11 @@ export class UsageTracker {
     userId: string;
     organizationId?: string;
     chatId?: string;
-    endpoint?: "/api/chat" | "/api/agent-long";
+    endpoint?:
+      | "/api/chat"
+      | "/api/agent-long"
+      | "/api/hack-long"
+      | "/api/console/model";
     mode?: ChatMode;
     subscription?: SubscriptionTier;
     selectedModel: string;

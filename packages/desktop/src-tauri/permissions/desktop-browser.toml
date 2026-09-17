@@ -1,0 +1,12 @@
+[[permission]]
+identifier = "allow-desktop-browser"
+description = "Allows only the main RIFT webview to manage isolated browser tabs. Browser content receives no native permissions."
+commands.allow = [
+  "browser_tab_create",
+  "browser_tab_navigate",
+  "browser_tab_action",
+  "browser_tab_layout",
+  "browser_tab_snapshot",
+  "browser_tab_close",
+  "browser_tabs_hide_all",
+]

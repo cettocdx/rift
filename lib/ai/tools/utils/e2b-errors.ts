@@ -76,7 +76,11 @@ export function classifyE2BError(error: unknown): E2BErrorCategory {
  */
 export function isE2BPermanentError(error: unknown): boolean {
   const category = classifyE2BError(error);
-  return category === "permanent" || category === "command_failure";
+  return (
+    category === "permanent" ||
+    category === "command_failure" ||
+    category === "disk_space"
+  );
 }
 
 /**
@@ -100,19 +104,19 @@ export function getUserFacingE2BErrorMessage(error: unknown): string | null {
     return "Sandbox API rate limit exceeded. Please wait a moment and try again.";
   }
   if (error instanceof NotEnoughSpaceError) {
-    return "Sandbox disk space is full. Try removing unnecessary files or deleting the sandbox in Settings > Data Controls.";
+    return "Workspace disk space is full. Preserve project files and review removable temporary files before trying again.";
   }
   if (error instanceof TemplateError) {
     return "Sandbox template is incompatible. Please contact RIFT support.";
   }
   if (error instanceof TimeoutError) {
     if (error.message.includes("sandbox timeout")) {
-      return "Sandbox has expired. A new sandbox will be created automatically.";
+      return "The workspace has expired. Recovery is required before continuing; retrying the same command cannot restore it.";
     }
     return "Sandbox operation timed out. The sandbox may be overloaded. Please try again.";
   }
   if (error instanceof NotFoundError) {
-    return "Sandbox was not found or has expired. A new sandbox will be created automatically.";
+    return "The workspace was not found or has expired. Recovery is required before continuing; retrying the same command cannot restore it.";
   }
   if (error instanceof InvalidArgumentError) {
     return "Invalid sandbox configuration. Please contact RIFT support.";

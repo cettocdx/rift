@@ -1,6 +1,12 @@
 import { describe, it, expect } from "@jest/globals";
 import { UIMessage } from "ai";
 import {
+  BUILD_MODELS,
+  DEFAULT_BUILD_MODEL,
+  formatBuildModelContext,
+} from "@/types/chat";
+import {
+  processChatMessages,
   limitImageParts,
   selectModel,
   getMaxStepsForUser,
@@ -153,6 +159,43 @@ describe("limitImageParts", () => {
 // ==========================================================================
 // selectModel - Model selection logic
 // ==========================================================================
+describe("Build model catalog", () => {
+  it("shows only the verified current frontier models", () => {
+    expect(BUILD_MODELS.map((entry) => entry.model)).toEqual([
+      "GPT-5.6 Sol",
+      "GPT-6 Astra",
+      "Gemini 3.8 Flash",
+      "Claude Opus 5",
+      "Claude Fable 5.1",
+      "Grok 4.6",
+      "Kimi K3",
+      "Qwen3.8 Max",
+      "GLM 5.3",
+      "Hy4 preview",
+    ]);
+    expect(
+      Object.fromEntries(
+        BUILD_MODELS.map((entry) => [
+          entry.id,
+          formatBuildModelContext(entry.contextTokens),
+        ]),
+      ),
+    ).toEqual({
+      "build-codex": "1.05M context",
+      "build-astra": "1.05M context",
+      "build-gemini": "1.05M context",
+      "build-max": "1M context",
+      "build-fable": "1M context",
+      "build-grok": "500K context",
+      "build-kimi": "1.05M context",
+      "build-qwen": "1M context",
+      "build-glm": "1.05M context",
+      "build-hunyuan": "1.05M context",
+    });
+    expect(DEFAULT_BUILD_MODEL).toBe("build-codex");
+  });
+});
+
 describe("selectModel (single-model product)", () => {
   // Every mode, subscription, tier override, and attachment state resolves to
   // the one model (Grok 4.3). No tier selection is offered in the UI.
@@ -180,6 +223,63 @@ describe("selectModel (single-model product)", () => {
     expect(selectModel("ask", "pro", undefined, true)).toBe("model-grok-4.3");
     expect(selectModel("ask", "pro", "rift-standard", true)).toBe(
       "model-grok-4.3",
+    );
+  });
+
+  it("uses Grok 4.6 for the Hacker Mode security-agent canary", () => {
+    expect(
+      selectModel("agent", "pro", undefined, false, "security", true),
+    ).toBe("model-grok-4.6");
+    expect(selectModel("ask", "pro", undefined, false, "security", true)).toBe(
+      "model-grok-4.3",
+    );
+    expect(selectModel("agent", "pro", undefined, false, "app", true)).toBe(
+      "model-gpt-5.6-sol",
+    );
+  });
+
+  it("routes Build selections only to the verified frontier catalog", () => {
+    expect(selectModel("agent", "pro", undefined, false, "app")).toBe(
+      "model-gpt-5.6-sol",
+    );
+    expect(selectModel("agent", "pro", "build-balanced", false, "app")).toBe(
+      "model-fable-5.1",
+    );
+    expect(selectModel("agent", "pro", "build-fast", false, "app")).toBe(
+      "model-gpt-5.6-sol",
+    );
+    expect(selectModel("agent", "pro", "build-grok", false, "app")).toBe(
+      "model-grok-4.6",
+    );
+    expect(selectModel("agent", "pro", "build-kimi", false, "app")).toBe(
+      "model-kimi-k3",
+    );
+    expect(selectModel("agent", "pro", "build-qwen", false, "app")).toBe(
+      "model-qwen3.8-max",
+    );
+    expect(selectModel("agent", "pro", "build-glm", false, "app")).toBe(
+      "model-glm-5.3",
+    );
+    expect(selectModel("agent", "pro", "build-max", false, "app")).toBe(
+      "model-opus-5",
+    );
+  });
+
+  it("upgrades hidden legacy Build selections instead of routing retired models", () => {
+    expect(selectModel("agent", "pro", "build-glm", false, "app")).toBe(
+      "model-glm-5.3",
+    );
+    expect(selectModel("agent", "pro", "build-deepseek", false, "app")).toBe(
+      "model-gpt-5.6-sol",
+    );
+    expect(selectModel("agent", "pro", "build-opus46", false, "app")).toBe(
+      "model-opus-5",
+    );
+  });
+
+  it("uses Fable 5.1 for image-tool orchestration", () => {
+    expect(selectModel("agent", "pro", undefined, false, "image")).toBe(
+      "model-fable-5.1",
     );
   });
 });
@@ -468,5 +568,111 @@ describe("fixIncompleteMessageParts", () => {
     expect(result).toHaveLength(2);
     expect(result[0].type).toBe("step-start");
     expect(result[1].type).toBe("text");
+  });
+});
+
+describe("run archive model boundary", () => {
+  it("keeps the downloadable archive out of automatic model context", async () => {
+    const { filterUIOnlyParts } = await import("../chat-processor");
+    const parts = [
+      { type: "text", text: "Done" },
+      { type: "file", fileId: "archive", isRunArchive: true },
+      { type: "file", fileId: "normal" },
+    ];
+    expect(filterUIOnlyParts({ parts }).parts).toEqual([parts[0], parts[2]]);
+    expect(parts).toHaveLength(3);
+  });
+});
+
+describe("historical PTY model projection", () => {
+  it("retains full historical evidence when a sandbox-local artifact may have expired", async () => {
+    const snapshot = "old log evidence\n".repeat(1000);
+    const part = {
+      type: "tool-interact_terminal_session",
+      state: "output-available",
+      toolCallId: "poll",
+      input: { action: "wait", session: "fixture" },
+      output: {
+        result: {
+          output: "",
+          sessionSnapshot: snapshot,
+          rawSnapshot: snapshot,
+          modelContext: {
+            screen: "current prompt>",
+            scrollback: {
+              path: "/tmp/terminal_full_output/fixture.txt",
+              characters: snapshot.length,
+              scope: "retained PTY snapshot",
+            },
+          },
+        },
+      },
+    };
+    const messages = [
+      makeMessage("user", "user", [{ type: "text", text: "Continue" }]),
+      makeMessage("assistant", "assistant", [part]),
+    ];
+    const result = await processChatMessages({
+      messages,
+      mode: "agent",
+      userId: "fixture",
+      subscription: "pro",
+      purpose: "app",
+      deferModeration: true,
+    });
+    const serialized = JSON.stringify(result.processedMessages);
+    expect(serialized).not.toContain("current prompt>");
+    expect(serialized).not.toContain("/tmp/terminal_full_output/fixture.txt");
+    expect(serialized).toContain("old log evidence");
+    expect(part.output.result.sessionSnapshot).toBe(snapshot);
+    expect(part.output.result.rawSnapshot).toBe(snapshot);
+  });
+});
+
+describe("persisted archive recovery", () => {
+  it("keeps an agent recovery hint without eagerly downloading or trusting archive metadata", async () => {
+    const messages = [
+      makeMessage("old", "assistant", [
+        { type: "text", text: "Operation details were compacted." },
+        {
+          type: "file",
+          fileId: "untrusted-id",
+          mediaType: "application/json",
+          isRunArchive: true,
+          url: "https://expired.example/archive",
+          text: "ARCHIVE_ONLY_SENTINEL",
+        },
+      ]),
+      makeMessage("new", "user", [
+        { type: "text", text: "Recover the omitted detail" },
+      ]),
+    ];
+    const result = await processChatMessages({
+      messages,
+      mode: "agent",
+      userId: "owner-fixture",
+      subscription: "pro",
+      purpose: "app",
+      uploadBasePath: "/tmp/fresh-sandbox",
+      deferModeration: true,
+    });
+    expect(result.sandboxFiles).toEqual([]);
+    const context = JSON.stringify(result.processedMessages);
+    expect(context).toContain("read_run_archive");
+    expect(context).not.toContain("ARCHIVE_ONLY_SENTINEL");
+    expect(context).not.toContain("untrusted-id");
+    expect(context).not.toContain("https://expired.example/archive");
+    expect(result.processedMessages.map((message) => message.id)).toEqual([
+      "old",
+      "new",
+    ]);
+    expect(messages[0].parts).toHaveLength(2);
+    const { filterUIOnlyParts } = await import("../chat-processor");
+    expect(JSON.stringify(filterUIOnlyParts(messages[0]))).not.toContain(
+      "read_run_archive",
+    );
+    expect(
+      JSON.stringify(filterUIOnlyParts({ ...messages[0], role: "user" }, true)),
+    ).not.toContain("read_run_archive");
   });
 });

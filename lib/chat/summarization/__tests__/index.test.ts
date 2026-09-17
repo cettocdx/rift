@@ -1,4 +1,5 @@
 import { describe, it, expect, beforeEach, jest } from "@jest/globals";
+import { z } from "zod";
 import type { UIMessage, UIMessageStreamWriter, LanguageModel } from "ai";
 import type { Todo } from "@/types";
 import {
@@ -220,6 +221,75 @@ describe("checkAndSummarizeIfNeeded", () => {
             .join("");
     expect(lastContent).toContain("security agent");
   });
+
+  it("disables tool calls while preserving the summarization tool schemas", async () => {
+    mockGenerateText.mockResolvedValue({ text: "Valid summary" });
+    const execute = jest.fn<() => Promise<string>>();
+    const inputSchema = z.object({ path: z.string() });
+    const tools = {
+      file: { description: "Read a file", inputSchema, execute },
+    };
+
+    await checkAndSummarizeIfNeeded(
+      fourMessages,
+      "free",
+      mockLanguageModel,
+      "agent",
+      mockWriter,
+      "chat-123",
+      {},
+      [],
+      undefined,
+      undefined,
+      0,
+      THRESHOLD + 1,
+      "test-system-prompt",
+      tools,
+    );
+
+    const request = mockGenerateText.mock.calls[0][0];
+    expect(request.toolChoice).toBe("none");
+    expect(request.tools.file.inputSchema).toBe(inputSchema);
+    expect(request.tools.file.description).toBe("Read a file");
+    expect(request.tools.file.execute).not.toBe(execute);
+    expect(execute).not.toHaveBeenCalled();
+  });
+
+  it.each(["", " \n\t "])(
+    "keeps the original history and skips persistence for a blank summary (%j)",
+    async (text) => {
+      mockGenerateText.mockResolvedValue({ text });
+      // A saved transcript notice must not make an empty generated summary valid.
+      const files = { write: jest.fn<() => Promise<void>>() };
+      files.write.mockResolvedValue(undefined);
+      const ensureSandbox = jest.fn<() => Promise<any>>();
+      ensureSandbox.mockResolvedValue({ sandboxKind: "centrifugo", files });
+
+      const result = await checkAndSummarizeIfNeeded(
+        fourMessages,
+        "free",
+        mockLanguageModel,
+        "agent",
+        mockWriter,
+        "chat-123",
+        {},
+        [],
+        undefined,
+        ensureSandbox,
+        0,
+        THRESHOLD + 1,
+        "test-system-prompt",
+      );
+
+      expect(mockGenerateText).toHaveBeenCalledTimes(1);
+      expect(files.write).toHaveBeenCalledTimes(1);
+      expect(result.needsSummarization).toBe(false);
+      expect(result.summarizedMessages).toBe(fourMessages);
+      expect(result.summaryText).toBeNull();
+      expect(result.cutoffMessageId).toBeNull();
+      expect(mockSaveChatSummary).not.toHaveBeenCalled();
+    },
+  );
 
   it("should persist summary when chatId is provided", async () => {
     mockGenerateText.mockResolvedValue({ text: "Summary" });
@@ -989,4 +1059,69 @@ describe("splitMessages with MESSAGES_TO_KEEP_UNSUMMARIZED = 0", () => {
     expect(result.messagesToSummarize).toEqual(messages);
     expect(result.lastMessages).toEqual([]);
   });
+});
+
+describe("model-aware compaction threshold", () => {
+  const { isAboveTokenThreshold } =
+    require("../helpers") as typeof import("../helpers");
+  it("retains 250k input on Sonnet instead of compacting at the old 180k threshold", () => {
+    expect(
+      isAboveTokenThreshold(fourMessages, "pro", {}, 0, 250_000, {
+        model: "build-balanced",
+      }),
+    ).toBe(false);
+    expect(
+      isAboveTokenThreshold(fourMessages, "pro", {}, 0, 900_001, {
+        model: "build-balanced",
+      }),
+    ).toBe(true);
+  });
+  it("compacts before exceeding Sol's provider prompt ceiling", () => {
+    expect(
+      isAboveTokenThreshold(fourMessages, "pro", {}, 0, 922_001, {
+        model: "build-codex",
+      }),
+    ).toBe(true);
+  });
+  it("keeps free and verified prepaid budgets distinct", () => {
+    expect(
+      isAboveTokenThreshold(fourMessages, "free", {}, 0, 250_000, {
+        model: "build-balanced",
+      }),
+    ).toBe(true);
+    expect(
+      isAboveTokenThreshold(fourMessages, "free", {}, 0, 250_000, {
+        model: "build-balanced",
+        hasPaidContext: true,
+      }),
+    ).toBe(false);
+  });
+});
+
+describe("summary provider receipt validity", () => {
+  const { generateSummaryText } =
+    require("../helpers") as typeof import("../helpers");
+  it.each([0, 0.01, undefined, NaN, Infinity, -1])(
+    "preserves valid receipt %s including zero",
+    async (cost) => {
+      mockGenerateText.mockResolvedValue({
+        text: "Summary",
+        usage: { inputTokens: 100, outputTokens: 10, raw: { cost } },
+      });
+      const result = await generateSummaryText(
+        fourMessages,
+        mockLanguageModel,
+        "agent",
+        "System",
+        false,
+        undefined,
+        undefined,
+        undefined,
+        [],
+      );
+      const valid =
+        typeof cost === "number" && Number.isFinite(cost) && cost >= 0;
+      expect(result.usage.cost).toBe(valid ? cost : undefined);
+    },
+  );
 });

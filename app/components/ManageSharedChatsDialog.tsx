@@ -20,7 +20,7 @@ export const ManageSharedChatsDialog = ({
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent
-        className="w-[380px] max-w-[98%] md:w-[95vw] md:max-w-[720px] max-h-[95%] md:h-[600px] p-0 overflow-hidden rounded-xl"
+        className="w-[380px] max-w-[98%] md:w-[95vw] md:max-w-[720px] max-h-[95%] md:h-[600px] p-0 overflow-hidden rounded-[20px]"
         showCloseButton={!isMobile}
       >
         <DialogTitle className="sr-only">Manage Shared Chats</DialogTitle>

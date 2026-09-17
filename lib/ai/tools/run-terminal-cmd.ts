@@ -1,23 +1,28 @@
+import { prepareJournaledCommand } from "@/lib/agent/remote-command-journal";
+import { getSandboxContext } from "@/lib/ai/sandbox-context";
+import { preservePtyModelContext } from "./utils/pty-model-context";
+import { ptyModelOutput } from "./utils/pty-model-output";
 import { tool } from "ai";
 import { z } from "zod";
 import { CommandExitError } from "@e2b/code-interpreter";
 import { randomUUID } from "crypto";
-import type { ToolContext } from "@/types";
+import type { ToolContext, AnySandbox } from "@/types";
 import { createTerminalHandler } from "@/lib/utils/terminal-executor";
 import { TIMEOUT_MESSAGE } from "@/lib/token-utils";
 import { saveTruncatedOutput } from "./utils/terminal-output-saver";
 import { BackgroundProcessTracker } from "./utils/background-process-tracker";
-import { terminateProcessReliably } from "./utils/process-termination";
-import { findProcessPid } from "./utils/pid-discovery";
-import { retryWithBackoff } from "./utils/retry-with-backoff";
+import { waitForSandboxReady } from "./utils/sandbox-health";
 import {
-  waitForSandboxReady,
-  getSandboxDiagnostics,
-} from "./utils/sandbox-health";
+  isE2BPermanentError,
+  getUserFacingE2BErrorMessage,
+} from "./utils/e2b-errors";
 import { isE2BSandbox, isCentrifugoSandbox } from "./utils/sandbox-types";
 import {
   buildSandboxCommandOptions,
   augmentCommandPath,
+  DEFAULT_COMMAND_EXECUTION_TIME,
+  MAX_COMMAND_EXECUTION_TIME,
+  COMMAND_EXIT_DELIVERY_GRACE_MS,
 } from "./utils/sandbox-command-options";
 import {
   parseGuardrailConfig,
@@ -39,28 +44,117 @@ import {
   stripAnsi,
   peekExited,
 } from "./utils/pty-wait-utils";
+import { configureSandboxGit } from "@/lib/github/configure-sandbox-git";
+
+// Tracks E2B sandboxes whose git credentials have already been configured with
+// the user's connected GitHub token, so we only write .git-credentials once per
+// sandbox (the first terminal command). Keyed by the sandbox instance.
+const gitConfiguredSandboxes = new WeakSet<object>();
+
+/**
+ * Lazily inject the user's connected GitHub token into the sandbox's git
+ * credential store the first time a terminal command runs. Best-effort and
+ * non-fatal — a failure here must never block the actual command.
+ */
+async function ensureGitCredentials(
+  sandbox: AnySandbox,
+  context: ToolContext,
+): Promise<void> {
+  const token = context.githubToken;
+  if (!token) return;
+  if (!isE2BSandbox(sandbox)) return;
+  if (gitConfiguredSandboxes.has(sandbox)) return;
+  gitConfiguredSandboxes.add(sandbox);
+  try {
+    await configureSandboxGit(sandbox, token, context.githubUsername);
+  } catch (error) {
+    // Non-fatal: the agent can still run commands; git pushes just won't be
+    // pre-authenticated. Drop the flag so a later command can retry.
+    gitConfiguredSandboxes.delete(sandbox);
+    console.warn("[run_terminal_cmd] git credential setup failed:", error);
+  }
+}
 
 const DEFAULT_STREAM_TIMEOUT_SECONDS = 60;
-const MAX_TIMEOUT_SECONDS = 600;
+const MAX_TIMEOUT_SECONDS = MAX_COMMAND_EXECUTION_TIME / 1000;
 
-// Bound the kill+recreate recovery path. A fresh sandbox that passes its health
-// check calls resetHealthFailures(), so the health-failure counter never
-// accumulates across the multiple commands of one request — without a separate
-// cap, a sandbox that keeps dying (e.g. an agent repeatedly filling the disk
-// with large outputs) would spiral through kill+recreate for many minutes with
-// no visible progress. This counter is NOT reset on transient success, so after
-// MAX_SANDBOX_RECREATES rebuilds in a single request we surface a clear,
-// actionable error instead. Keyed by sandboxManager so it persists across the
-// request's commands but resets naturally for the next request.
-const sandboxRecreateCounts = new WeakMap<object, number>();
-const MAX_SANDBOX_RECREATES = 3;
+class CommandOutcomeUnknownError extends Error {
+  constructor() {
+    super(
+      "The command result could not be confirmed. It may already have started or completed in the selected environment. Do not automatically repeat this command. Reconnect and inspect the process or affected files before deciding what to do next.",
+    );
+    this.name = "CommandOutcomeUnknownError";
+  }
+}
+
+// Weaker models (notably Grok 4.5) occasionally emit malformed tool calls: a flag
+// sent as a string ("false"), or several params jammed into `interactive`, e.g.
+//   interactive: "false is_background={false} timeout={30}"
+// The schema accepts string forms (union with string); this repairs them so a
+// valid command is never lost to a type-validation error.
+const asBool = (v: unknown, fallback: boolean): boolean => {
+  if (typeof v === "boolean") return v;
+  if (typeof v === "string") {
+    if (/^\s*(true|1|yes)\b/i.test(v)) return true;
+    if (/^\s*(false|0|no)\b/i.test(v)) return false;
+  }
+  return fallback;
+};
+
+const normalizeTerminalFlags = (a: {
+  interactive: unknown;
+  is_background: unknown;
+  timeout: unknown;
+}): {
+  interactive: boolean;
+  is_background: boolean;
+  timeout: number | undefined;
+} => {
+  let { is_background, timeout } = a;
+  const { interactive } = a;
+  // Un-jam params the model crammed into the `interactive` string.
+  if (typeof interactive === "string") {
+    if (is_background === undefined) {
+      const m = interactive.match(
+        /is_background\s*=\s*\{?\s*(true|false)\s*\}?/i,
+      );
+      if (m) is_background = m[1];
+    }
+    if (timeout === undefined) {
+      const m = interactive.match(/timeout\s*=\s*\{?\s*(\d+)\s*\}?/i);
+      if (m) timeout = m[1];
+    }
+  }
+  const timeoutNum =
+    typeof timeout === "number"
+      ? timeout
+      : typeof timeout === "string" && /\d/.test(timeout)
+        ? Number(timeout.match(/\d+/)![0])
+        : undefined;
+  return {
+    interactive: asBool(interactive, false),
+    is_background: asBool(is_background, false),
+    timeout: timeoutNum,
+  };
+};
+
 // Once an interactive PTY emits its first bytes, treat `quietMs` of silence
 // as "settled" (prompt drew, REPL banner finished, etc.). Lets `bash`/`python3`
 // return in ~half a second instead of blocking the user-supplied timeout
 // ceiling. The agent can follow up with action=wait/send.
 const INTERACTIVE_QUIET_WINDOW_MS = 500;
 
-export const createRunTerminalCmd = (context: ToolContext) => {
+export const createRunTerminalCmd = (
+  context: ToolContext,
+  origin = getSandboxContext(),
+) => {
+  // Preserve existing extra-environment precedence without reading later credentials.
+  const mergeEnvs = (
+    extra?: Record<string, string>,
+  ): Record<string, string> | undefined => {
+    const merged = { ...origin.recon, ...(extra ?? {}) };
+    return Object.keys(merged).length ? merged : undefined;
+  };
   const {
     sandboxManager,
     writer,
@@ -70,6 +164,7 @@ export const createRunTerminalCmd = (context: ToolContext) => {
     caidoPort,
     ptySessionManager,
     chatId,
+    runRecorder,
   } = context;
 
   // Parse user guardrail configuration and get effective guardrails
@@ -85,74 +180,96 @@ export const createRunTerminalCmd = (context: ToolContext) => {
   let caidoSetupDisabled = false;
 
   return tool({
-    description: `Execute a command on behalf of the user.
-If you have this tool, note that you DO have the ability to run commands directly in the sandbox environment.
-Commands execute immediately without requiring user approval.
-In using these tools, adhere to the following guidelines:
-1. Use command chaining and pipes for efficiency:
-   - Chain commands with \`&&\` to execute multiple commands together and handle errors cleanly (e.g., \`cd /app && npm install && npm start\`)
-   - Use pipes \`|\` to pass outputs between commands and simplify workflows (e.g., \`cat log.txt | grep error | wc -l\`)
-2. NEVER run code directly via interpreter inline commands (like \`python3 -c "..."\` or \`node -e "..."\`). ALWAYS save code to a file first, then execute the file.
-3. For ANY commands that would require user interaction, ASSUME THE USER IS NOT AVAILABLE TO INTERACT and PASS THE NON-INTERACTIVE FLAGS (e.g. --yes for npx).
-4. If the command would use a pager, append \` | cat\` to the command.
-5. For commands that are long running/expected to run indefinitely until interruption, please run them in the background. To run jobs in the background, set \`is_background\` to true rather than changing the details of the command. EXCEPTION: Never use background mode if you plan to retrieve the output file immediately afterward.
-6. Dont include any newlines in the command.
-7. Handle large outputs and save scan results to files:
-  - For complex and long-running scans (e.g., nmap, dirb, gobuster), save results to files using appropriate output flags (e.g., -oN for nmap) if the tool supports it, otherwise use redirect with > operator.
-  - For large outputs (>10KB expected: sqlmap --dump, nmap -A, nikto full scan):
-    - Pipe to file: \`sqlmap ... 2>&1 | tee sqlmap_output.txt\`
-    - Extract relevant information: \`grep -E "password|hash|Database:" sqlmap_output.txt\`
-    - Anti-pattern: Never let full verbose output return to context (causes overflow)
-  - Always redirect excessive output to files to avoid context overflow.
-8. Install missing tools when needed: Use \`apt install tool\` or \`pip install package\` (no sudo needed in container).
-9. After creating files that the user needs (reports, scan results, generated documents), use the get_terminal_files tool to share them as downloadable attachments.
-10. For pentesting tools, always use time-efficient flags and targeted scans to keep execution under 7 minutes (e.g., targeted ports for nmap, small wordlists for fuzzing, specific templates for nuclei, vulnerable-only enumeration for wpscan). Timeout handling: On timeout → reduce scope, break into smaller operations.
-11. When users make vague requests (e.g., "do recon", "scan this", "check security"), start with fast, lightweight tools and quick scans to provide initial results quickly. Use comprehensive/deep scans only when explicitly requested or after initial findings warrant deeper investigation.
-12. When searching for text in files, prefer using \`rg\` (ripgrep) because it is much faster than alternatives like \`grep\`. When searching for files by name, prefer \`rg --files\` or \`find\`. If the \`rg\` command is not found, fall back to \`grep\` or \`find\`.
-   - To read files, prefer the file tool over \`cat\`/\`head\`/\`tail\` when practical.`,
+    description: `Execute a shell command on the selected execution target, subject to runtime approvals and guardrails.
+- Chain dependent commands with && so failures stop dependent work. Probe optional tools independently: one missing command must not skip other checks. Install needed prerequisites and verify them; never suppress build, test, or generation failures. Use pipes for processing output.
+- Save code to a file before executing it; do not use inline interpreter code (python3 -c, node -e). Keep commands on one line. Pass non-interactive flags to installers and disable pagers or pipe through cat.
+- Use is_background for long-running jobs and servers, not shell background syntax. Do not background a command whose output file you need immediately. Use interactive=true for prompts/REPLs and continue the returned session with interact_terminal_session.
+- Redirect large outputs to files and inspect relevant excerpts to avoid context overflow. Share user deliverables with get_terminal_files.
+- Prefer rg for text searches and rg --files for filename discovery; fall back to grep/find if unavailable. Prefer the file tool for reading and editing content.
+${context.purpose === "security" ? "For security assessments, use targeted ports, small wordlists, specific templates and efficient flags. Keep checks short, respect the remaining request budget and leave time to report verified results and unfinished work. Save scan results using output flags or redirection. A command whose observation ends in a timeout may still be running; verify its state before retrying or splitting work. Start vague requests with lightweight checks; expand only when requested or warranted by findings. Install missing container tools with apt/pip as needed (no sudo needed in the container)." : "Stay within the requested project and use its existing build and verification commands."}`,
     inputSchema: z.object({
       command: z.string().describe("The shell command to execute"),
-      brief: z
+      cwd: z
         .string()
-        .describe(
-          "A one-sentence preamble describing the purpose of this operation",
-        ),
-      is_background: z
-        .boolean()
+        .min(1)
         .optional()
-        .default(false)
         .describe(
-          "Run the command in the background. Only meaningful when interactive=false; ignored otherwise. Use FALSE if you need output files immediately afterward via get_terminal_files; TRUE for long-running processes where you don't need immediate file access.",
+          "Optional verified absolute directory. Omit to use the configured project checkout or default directory (/home/user in Cloud). Never guess a workspace path.",
+        ),
+      brief: z.string().describe("One sentence explaining this operation."),
+      is_background: z
+        .union([z.boolean(), z.string()])
+        .optional()
+        .describe(
+          "Default false. True backgrounds long-running jobs; ignored for interactive=true. Keep false when output files are needed immediately via get_terminal_files.",
         ),
       timeout: z
-        .number()
+        .union([z.number(), z.string()])
         .optional()
-        .default(DEFAULT_STREAM_TIMEOUT_SECONDS)
         .describe(
-          `Timeout in seconds to wait for command output before returning. For interactive=false, the command keeps running in background on timeout. Capped at ${MAX_TIMEOUT_SECONDS} seconds. Defaults to ${DEFAULT_STREAM_TIMEOUT_SECONDS} seconds.`,
+          `For interactive=false, an explicit timeout sets the command wait budget, capped at ${MAX_TIMEOUT_SECONDS} seconds, plus up to 30 seconds for exit delivery. Local commands are terminated at this budget; cloud commands may continue if observation ends. When omitted, observe for ${DEFAULT_STREAM_TIMEOUT_SECONDS} seconds with a 10-minute backend budget. For interactive=true, this is only the initial observation time. An unconfirmed result must never be automatically repeated.`,
         ),
       interactive: z
-        .boolean()
+        .union([z.boolean(), z.string()])
         .optional()
-        .default(false)
         .describe(
-          "When true, opens a PTY and returns a reusable `session` ID. Use `interact_terminal_session` tool to continue the session with send/wait/view/kill actions. Use for anything that prompts: REPLs (python, node, mysql), SSH, sudo, confirmations, interactive installers. E2B and local (Centrifugo) sandboxes only.",
+          "Default false. True opens a PTY for prompts, REPLs, SSH, sudo or installers. Continue its session ID with interact_terminal_session (send/wait/view/kill). Supported on E2B and local Centrifugo.",
         ),
     }),
     execute: async (
       {
         command,
-        is_background,
-        timeout,
-        interactive,
+        cwd,
+        is_background: is_background_raw,
+        timeout: timeout_raw,
+        interactive: interactive_raw,
       }: {
         command: string;
-        is_background: boolean;
-        timeout?: number;
-        interactive: boolean;
+        cwd?: string;
+        is_background?: boolean | string;
+        timeout?: number | string;
+        interactive?: boolean | string;
       },
       { toolCallId, abortSignal },
     ) => {
+      // Repair possibly-string or jammed flags from weaker models before use, so
+      // a valid command isn't dropped over a malformed `interactive`/`timeout`.
+      const { interactive, is_background, timeout } = normalizeTerminalFlags({
+        interactive: interactive_raw,
+        is_background: is_background_raw,
+        timeout: timeout_raw,
+      });
+      // Evidence timing: when the command started, so its result can carry how
+      // long it actually took. Persisted in the tool result (the message part),
+      // so it survives on the trace rather than being lost the moment the row
+      // is read back.
+      const startedAt = Date.now();
+      const withTiming = <T extends Record<string, unknown>>(result: T): T => {
+        const endedAt = Date.now();
+        const durationMs = endedAt - startedAt;
+        // Note the command on the run so a later finding can point at it and
+        // the run log records what was executed. Purely a record: never awaited
+        // and never able to fail the command it describes.
+        runRecorder?.recordTerminalCommand({
+          toolCallId,
+          command,
+          exitCode:
+            typeof result.exitCode === "number" ? result.exitCode : undefined,
+          durationMs,
+          output: typeof result.output === "string" ? result.output : undefined,
+        });
+        void runRecorder?.appendEvent({
+          type: "terminal_command",
+          toolName: "run_terminal_cmd",
+          toolCallId,
+          summary:
+            command.length > 160 ? `${command.slice(0, 157)}...` : command,
+          exitCode:
+            typeof result.exitCode === "number" ? result.exitCode : undefined,
+          durationMs,
+        });
+        return { ...result, startedAt, endedAt, durationMs };
+      };
       // PTY geometry is fixed server-side (DEFAULT_PTY_COLS / DEFAULT_PTY_ROWS).
       // The model intentionally has no knob for this — a terminal size should
       // match a real display, not a model-chosen value. UIs that render the
@@ -216,12 +333,20 @@ In using these tools, adhere to the following guidelines:
         });
       };
 
-      // Calculate effective stream timeout (capped at MAX_TIMEOUT_SECONDS)
-      // This controls how long we wait for output, not how long the command runs
+      // Preserve the omitted-timeout observation default. Explicit budgets
+      // extend execution/SDK observation separately from final exit delivery.
+      const explicitTimeout =
+        typeof timeout === "number" && Number.isFinite(timeout) && timeout > 0;
       const effectiveStreamTimeout = Math.min(
-        timeout ?? DEFAULT_STREAM_TIMEOUT_SECONDS,
+        explicitTimeout ? timeout : DEFAULT_STREAM_TIMEOUT_SECONDS,
         MAX_TIMEOUT_SECONDS,
       );
+      const executionTimeoutMs = explicitTimeout
+        ? effectiveStreamTimeout * 1000
+        : DEFAULT_COMMAND_EXECUTION_TIME;
+      const observationTimeoutSeconds = explicitTimeout
+        ? effectiveStreamTimeout + (2 * COMMAND_EXIT_DELIVERY_GRACE_MS) / 1000
+        : effectiveStreamTimeout;
       // Check guardrails before executing the command
       const guardrailResult = checkCommandGuardrails(
         command,
@@ -240,12 +365,16 @@ In using these tools, adhere to the following guidelines:
       // ─── Interactive PTY exec branch ─────────────────────────────────
       if (interactive) {
         try {
+          abortSignal?.throwIfAborted();
           if (!sandboxManager.isE2BSandboxBooted?.()) {
             emitBootProgress(
               "\x1b[33m⟳ Starting secure environment...\x1b[0m\r\n",
             );
           }
           const { sandbox } = await sandboxManager.getSandbox();
+          abortSignal?.throwIfAborted();
+          await ensureGitCredentials(sandbox, context);
+          abortSignal?.throwIfAborted();
           const isCentrifugo = isCentrifugoSandbox(sandbox);
           const isE2B = isE2BSandbox(sandbox);
 
@@ -300,24 +429,47 @@ In using these tools, adhere to the following guidelines:
           const session = await ptySessionManager.create(chatId, {
             cols,
             rows,
+            signal: abortSignal,
             createHandle: async () => {
               if (isCentrifugo) {
                 const { createCentrifugoPtyHandle } =
                   await import("./utils/centrifugo-pty-adapter");
+                abortSignal?.throwIfAborted();
                 return createCentrifugoPtyHandle(sandbox, {
                   command,
                   cols,
                   rows,
-                  envs: caidoEnvVars,
+                  envs: mergeEnvs(caidoEnvVars),
+                  ...(cwd ? { cwd } : {}),
                 });
               }
               return createE2BPtyHandle(sandbox, {
                 cols,
                 rows,
-                envs: caidoEnvVars,
+                user: "root",
+                cwd: cwd ?? context.projectWorkingDirectory ?? "/home/user",
+                // mergeEnvs injects the recon/OSINT keys (VirusTotal, Shodan…)
+                // alongside the Caido proxy vars — without this, cf-origin and
+                // other API-backed tools run key-blind in the interactive PTY.
+                // HOME is fixed after the merge because the project directory
+                // is browser-writable in Workbench and must never supply a
+                // login profile to a privileged agent shell.
+                envs: {
+                  ...mergeEnvs(caidoEnvVars),
+                  HOME: "/root",
+                  USER: "root",
+                  LOGNAME: "root",
+                },
               });
             },
           });
+
+          // Cancellation can arrive after registration but before this caller
+          // resumes. Close that session before sending any initial command.
+          if (abortSignal?.aborted) {
+            await ptySessionManager.close(chatId, session.sessionId);
+            abortSignal.throwIfAborted();
+          }
 
           // Now that the session exists, tag subsequent data-terminal events
           // with its sessionId (was undefined at emitTerminal definition time).
@@ -358,6 +510,11 @@ In using these tools, adhere to the following guidelines:
               session: session.sessionId,
               pid: session.pid,
               output: capOutput(stripAnsi(new TextDecoder().decode(delta))),
+              modelContext: await preservePtyModelContext(
+                session,
+                snapshots,
+                async () => sandbox,
+              ),
               sessionSnapshot: snapshots.cleaned,
               rawSnapshot: snapshots.raw,
               ...(session.bufferTruncated ? { bufferTruncated: true } : {}),
@@ -386,6 +543,7 @@ In using these tools, adhere to the following guidelines:
         }
         // Get fresh sandbox and verify it's ready
         const { sandbox } = await sandboxManager.getSandbox();
+        await ensureGitCredentials(sandbox, context);
 
         // Check for sandbox fallback and notify frontend
         const fallbackInfo = sandboxManager.consumeFallbackInfo?.();
@@ -402,9 +560,11 @@ In using these tools, adhere to the following guidelines:
           return {
             result: {
               output: "",
-              exitCode: 1,
+              exitCode: null,
+              outcome: "not_started",
+              retryable: false,
               error:
-                "Sandbox is unavailable after repeated health check failures. Do NOT retry any terminal or sandbox commands. Inform the user that the sandbox could not be reached and suggest they wait a moment and try again, or delete the sandbox in Settings > Data Controls. If the issue persists, contact RIFT support.",
+                "The workspace is marked unavailable after repeated health check failures. This command was not started. Preserve the existing workspace and report the connectivity issue; do not repeat commands until workspace recovery is confirmed.",
             },
           };
         }
@@ -418,106 +578,32 @@ In using these tools, adhere to the following guidelines:
           } catch (healthError) {
             // If aborted, don't retry - propagate the abort
             if (
-              healthError instanceof DOMException &&
+              (healthError instanceof DOMException ||
+                healthError instanceof Error) &&
               healthError.name === "AbortError"
             ) {
               throw healthError;
             }
 
-            const exceeded = sandboxManager.recordHealthFailure();
-            if (exceeded) {
-              console.error(
-                "[Terminal Command] Sandbox health check failed too many times, marking unavailable",
-              );
-              return {
-                result: {
-                  output: "",
-                  exitCode: 1,
-                  error:
-                    "Sandbox is unavailable after repeated health check failures. Do NOT retry any terminal or sandbox commands. Inform the user that the sandbox could not be reached and suggest they wait a moment and try again, or delete the sandbox in Settings > Data Controls. If the issue persists, contact RIFT support.",
-                },
-              };
-            }
-
-            // Stop the kill+recreate spiral: if we've already rebuilt the
-            // sandbox several times this request and it still won't pass a
-            // health check, recreating again won't help (the agent is likely
-            // exhausting resources faster than each fresh sandbox provides).
-            // Surface a clear, actionable error instead of looping silently.
-            const recreatesSoFar =
-              sandboxRecreateCounts.get(sandboxManager) ?? 0;
-            if (recreatesSoFar >= MAX_SANDBOX_RECREATES) {
-              console.error(
-                `[Terminal Command] Sandbox recreate cap (${MAX_SANDBOX_RECREATES}) reached; not rebuilding again`,
-              );
-              return {
-                result: {
-                  output: "",
-                  exitCode: 1,
-                  error:
-                    "The sandbox keeps running out of resources (most likely disk space from large command outputs). Stop retrying this command. Reduce the output size — redirect large output to a file and grep for only what you need (e.g. `cmd 2>&1 | tee out.txt` then `grep -E 'pattern' out.txt`), or run smaller/targeted scans — then try again. If it keeps failing, tell the user to wait a moment and retry.",
-                },
-              };
-            }
-            sandboxRecreateCounts.set(sandboxManager, recreatesSoFar + 1);
-
-            // Sandbox health check failed - log diagnostics and wait briefly before recreating
-            const diagnostics = await getSandboxDiagnostics(sandbox).catch(
-              () => "diagnostics unavailable",
-            );
-            console.warn(
-              `[Terminal Command] Sandbox health check failed (${diagnostics}), waiting before recreating sandbox`,
-            );
-            await new Promise((resolve) => setTimeout(resolve, 2000));
-
-            // KILL the unhealthy sandbox before reconnecting. Without this,
-            // ensureSandboxConnection's Sandbox.list() finds the same dead
-            // sandbox again, connect() "succeeds" (paused sandboxes accept
-            // connections) but isRunning() stays false — so the health check
-            // fails forever and a fresh sandbox is never actually created.
-            try {
-              await sandbox.kill();
-              console.warn(
-                "[Terminal Command] Killed unhealthy sandbox; creating a fresh one",
-              );
-            } catch (killError) {
-              console.warn(
-                "[Terminal Command] Failed to kill unhealthy sandbox (continuing to recreate):",
-                killError,
-              );
-            }
-
-            // Reset cached instance to force ensureSandboxConnection to create a fresh one
-            sandboxManager.setSandbox(null as any);
-            const { sandbox: freshSandbox } = await sandboxManager.getSandbox();
-
-            // Verify the fresh sandbox is ready
-            try {
-              await waitForSandboxReady(freshSandbox, 5, abortSignal);
-              sandboxManager.resetHealthFailures();
-            } catch (freshHealthError) {
-              if (
-                freshHealthError instanceof DOMException &&
-                freshHealthError.name === "AbortError"
-              ) {
-                throw freshHealthError;
-              }
-              sandboxManager.recordHealthFailure();
-              return {
-                result: {
-                  output: "",
-                  exitCode: 1,
-                  error:
-                    "Sandbox recreation failed. The sandbox environment is not responding. Another attempt may be made but the sandbox will be marked unavailable after repeated failures.",
-                },
-              };
-            }
-
-            return executeCommand(freshSandbox);
+            // A failed readiness probe does not establish workspace loss.
+            // Killing/replacing this instance can erase files and other agents'
+            // running processes. The requested command has not been dispatched.
+            const retryable = !isE2BPermanentError(healthError);
+            return {
+              result: {
+                output: "",
+                exitCode: null,
+                outcome: "not_started",
+                retryable,
+                error: retryable
+                  ? "The existing workspace is temporarily unreachable. This command was not started and the workspace was not deleted or replaced. Retry readiness against this same workspace; do not create an empty replacement or repeat earlier commands whose outcomes are unknown."
+                  : `${getUserFacingE2BErrorMessage(healthError) ?? "Workspace readiness requires attention before commands can continue."} This command was not started. Do not retry unchanged, replace the workspace, or repeat earlier commands whose outcomes are unknown.`,
+              },
+            };
           }
         }
 
-        return executeCommand(sandbox);
+        return await executeCommand(sandbox);
 
         async function executeCommand(sandboxInstance: typeof sandbox) {
           // Ensure Caido proxy is running + authenticated before commands route through it.
@@ -593,24 +679,10 @@ In using these tools, adhere to the following guidelines:
                 processId = (execution as any).pid;
               }
 
-              // Fall back to PID discovery via pgrep/ps for any command type
-              if (!processId) {
-                processId = await findProcessPid(sandboxInstance, command);
-              }
-
-              // Terminate the current process
+              // Kill only the handle returned by this one start. If the
+              // acknowledgement arrives after abort, runCommand kills it then.
               try {
-                if ((execution && execution.kill) || processId) {
-                  await terminateProcessReliably(
-                    sandboxInstance,
-                    execution,
-                    processId,
-                  );
-                } else {
-                  console.warn(
-                    "[Terminal Command] Cannot kill process: no execution handle or PID available",
-                  );
-                }
+                await execution?.kill?.();
               } catch (error) {
                 console.error(
                   "[Terminal Command] Error during abort termination:",
@@ -649,7 +721,7 @@ In using these tools, adhere to the following guidelines:
             handler = createTerminalHandler(
               (output: string) => createTerminalWriter(output),
               {
-                timeoutSeconds: effectiveStreamTimeout,
+                timeoutSeconds: observationTimeoutSeconds,
                 onTimeout: async () => {
                   if (resolved) {
                     return;
@@ -660,21 +732,22 @@ In using these tools, adhere to the following guidelines:
                     processId = (execution as any).pid;
                   }
 
-                  // For foreground commands on stream timeout, try to discover PID for user reference
-                  // DO NOT kill the process - it may still be working and saving to files
-                  // The process has its own MAX_COMMAND_EXECUTION_TIME timeout via commonOptions
-                  if (!processId && !is_background) {
-                    processId = await findProcessPid(sandboxInstance, command);
-                  }
+                  // Observation ending does not prove the cloud process stopped.
+                  // Preserve its known handle/PID without killing ongoing work.
+                  // Local execution separately enforces the requested budget.
+                  // A missing start acknowledgement is not permission to run
+                  // a diagnostic command or guess which process to terminate.
 
                   await createTerminalWriter(
                     TIMEOUT_MESSAGE(
-                      effectiveStreamTimeout,
+                      observationTimeoutSeconds,
                       processId ?? undefined,
                     ),
                   );
 
+                  if (resolved) return;
                   resolved = true;
+                  abortSignal?.removeEventListener("abort", onAbort);
                   const result = handler
                     ? handler.getResult(processId ?? undefined)
                     : { output: "" };
@@ -682,7 +755,13 @@ In using these tools, adhere to the following guidelines:
                     handler.cleanup();
                   }
                   resolve({
-                    result: { output: result.output, exitCode: null },
+                    result: {
+                      output: result.output,
+                      exitCode: null,
+                      pid: processId ?? undefined,
+                      outcome: "unknown",
+                      error: new CommandOutcomeUnknownError().message,
+                    },
                   });
                 },
               },
@@ -699,98 +778,193 @@ In using these tools, adhere to the following guidelines:
                     onStdout: handler!.stdout,
                     onStderr: handler!.stderr,
                   },
-              caidoEnvVars,
+              mergeEnvs(caidoEnvVars),
+              executionTimeoutMs,
             );
-            const runOptions = isCentrifugoSandbox(sandboxInstance)
-              ? { ...commonOptions, signal: abortSignal }
-              : commonOptions;
-
-            // Determine if an error is a permanent command failure (don't retry)
-            // vs a transient sandbox issue (do retry)
-            const isPermanentError = (error: unknown): boolean => {
-              // Command exit errors are permanent (command ran but failed)
-              if (error instanceof CommandExitError) {
-                return true;
-              }
-
-              if (error instanceof Error) {
-                // Signal errors (like "signal: killed") are permanent - they occur when
-                // a process is terminated externally (e.g., by our abort handler).
-                // We must not retry these as the termination was intentional.
-                if (error.message.includes("signal:")) {
-                  return true;
-                }
-
-                // Sandbox termination errors are permanent
-                return (
-                  error.name === "NotFoundError" ||
-                  error.message.includes("not running anymore") ||
-                  error.message.includes("Sandbox not found")
-                );
-              }
-
-              return false;
+            const runOptions = {
+              ...commonOptions,
+              ...(cwd
+                ? { cwd }
+                : isE2BSandbox(sandboxInstance) &&
+                    context.projectWorkingDirectory
+                  ? { cwd: context.projectWorkingDirectory }
+                  : {}),
+              // Cloud Stop uses the exact handle kill listener above. Aborting
+              // its transport would destroy the exit receipt we must still join.
+              signal: isE2BSandbox(sandboxInstance) ? undefined : abortSignal,
+              // E2B timeoutMs ends the SDK stream, not the process itself.
+              // Keep it open long enough to receive an exit at the budget.
+              ...(isE2BSandbox(sandboxInstance) && {
+                timeoutMs: executionTimeoutMs + COMMAND_EXIT_DELIVERY_GRACE_MS,
+              }),
             };
 
             // Augment PATH for local sandboxes so user-installed tools
             // (e.g. ~/go/bin/waybackurls) are found without full paths.
-            // Keep the original `command` for PID discovery (findProcessPid).
+            // The original command is never resubmitted after a start attempt.
             const effectiveCommand = augmentCommandPath(
               command,
               sandboxInstance,
             );
 
-            // Execute command with retry logic for transient failures
-            // Sandbox readiness already checked, so these retries handle race conditions
-            // Retries: 6 attempts with exponential backoff (500ms, 1s, 2s, 4s, 8s, 16s) + jitter (±50ms)
-            const runPromise: Promise<{
-              stdout: string;
-              stderr: string;
-              exitCode: number;
-              pid?: number;
-            }> = is_background
-              ? retryWithBackoff(
-                  async () => {
-                    const result = await sandboxInstance.commands.run(
-                      effectiveCommand,
-                      {
-                        ...runOptions,
-                        background: true,
+            const runCommand = async () => {
+              ptySessionManager.assertExecutionOpen();
+              const journal =
+                isE2BSandbox(sandboxInstance) && !is_background
+                  ? await prepareJournaledCommand(
+                      // Resolve cwd inside the supervised child. A nonexistent
+                      // directory must produce an exit receipt, not reject the
+                      // supervisor launch and strand a reserved resource.
+                      runOptions.cwd
+                        ? `cd -- '${runOptions.cwd.replace(/'/g, `'"'"'`)}' || exit $?\n${effectiveCommand}`
+                        : effectiveCommand,
+                      sandboxInstance,
+                      undefined,
+                      executionTimeoutMs,
+                    )
+                  : undefined;
+              try {
+                ptySessionManager.assertExecutionOpen();
+                abortSignal?.throwIfAborted();
+              } catch (error) {
+                // No SDK call has been made. This is explicit unsent evidence,
+                // unlike a rejected/lost response after submission.
+                await journal?.notStarted();
+                throw error;
+              }
+              const launchOptions = journal
+                ? { ...runOptions, cwd: undefined }
+                : runOptions;
+              const rawStarting = sandboxInstance.commands.run(
+                journal?.command ?? effectiveCommand,
+                is_background || isE2BSandbox(sandboxInstance)
+                  ? { ...launchOptions, background: true }
+                  : launchOptions,
+              );
+              const starting = rawStarting.then((handle) =>
+                journal
+                  ? new Proxy(handle, {
+                      get(target, property) {
+                        if (property === "kill")
+                          return () =>
+                            journal.stop((handle as { pid: number }).pid);
+                        const value = Reflect.get(target, property, target);
+                        return typeof value === "function"
+                          ? value.bind(target)
+                          : value;
                       },
-                    );
-                    // Normalize the result to include exitCode
-                    return {
-                      stdout: result.stdout,
-                      stderr: result.stderr,
-                      exitCode: result.exitCode ?? 0,
-                      pid: (result as { pid?: number }).pid,
-                    };
-                  },
-                  {
-                    maxRetries: 6,
-                    baseDelayMs: 500,
-                    jitterMs: 50,
-                    isPermanentError,
-                    // Retry logs are too noisy - they're expected behavior
-                    logger: () => {},
-                  },
-                )
-              : retryWithBackoff(
-                  () =>
-                    sandboxInstance.commands.run(effectiveCommand, runOptions),
-                  {
-                    maxRetries: 6,
-                    baseDelayMs: 500,
-                    jitterMs: 50,
-                    isPermanentError,
-                    // Retry logs are too noisy - they're expected behavior
-                    logger: () => {},
-                  },
+                    })
+                  : handle,
+              );
+              const observed = starting.then((started) => {
+                if (journal)
+                  void journal
+                    .started((started as { pid: number }).pid)
+                    .catch(() => {});
+                return {
+                  started,
+                  completion:
+                    isE2BSandbox(sandboxInstance) && !is_background
+                      ? Promise.resolve().then(() =>
+                          (
+                            started as unknown as {
+                              wait: () => Promise<typeof started>;
+                            }
+                          ).wait(),
+                        )
+                      : Promise.resolve(started),
+                };
+              });
+              // A returned tool result or a kill acknowledgment is not process
+              // exit. Keep one exact wait receipt even after abort/timeout.
+              // Explicit background servers belong to the preview lifecycle.
+              if (isE2BSandbox(sandboxInstance) && !is_background) {
+                ptySessionManager.trackRemoteCommand(
+                  chatId,
+                  observed.then(({ started, completion }) => ({
+                    pid: (started as { pid: number }).pid,
+                    kill: async () => {
+                      await (
+                        started as unknown as { kill: () => Promise<unknown> }
+                      ).kill();
+                    },
+                    confirmedExited: completion.then(
+                      async (result) => {
+                        if (typeof result.exitCode !== "number")
+                          throw new CommandOutcomeUnknownError();
+                        await journal?.exited((started as { pid: number }).pid);
+                        return { exitCode: result.exitCode };
+                      },
+                      async (error: unknown) => {
+                        if (error instanceof CommandExitError) {
+                          await journal?.exited(
+                            (started as { pid: number }).pid,
+                          );
+                          return { exitCode: error.exitCode };
+                        }
+                        throw error;
+                      },
+                    ),
+                  })),
                 );
+              }
+              const { started, completion } = await observed;
+              // The receipt above observes completion even if abort won the race.
+              void completion.catch(() => {});
+              let result = started;
+              if (isE2BSandbox(sandboxInstance)) {
+                // Acquire one handle and wait on that exact process. Never
+                // turn a lost stream into another process start.
+                execution = started;
+                processId = (started as { pid?: number }).pid ?? null;
+                if (abortSignal?.aborted) {
+                  await (started as { kill?: () => Promise<unknown> }).kill?.();
+                  throw new DOMException("Command aborted", "AbortError");
+                }
+                if (!is_background) {
+                  result = await completion;
+                }
+              }
+              return {
+                stdout: result.stdout,
+                stderr: result.stderr,
+                exitCode: result.exitCode ?? (is_background ? 0 : null),
+                pid: (started as { pid?: number }).pid,
+              };
+            };
+
+            // A start or wait failure can follow real host side effects on
+            // either backend. Only the original handle may be observed;
+            // ambiguous failures must never resubmit the command.
+            const runPromise = runCommand().catch((error: unknown) => {
+              if (error instanceof CommandExitError) throw error;
+              throw new CommandOutcomeUnknownError();
+            });
 
             runPromise
               .then(async (exec) => {
-                execution = exec;
+                // Retain the E2B handle (including kill), not its result snapshot.
+                if (!execution) execution = exec;
+
+                if (is_background && exec.exitCode !== 0) {
+                  if (handler) handler.cleanup();
+                  if (!resolved) {
+                    resolved = true;
+                    abortSignal?.removeEventListener("abort", onAbort);
+                    resolve({
+                      result: withTiming({
+                        exitCode: exec.exitCode,
+                        output: [exec.stdout, exec.stderr]
+                          .filter(Boolean)
+                          .join("\n"),
+                        error:
+                          exec.stderr ||
+                          `Background command failed with exit code ${exec.exitCode}.`,
+                      }),
+                    });
+                  }
+                  return;
+                }
 
                 // Capture PID for background processes
                 if (is_background && exec?.pid) {
@@ -845,14 +1019,22 @@ In using these tools, adhere to the following guidelines:
                           pid: processId,
                           output: `Background process started with PID: ${processId ?? "unknown"}\n`,
                         }
-                      : {
-                          exitCode: exec.exitCode ?? 0,
+                      : withTiming({
+                          exitCode: exec.exitCode,
+                          ...(exec.exitCode === null
+                            ? {
+                                outcome: "unknown",
+                                error: new CommandOutcomeUnknownError().message,
+                              }
+                            : {}),
                           output: outputWithSaveInfo,
                           error:
-                            exec.exitCode === -1 && exec.stderr
-                              ? exec.stderr
-                              : undefined,
-                        },
+                            exec.exitCode === null
+                              ? new CommandOutcomeUnknownError().message
+                              : exec.exitCode === -1 && exec.stderr
+                                ? exec.stderr
+                                : undefined,
+                        }),
                   });
                 }
               })
@@ -884,11 +1066,21 @@ In using these tools, adhere to the following guidelines:
                     }
 
                     resolve({
-                      result: {
+                      result: withTiming({
                         exitCode: error.exitCode,
                         output: outputWithSaveInfo,
                         error: error.message,
-                      },
+                      }),
+                    });
+                  } else if (error instanceof CommandOutcomeUnknownError) {
+                    resolve({
+                      result: withTiming({
+                        output: handler?.getResult().output ?? "",
+                        exitCode: null,
+                        pid: processId ?? undefined,
+                        outcome: "unknown",
+                        error: error.message,
+                      }),
                     });
                   } else {
                     reject(error);
@@ -900,31 +1092,24 @@ In using these tools, adhere to the following guidelines:
       } catch (error) {
         return {
           result: {
-            exitCode: error instanceof CommandExitError ? error.exitCode : 1,
+            exitCode:
+              error instanceof CommandOutcomeUnknownError
+                ? null
+                : error instanceof CommandExitError
+                  ? error.exitCode
+                  : 1,
+            ...(error instanceof CommandOutcomeUnknownError
+              ? { outcome: "unknown" as const }
+              : {}),
             output: "",
             error: error instanceof Error ? error.message : String(error),
           },
         };
       }
     },
-    // For interactive PTY results, strip rawSnapshot from what the model
-    // sees — the agent only needs the cleaned `output` plus structural
-    // fields. rawSnapshot stays in the persisted tool result so the
-    // sidebar's xterm renderer can replay it. No-op for non-interactive
-    // results, which never include rawSnapshot.
+    // UI/persistence retain raw scrollback; only the model receives the projection.
     toModelOutput({ output }) {
-      if (typeof output !== "object" || output === null) {
-        return { type: "text", value: String(output ?? "") };
-      }
-      const result = (output as { result?: unknown }).result;
-      if (typeof result !== "object" || result === null) {
-        return { type: "text", value: JSON.stringify(output) };
-      }
-      const { rawSnapshot: _rawSnapshot, ...rest } = result as Record<
-        string,
-        unknown
-      >;
-      return { type: "text", value: JSON.stringify({ result: rest }) };
+      return ptyModelOutput(output);
     },
   });
 };

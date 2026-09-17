@@ -1,14 +1,9 @@
-import { useEffect, useCallback } from "react";
+import { useEffect, useCallback, useRef } from "react";
 import { useGlobalState } from "../contexts/GlobalState";
-import { useIsMobile } from "@/hooks/use-mobile";
+import { usePublishLiveSidebarContent } from "../contexts/LiveSidebarContent";
 import type { SidebarContent } from "@/types/chat";
 
-/**
- * Module-level guard so the agent activity panel auto-opens at most once per
- * page load. After the first tool runs we surface the live activity, but we
- * never fight the operator if they choose to close it again.
- */
-let hasAutoOpenedToolSidebar = false;
+const SIDEBAR_UPDATE_INTERVAL_MS = 50;
 
 interface UseToolSidebarOptions {
   /** The toolCallId for this tool invocation */
@@ -45,14 +40,14 @@ export function useToolSidebar({
   typeGuard,
   disabled = false,
 }: UseToolSidebarOptions): UseToolSidebarResult {
-  const {
-    openSidebar,
-    closeSidebar,
-    sidebarOpen,
-    sidebarContent,
-    updateSidebarContent,
-  } = useGlobalState();
-  const isMobile = useIsMobile();
+  const { openSidebar, closeSidebar, sidebarOpen, sidebarContent } =
+    useGlobalState();
+  const publishLiveSidebarContent = usePublishLiveSidebarContent();
+  const pendingContentRef = useRef<SidebarContent | null>(null);
+  const updateTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const lastUpdateAtRef = useRef(0);
+  const activeRef = useRef(false);
+  const publishLiveSidebarContentRef = useRef(publishLiveSidebarContent);
 
   const isSidebarActive =
     !disabled &&
@@ -62,10 +57,16 @@ export function useToolSidebar({
     "toolCallId" in sidebarContent &&
     (sidebarContent as { toolCallId?: string }).toolCallId === toolCallId;
 
+  useEffect(() => {
+    activeRef.current = isSidebarActive;
+    publishLiveSidebarContentRef.current = publishLiveSidebarContent;
+  }, [isSidebarActive, publishLiveSidebarContent]);
+
   const handleOpenInSidebar = useCallback(() => {
     if (disabled || !content) return;
+    publishLiveSidebarContent(content);
     openSidebar(content);
-  }, [disabled, content, openSidebar]);
+  }, [disabled, content, openSidebar, publishLiveSidebarContent]);
 
   const handleKeyDown = useCallback(
     (e: React.KeyboardEvent) => {
@@ -86,21 +87,30 @@ export function useToolSidebar({
   // Auto-update sidebar content in real-time when active
   useEffect(() => {
     if (!isSidebarActive || !content) return;
-    updateSidebarContent(content);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    pendingContentRef.current = content;
+    if (updateTimerRef.current !== null) return;
+
+    const elapsed = Date.now() - lastUpdateAtRef.current;
+    updateTimerRef.current = setTimeout(
+      () => {
+        updateTimerRef.current = null;
+        const pendingContent = pendingContentRef.current;
+        if (!activeRef.current || !pendingContent) return;
+        lastUpdateAtRef.current = Date.now();
+        publishLiveSidebarContentRef.current(pendingContent);
+      },
+      Math.max(0, SIDEBAR_UPDATE_INTERVAL_MS - elapsed),
+    );
   }, [isSidebarActive, content]);
 
-  // Surface the agent activity panel the first time a tool produces content,
-  // so the live terminal/file/command stream is prominent. Desktop only, and
-  // only once per page load so we never repeatedly fight the operator.
-  useEffect(() => {
-    if (hasAutoOpenedToolSidebar) return;
-    // Require an explicit desktop result (isMobile is undefined on first render).
-    if (disabled || !content || isMobile !== false) return;
-    hasAutoOpenedToolSidebar = true;
-    if (!sidebarOpen) openSidebar(content);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [disabled, content, isMobile]);
+  useEffect(
+    () => () => {
+      if (updateTimerRef.current !== null) {
+        clearTimeout(updateTimerRef.current);
+      }
+    },
+    [],
+  );
 
   return { handleOpenInSidebar, handleKeyDown, isSidebarActive };
 }

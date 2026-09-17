@@ -1,7 +1,7 @@
 import { Button } from "@/components/ui/button";
 import { TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import * as TooltipPrimitive from "@radix-ui/react-tooltip";
-import { Paperclip } from "lucide-react";
+import { Plus } from "lucide-react";
 
 interface AttachmentButtonProps {
   onAttachClick: () => void;
@@ -21,16 +21,16 @@ export const AttachmentButton = ({
           onClick={onAttachClick}
           variant="ghost"
           size="icon"
-          className="h-6 w-6 min-w-0 rounded-md p-0 text-muted-foreground hover:bg-accent hover:text-foreground"
+          className="h-11 w-11 min-w-11 cursor-pointer rounded-[8px] p-0 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground active:bg-accent motion-reduce:transition-none md:h-7 md:w-7 md:min-w-0 md:rounded-[7px]"
           aria-label="Attach files"
           data-testid="attach-files-button"
           disabled={disabled}
         >
-          <Paperclip className="w-[15px] h-[15px]" />
+          <Plus aria-hidden="true" className="size-4" strokeWidth={1.7} />
         </Button>
       </TooltipTrigger>
       <TooltipContent>
-        <p>Add files or images</p>
+        <p>Add files and context</p>
       </TooltipContent>
     </TooltipPrimitive.Root>
   );

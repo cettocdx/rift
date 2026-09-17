@@ -1,0 +1,105 @@
+.control {
+  display: inline-flex;
+  min-width: 0;
+  max-width: 220px;
+  align-items: center;
+  border-radius: 7px;
+  color: var(--muted-foreground);
+  transition:
+    background-color 150ms ease,
+    color 150ms ease;
+}
+.control[data-selected="true"] {
+  background: var(--muted);
+}
+.trigger,
+.remove {
+  display: inline-flex;
+  min-width: 0;
+  height: 28px;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  border-radius: 7px;
+  padding: 0 6px;
+  font-family: var(--font-cursor-ui);
+  font-size: 12px;
+  font-weight: 450;
+  line-height: 18px;
+}
+.trigger > svg,
+.remove > svg {
+  flex-shrink: 0;
+}
+.trigger:hover:not(:disabled),
+.remove:hover:not(:disabled) {
+  background: var(--muted);
+  color: var(--foreground);
+}
+.trigger:focus-visible,
+.remove:focus-visible {
+  outline: 1px solid var(--foreground);
+  outline-offset: 2px;
+}
+.trigger:disabled,
+.remove:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+.label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.status {
+  max-width: 95px;
+  padding-right: 4px;
+  flex-shrink: 0;
+  font-size: var(--rift-type-caption);
+  line-height: 1.4;
+}
+.remove {
+  width: 24px;
+  flex-shrink: 0;
+}
+.dot {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: currentColor;
+  opacity: 0.45;
+  flex-shrink: 0;
+}
+.dot[data-ready="true"] {
+  background: var(--success);
+  opacity: 0.9;
+}
+.dot[data-expired="true"] {
+  background: var(--warning);
+  opacity: 1;
+}
+.spinner {
+  animation: spin 900ms linear infinite;
+}
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .control {
+    transition: none;
+  }
+  .spinner {
+    animation: none;
+  }
+}
+@media (pointer: coarse) {
+  .trigger,
+  .remove {
+    height: 44px;
+  }
+  .remove {
+    width: 36px;
+  }
+}

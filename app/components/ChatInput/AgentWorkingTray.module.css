@@ -1,0 +1,94 @@
+.tray {
+  min-width: 0;
+  flex-shrink: 0;
+  margin-bottom: 6px;
+  color: var(--foreground);
+  font-size: var(--rift-type-label, 12px);
+  line-height: 18px;
+}
+.toggle,
+.agent {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  min-height: 30px;
+  width: 100%;
+  padding: 4px 8px;
+  border-radius: 6px;
+  text-align: left;
+  cursor: pointer;
+}
+.toggle:hover,
+.agent:hover {
+  background: var(--accent);
+}
+.toggle:focus-visible,
+.agent:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: -2px;
+}
+.toggle svg,
+.agent svg {
+  width: 14px;
+  height: 14px;
+  flex-shrink: 0;
+}
+.count {
+  margin-left: auto;
+  color: var(--muted-foreground);
+  font-size: var(--rift-type-caption, 11px);
+}
+.list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  max-height: 132px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-width: thin;
+}
+.list[hidden] {
+  display: none;
+}
+.label {
+  flex: 1;
+  min-width: 0;
+}
+.task {
+  display: block;
+  color: var(--muted-foreground);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--rift-type-caption, 11px);
+}
+.name {
+  display: block;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.status {
+  color: var(--muted-foreground);
+}
+.status {
+  flex-shrink: 0;
+  font-size: var(--rift-type-caption, 11px);
+}
+.description {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+@media (pointer: coarse) {
+  .toggle,
+  .agent {
+    min-height: 44px;
+  }
+}

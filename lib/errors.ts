@@ -1,3 +1,8 @@
+import {
+  AGENT_START_TIMEOUT_MESSAGE,
+  LOST_AGENT_CONNECTION_MESSAGE,
+} from "./chat/interrupted-response";
+
 export type ErrorType =
   | "bad_request"
   | "unauthorized"
@@ -131,6 +136,8 @@ export function isNetworkStreamError(error: unknown): boolean {
   if (error.name === "AbortError") return false;
   const msg = error.message.toLowerCase();
   return (
+    msg === LOST_AGENT_CONNECTION_MESSAGE.toLowerCase() ||
+    msg === AGENT_START_TIMEOUT_MESSAGE.toLowerCase() ||
     msg.includes("failed to fetch") ||
     msg.includes("fetch failed") ||
     msg.includes("network") ||

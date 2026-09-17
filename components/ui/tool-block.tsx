@@ -1,4 +1,5 @@
 import React from "react";
+import { Check, ChevronRight, CircleStop, LoaderCircle, X } from "lucide-react";
 import { Shimmer } from "@/components/ai-elements/shimmer";
 
 interface ToolBlockProps {
@@ -11,14 +12,7 @@ interface ToolBlockProps {
   onKeyDown?: (e: React.KeyboardEvent) => void;
 }
 
-/**
- * ToolBlock — RIFT terminal-native action line.
- *
- * Renders a single agent action as a command-log row: a cyan `$` prompt, the
- * tool's glyph, the action verb, and an optional mono target. Square corners +
- * left cyan rule instead of the old rounded SaaS pill, so it reads like a line
- * in a real terminal rather than a generic chat tool-chip.
- */
+/** A compact Cursor-style agent action row. */
 const ToolBlock: React.FC<ToolBlockProps> = ({
   icon,
   action,
@@ -28,50 +22,99 @@ const ToolBlock: React.FC<ToolBlockProps> = ({
   onClick,
   onKeyDown,
 }) => {
+  const normalizedAction = action.toLowerCase();
+  const isStopped = normalizedAction.startsWith("stopped");
+  const isError =
+    normalizedAction.includes("failed") ||
+    normalizedAction.includes("error") ||
+    normalizedAction.includes("could not") ||
+    normalizedAction.includes("unavailable");
+  const state = isShimmer
+    ? "running"
+    : isStopped
+      ? "stopped"
+      : isError
+        ? "error"
+        : "done";
   const baseClasses =
-    "group/tb inline-flex h-[34px] max-w-full items-center gap-2 overflow-hidden border border-border/60 border-l-2 border-l-primary/40 bg-black/30 pl-2 pr-3 font-mono transition-[background-color,border-color] relative";
+    "group/tb relative flex min-h-[30px] w-full max-w-full items-center gap-1.5 overflow-hidden bg-transparent px-0.5 py-1.5 text-left text-[12px] leading-4 transition-colors";
   const clickableClasses = isClickable
-    ? "cursor-pointer hover:border-l-primary hover:bg-primary/[0.06] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-primary/40"
+    ? "cursor-pointer hover:bg-foreground/[0.035] focus-visible:outline-none"
     : "";
+
+  const content = (
+    <>
+      <span
+        aria-hidden="true"
+        className="inline-flex size-4 flex-shrink-0 items-center justify-center text-muted-foreground/65 [&>svg]:size-3.5 [&>svg]:stroke-[1.7]"
+      >
+        {icon}
+      </span>
+      <span className="min-w-0 max-w-full flex-1 truncate">
+        <span className="text-[12px] text-[var(--cursor-text-secondary)]">
+          {isShimmer ? <Shimmer>{action}</Shimmer> : action}
+        </span>
+        {target ? (
+          <span className="ml-1.5 font-mono text-[11.5px] text-muted-foreground/70">
+            {target}
+          </span>
+        ) : null}
+      </span>
+      <span
+        className="flex size-4 shrink-0 items-center justify-center"
+        aria-live="polite"
+      >
+        {state === "running" ? (
+          <LoaderCircle
+            className="size-3 text-muted-foreground motion-safe:animate-spin motion-reduce:animate-none"
+            aria-hidden="true"
+          />
+        ) : state === "error" ? (
+          <X className="size-3 text-destructive" aria-hidden="true" />
+        ) : state === "stopped" ? (
+          <CircleStop
+            className="size-3 text-muted-foreground/70"
+            aria-hidden="true"
+          />
+        ) : (
+          <Check className="size-3 text-[var(--success)]" aria-hidden="true" />
+        )}
+        <span className="sr-only">{state}</span>
+      </span>
+      {isClickable ? (
+        <ChevronRight
+          aria-hidden="true"
+          className="size-3 shrink-0 text-muted-foreground/35 transition-colors group-hover/tb:text-muted-foreground/75"
+        />
+      ) : null}
+    </>
+  );
 
   return (
     <div className="min-w-0 flex-1">
-      <button
-        className={`${baseClasses} ${clickableClasses}`}
-        onClick={isClickable ? onClick : undefined}
-        onKeyDown={isClickable ? onKeyDown : undefined}
-        tabIndex={isClickable ? 0 : undefined}
-        role={isClickable ? "button" : undefined}
-        aria-label={
-          isClickable && target ? `Open ${target} in sidebar` : undefined
-        }
-      >
-        <span
-          aria-hidden
-          className="select-none text-[13px] leading-none text-primary"
+      {isClickable ? (
+        <button
+          type="button"
+          data-ui="action-block"
+          data-running={isShimmer ? "true" : "false"}
+          data-status={state}
+          className={`${baseClasses} ${clickableClasses}`}
+          onClick={onClick}
+          onKeyDown={onKeyDown}
+          aria-label={target ? `Open ${target} in sidebar` : undefined}
         >
-          $
-        </span>
-        <span className="inline-flex w-[17px] flex-shrink-0 items-center text-muted-foreground/70 [&>svg]:h-[15px] [&>svg]:w-[15px]">
-          {icon}
-        </span>
-        <span className="max-w-full truncate">
-          <span className="text-[12.5px] tracking-tight text-foreground/85">
-            {isShimmer ? <Shimmer>{action}</Shimmer> : action}
-          </span>
-          {target && (
-            <span className="ml-2 text-[11.5px] text-primary/70">{target}</span>
-          )}
-        </span>
-        {isClickable && (
-          <span
-            aria-hidden
-            className="ml-auto select-none pl-2 text-[11px] text-muted-foreground/0 transition-colors group-hover/tb:text-primary/60"
-          >
-            ↗
-          </span>
-        )}
-      </button>
+          {content}
+        </button>
+      ) : (
+        <div
+          data-ui="action-block"
+          data-running={isShimmer ? "true" : "false"}
+          data-status={state}
+          className={baseClasses}
+        >
+          {content}
+        </div>
+      )}
     </div>
   );
 };

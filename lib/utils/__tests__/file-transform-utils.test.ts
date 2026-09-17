@@ -4,6 +4,9 @@ jest.mock("server-only", () => ({}));
 const mockConvexAction = jest.fn();
 const mockConvexQuery = jest.fn();
 jest.mock("@/lib/db/convex-client", () => ({
+  ...jest.requireActual<typeof import("@/lib/db/convex-client")>(
+    "@/lib/db/convex-client",
+  ),
   getConvexClient: jest.fn(() => ({
     action: mockConvexAction,
     query: mockConvexQuery,

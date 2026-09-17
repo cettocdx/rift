@@ -1,28 +1,30 @@
 {
   "short_name": "RIFT",
   "name": "RIFT",
-  "description": "RIFT - AI-Powered Security Testing Platform",
+  "description": "RIFT - The Professional AI Agent",
   "icons": [
+    {
+      "src": "/rift-icon.svg",
+      "type": "image/svg+xml",
+      "sizes": "any",
+      "purpose": "any"
+    },
     {
       "src": "/icon-192x192.png",
       "type": "image/png",
-      "sizes": "192x192"
-    },
-    {
-      "src": "/icon-256x256.png",
-      "type": "image/png",
-      "sizes": "256x256"
+      "sizes": "192x192",
+      "purpose": "any"
     },
     {
       "src": "/icon-512x512.png",
       "type": "image/png",
       "sizes": "512x512",
-      "purpose": "maskable"
+      "purpose": "any"
     }
   ],
   "scope": "/",
   "start_url": "/",
   "display": "standalone",
-  "theme_color": "#22C55E",
-  "background_color": "#1C1C1E"
+  "theme_color": "#191919",
+  "background_color": "#191919"
 }

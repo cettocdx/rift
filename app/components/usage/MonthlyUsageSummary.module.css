@@ -1,0 +1,245 @@
+.popover {
+  width: min(320px, calc(100vw - 24px));
+  max-height: min(
+    480px,
+    var(--radix-popover-content-available-height, calc(100dvh - 24px))
+  );
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 16px;
+  border-radius: 14px;
+  scrollbar-width: thin;
+  scrollbar-color: var(--border) transparent;
+}
+
+.panel {
+  display: flex;
+  flex-direction: column;
+  gap: var(--rift-space-4);
+  color: var(--foreground);
+  font-size: var(--rift-type-label);
+  line-height: 1.45;
+}
+
+.header,
+.row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.sheet .header {
+  padding-right: 28px;
+}
+
+.title {
+  font-size: var(--rift-type-body);
+  font-weight: 500;
+  letter-spacing: -0.12px;
+}
+
+.caption,
+.muted {
+  color: var(--muted-foreground);
+  font-size: var(--rift-type-label);
+  line-height: 1.5;
+}
+
+.allowance {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.remaining {
+  font-size: var(--rift-type-title);
+  font-weight: 500;
+  line-height: 28px;
+  letter-spacing: -0.45px;
+  font-variant-numeric: tabular-nums;
+}
+
+.remaining span {
+  margin-left: 5px;
+  color: var(--muted-foreground);
+  font-size: var(--rift-type-label);
+  font-weight: 400;
+  letter-spacing: 0;
+}
+
+.allowance :global(.rift-usage-segments) {
+  gap: 3px;
+  margin: 0;
+}
+
+.allowance :global(.rift-usage-segments) > span {
+  height: 9px;
+  min-width: 0;
+  border-radius: 2px;
+}
+
+.ledger {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  column-gap: 8px;
+  row-gap: 2px;
+  color: var(--muted-foreground);
+  font-size: var(--rift-type-label);
+  line-height: 1.5;
+  font-variant-numeric: tabular-nums;
+}
+
+.credits,
+.summary,
+.details {
+  border-top: 1px solid var(--border);
+  padding-top: 12px;
+}
+
+.balance {
+  margin-top: 2px;
+  font-size: var(--rift-type-section);
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+}
+
+.action {
+  display: inline-flex;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  min-height: 28px;
+  padding: 3px 10px;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  background: var(--background);
+  font-size: var(--rift-type-label);
+  font-weight: 500;
+  cursor: pointer;
+  transition: background 120ms ease;
+}
+
+.action:hover,
+.disclosure:hover {
+  background: var(--muted);
+}
+
+.action:focus-visible,
+.disclosure:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 2px;
+}
+
+.creditNote {
+  margin-top: 8px;
+  font-size: var(--rift-type-label);
+  line-height: 1.5;
+  color: var(--muted-foreground);
+}
+
+.noticeTitle {
+  margin-top: 10px;
+  font-size: var(--rift-type-label);
+  font-weight: 500;
+}
+
+.credits[data-state="exhausted"] .noticeTitle {
+  color: var(--destructive);
+}
+
+.credits[data-state="low"] .noticeTitle {
+  color: var(--warning);
+}
+
+.summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.metric {
+  min-width: 0;
+}
+
+.metricValue {
+  margin-top: 2px;
+  font-size: var(--rift-type-body);
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+}
+
+.empty {
+  padding-top: 12px;
+  border-top: 1px solid var(--border);
+}
+
+.empty p + p {
+  margin-top: 3px;
+}
+
+.loading {
+  height: 30px;
+  border-radius: 5px;
+  background: var(--muted);
+}
+
+.disclosure {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: calc(100% + 12px);
+  margin: -4px -6px -6px;
+  padding: 6px;
+  border-radius: 6px;
+  color: var(--muted-foreground);
+  font-size: var(--rift-type-label);
+  cursor: pointer;
+  transition: background 120ms ease;
+}
+
+.details {
+  display: flex;
+  flex-direction: column;
+  gap: var(--rift-space-4);
+}
+
+.sectionTitle {
+  margin-bottom: 8px;
+  font-size: var(--rift-type-label);
+  font-weight: 500;
+}
+
+.metrics {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px 16px;
+}
+
+.sparkline {
+  height: 32px;
+  overflow: hidden;
+}
+
+.list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .action,
+  .disclosure {
+    transition: none;
+  }
+}
+
+@media (pointer: coarse) {
+  .action,
+  .disclosure {
+    min-height: 40px;
+  }
+}

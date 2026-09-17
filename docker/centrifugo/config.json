@@ -20,5 +20,6 @@
   "uni_sse": true,
   "uni_http_stream": true,
   "client_connection_limit": 5000,
-  "internal_port": 9000
+  "internal_port": 9000,
+  "websocket_message_size_limit": 1048576
 }

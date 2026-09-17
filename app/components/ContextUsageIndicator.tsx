@@ -70,7 +70,7 @@ function ContextUsageCircle({ dashOffset }: { dashOffset: number }) {
         cy={CIRCLE_SIZE / 2}
         r={RADIUS}
         fill="none"
-        className="transition-all duration-300 stroke-foreground"
+        className="stroke-foreground transition-[stroke-dashoffset] duration-300"
         strokeWidth={STROKE_WIDTH}
         strokeDasharray={CIRCUMFERENCE}
         strokeDashoffset={dashOffset}
@@ -87,7 +87,7 @@ const ContextUsageHoverTrigger = forwardRef<
   <div
     ref={ref}
     tabIndex={0}
-    className="flex items-center h-7 px-1 cursor-default rounded-full focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
+    className="flex items-center h-7 px-1 cursor-default rounded-full focus-visible:outline-none"
     aria-label={`Context usage: ${formatTokenCount(usedTokens)} of ${formatTokenCount(maxTokens)} tokens`}
     data-testid="context-usage-indicator"
     {...props}
@@ -104,7 +104,7 @@ const ContextUsageButtonTrigger = forwardRef<
   <button
     ref={ref}
     type="button"
-    className="flex items-center justify-center h-7 w-7 cursor-pointer rounded-full p-0 text-foreground transition-colors hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
+    className="flex items-center justify-center h-7 w-7 cursor-pointer rounded-full p-0 text-foreground transition-colors hover:bg-muted focus-visible:outline-none"
     aria-label={`Context usage: ${formatTokenCount(usedTokens)} of ${formatTokenCount(maxTokens)} tokens`}
     data-testid="context-usage-indicator"
     {...props}

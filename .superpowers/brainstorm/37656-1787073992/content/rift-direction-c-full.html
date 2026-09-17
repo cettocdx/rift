@@ -1,0 +1,293 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>RIFT Direction C</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      --bg: #080808;
+      --surface: #101010;
+      --surface-2: #161616;
+      --line: #272727;
+      --line-soft: rgba(255,255,255,.085);
+      --text: #f3f3ef;
+      --muted: #a5a39f;
+      --dim: #777570;
+      --signal: #ff756a;
+      --ease-out: cubic-bezier(.23,1,.32,1);
+    }
+    * { box-sizing: border-box; }
+    html { background: var(--bg); }
+    body {
+      margin: 0;
+      color: var(--text);
+      background:
+        radial-gradient(circle at 50% -16rem, rgba(255,117,106,.055), transparent 36rem),
+        var(--bg);
+      font-family: Geist, "SF Pro Display", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      font-size: 16px;
+      line-height: 1.55;
+    }
+    button { font: inherit; }
+    .shell { width: min(1500px, calc(100% - 40px)); margin: 0 auto; padding: 36px 0 80px; }
+    .brief-header { display: grid; grid-template-columns: minmax(0, 1.28fr) minmax(320px, .72fr); gap: 54px; align-items: end; margin-bottom: 32px; }
+    .label { color: #92908c; font: 500 11px/1.2 "SFMono-Regular", Consolas, monospace; letter-spacing: .12em; text-transform: uppercase; }
+    .brief-header h1 { margin: 12px 0 0; max-width: 920px; font-size: clamp(42px, 5vw, 75px); line-height: .98; letter-spacing: -.06em; font-weight: 520; text-wrap: balance; }
+    .brief-header p { margin: 0; color: var(--muted); max-width: 52ch; }
+    .dials { display: flex; gap: 8px; margin-top: 17px; flex-wrap: wrap; }
+    .dials span { border: 1px solid var(--line); border-radius: 999px; padding: 6px 9px; color: #c5c3be; font: 9px/1 "SFMono-Regular", Consolas, monospace; }
+    .workspace { display: grid; grid-template-columns: minmax(0, 1fr) 330px; gap: 16px; align-items: start; }
+    .site-frame { border: 1px solid var(--line); border-radius: 20px; overflow: hidden; background: var(--bg); box-shadow: 0 30px 120px rgba(0,0,0,.48); }
+    .framebar { height: 40px; display: flex; align-items: center; gap: 6px; padding: 0 13px; border-bottom: 1px solid var(--line-soft); background: #111; }
+    .framebar i { width: 6px; height: 6px; border-radius: 50%; background: #575652; }
+    .framebar span { margin-left: auto; color: #65635f; font: 9px/1 monospace; }
+    .landing { overflow: hidden; }
+    .nav { height: 64px; padding: 0 clamp(18px, 3vw, 42px); display: flex; align-items: center; gap: 28px; border-bottom: 1px solid var(--line-soft); }
+    .brand { display: flex; align-items: center; gap: 9px; font-size: 13px; font-weight: 650; letter-spacing: -.025em; }
+    .brand-mark { position: relative; width: 22px; height: 18px; }
+    .brand-mark::before, .brand-mark::after { content: ""; position: absolute; left: 1px; width: 20px; height: 7px; border-radius: 8px 2px 8px 2px; background: var(--text); transform: skewX(-24deg); }
+    .brand-mark::before { top: 1px; }
+    .brand-mark::after { bottom: 1px; transform: skewX(-24deg) rotate(180deg); }
+    .navlinks { display: flex; gap: 23px; margin-left: 12px; color: #999791; font-size: 11px; }
+    .nav-actions { margin-left: auto; display: flex; gap: 8px; align-items: center; }
+    .link { color: #afada8; font-size: 11px; }
+    .nav-cta, .hero-cta, .final-cta button { border: 0; background: var(--text); color: var(--bg); border-radius: 999px; font-weight: 650; }
+    .nav-cta { min-height: 32px; padding: 0 13px; font-size: 10px; }
+    .landing-hero { position: relative; min-height: 660px; display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 64px 28px 86px; overflow: hidden; text-align: center; }
+    .aperture { position: absolute; width: min(720px, 85%); height: 540px; object-fit: cover; opacity: .36; mix-blend-mode: screen; mask-image: radial-gradient(circle, #000 0 54%, transparent 79%); }
+    .hero-copy { position: relative; z-index: 2; display: flex; flex-direction: column; align-items: center; }
+    .hero-copy h2 { margin: 0; max-width: 850px; font-size: clamp(56px, 7vw, 94px); line-height: .91; letter-spacing: -.07em; font-weight: 520; text-wrap: balance; }
+    .hero-copy p { max-width: 50ch; margin: 24px 0 0; color: var(--muted); font-size: clamp(15px, 1.25vw, 18px); line-height: 1.53; }
+    .hero-actions { display: flex; gap: 9px; margin-top: 27px; }
+    .hero-cta { min-height: 44px; padding: 0 18px; }
+    .hero-secondary { min-height: 44px; padding: 0 17px; border: 1px solid var(--line); border-radius: 999px; background: rgba(16,16,16,.9); color: #d4d2cd; }
+    .mode-dock { position: absolute; z-index: 3; bottom: 28px; display: grid; grid-template-columns: repeat(3, 1fr); width: min(560px, calc(100% - 44px)); padding: 5px; border: 1px solid rgba(255,255,255,.14); border-radius: 13px; background: rgba(15,15,15,.91); backdrop-filter: blur(16px); box-shadow: 0 18px 60px rgba(0,0,0,.44); }
+    .mode-dock span { min-height: 39px; display: flex; align-items: center; justify-content: center; border-radius: 9px; color: #8e8c87; font: 9px/1 monospace; letter-spacing: .08em; }
+    .mode-dock span:first-child { background: #f0f0ec; color: #090909; }
+    .system-statement { display: grid; grid-template-columns: .8fr 1.2fr; gap: 48px; align-items: start; padding: 82px clamp(22px, 5vw, 68px); border-top: 1px solid var(--line); }
+    .system-statement h3 { position: sticky; top: 22px; margin: 0; font-size: clamp(35px, 4vw, 54px); line-height: .98; letter-spacing: -.058em; font-weight: 520; }
+    .mode-stack { display: grid; gap: 10px; }
+    .mode-card { position: relative; min-height: 275px; overflow: hidden; border: 1px solid var(--line); border-radius: 15px; background: #101010; }
+    .mode-card:nth-child(2) { margin-left: 34px; }
+    .mode-card:nth-child(3) { margin-left: 68px; }
+    .mode-card img { width: 100%; height: 100%; min-height: 275px; display: block; object-fit: cover; filter: saturate(.53) contrast(1.08); }
+    .mode-card .shade { position: absolute; inset: 0; background: linear-gradient(180deg, transparent 36%, rgba(5,5,5,.93)); }
+    .mode-copy { position: absolute; left: 20px; right: 20px; bottom: 18px; display: grid; grid-template-columns: 90px 1fr; gap: 15px; align-items: end; }
+    .mode-copy b { color: var(--signal); font: 500 10px/1 monospace; letter-spacing: .08em; }
+    .mode-copy strong { display: block; font-size: 16px; font-weight: 560; }
+    .mode-copy span { display: block; color: #a8a6a1; font-size: 10px; }
+    .context-core { padding: 80px clamp(22px, 5vw, 68px); border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); background: #0c0c0c; }
+    .context-core > h3 { margin: 0; max-width: 730px; font-size: clamp(34px, 4vw, 53px); line-height: 1; letter-spacing: -.057em; font-weight: 520; }
+    .context-core > p { max-width: 50ch; margin: 16px 0 34px; color: var(--muted); font-size: 13px; }
+    .core-diagram { display: grid; grid-template-columns: 1fr 190px 1fr; align-items: center; gap: 16px; }
+    .inputs, .outputs { display: grid; gap: 7px; }
+    .node { min-height: 56px; display: flex; align-items: center; padding: 0 16px; border: 1px solid var(--line); border-radius: 10px; background: #111; color: #b4b2ad; font-size: 11px; }
+    .outputs .node { justify-content: flex-end; text-align: right; }
+    .core { position: relative; aspect-ratio: 1; display: flex; align-items: center; justify-content: center; border: 1px solid rgba(255,117,106,.34); border-radius: 50%; background: radial-gradient(circle, rgba(255,117,106,.14), transparent 58%); color: #eee; font: 500 10px/1 monospace; letter-spacing: .08em; }
+    .core::before, .core::after { content: ""; position: absolute; inset: 22px; border: 1px solid rgba(255,255,255,.15); border-radius: 50%; }
+    .core::after { inset: 44px; border-color: rgba(255,117,106,.5); }
+    .system-ui { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; padding: 76px clamp(22px, 5vw, 68px); }
+    .system-ui article { min-height: 230px; padding: 24px; border: 1px solid var(--line); border-radius: 14px; background: #101010; }
+    .system-ui article:first-child { grid-column: 1 / -1; min-height: 300px; display: grid; grid-template-columns: .8fr 1.2fr; gap: 26px; align-items: center; }
+    .system-ui h3 { margin: 0; font-size: 27px; line-height: 1.05; letter-spacing: -.045em; font-weight: 540; }
+    .system-ui p { max-width: 42ch; margin: 12px 0 0; color: var(--muted); font-size: 12px; }
+    .ui-chrome { height: 220px; padding: 8px; border: 1px solid var(--line); border-radius: 12px; background: #0a0a0a; }
+    .ui-top { height: 28px; border-bottom: 1px solid var(--line); }
+    .ui-body { display: grid; grid-template-columns: 26% 1fr; height: calc(100% - 28px); }
+    .ui-side { border-right: 1px solid var(--line); padding: 12px 8px; }
+    .ui-side i, .ui-main i { display: block; height: 5px; margin-bottom: 9px; border-radius: 3px; background: #292929; }
+    .ui-main { padding: 15px; }
+    .ui-main i:nth-child(2) { width: 78%; }
+    .ui-main i:nth-child(3) { width: 62%; background: rgba(255,117,106,.35); }
+    .ui-main i:nth-child(4) { width: 88%; }
+    .final-cta { position: relative; min-height: 430px; display: flex; flex-direction: column; align-items: center; justify-content: center; overflow: hidden; padding: 86px 24px 92px; text-align: center; }
+    .final-cta img { position: absolute; width: 520px; height: 360px; object-fit: cover; opacity: .18; mix-blend-mode: screen; mask-image: radial-gradient(circle, #000, transparent 72%); }
+    .final-cta h3, .final-cta p, .final-cta button { position: relative; z-index: 1; }
+    .final-cta h3 { margin: 0 auto; max-width: 700px; font-size: clamp(40px, 5vw, 67px); line-height: .97; letter-spacing: -.065em; font-weight: 520; }
+    .final-cta p { margin: 16px auto 0; max-width: 43ch; color: var(--muted); }
+    .final-cta button { margin-top: 24px; min-height: 44px; padding: 0 19px; }
+    .rail { position: sticky; top: 16px; display: grid; gap: 12px; }
+    .panel { border: 1px solid var(--line); border-radius: 14px; padding: 18px; background: rgba(16,16,16,.92); }
+    .panel h3 { margin: 8px 0 13px; font-size: 18px; letter-spacing: -.025em; font-weight: 560; }
+    .panel p { margin: 0; color: var(--muted); font-size: 12px; }
+    .type-spec { display: grid; gap: 13px; }
+    .type-row { display: grid; grid-template-columns: 76px 1fr; gap: 10px; align-items: baseline; }
+    .type-row span { color: var(--dim); font: 9px/1 monospace; }
+    .type-row strong { font-weight: 520; }
+    .type-row:nth-child(1) strong { font-size: 24px; letter-spacing: -.05em; line-height: 1; }
+    .type-row:nth-child(2) strong { font-size: 15px; }
+    .type-row:nth-child(3) strong { font: 10px/1.4 "SFMono-Regular", Consolas, monospace; letter-spacing: .06em; }
+    .swatches { display: grid; grid-template-columns: repeat(5, 1fr); gap: 5px; margin: 13px 0 10px; }
+    .swatch { aspect-ratio: 1; border-radius: 7px; border: 1px solid rgba(255,255,255,.1); }
+    .palette-code { color: #898781; font: 9px/1.7 monospace; }
+    .logo-art { margin-top: 13px; border: 1px solid var(--line); border-radius: 10px; overflow: hidden; background: #050505; }
+    .logo-art img { width: 100%; aspect-ratio: 1.45; object-fit: cover; display: block; }
+    .logo-note { margin-top: 10px; color: #95938d; font-size: 10px; line-height: 1.55; }
+    .rules { margin: 0; padding: 0; list-style: none; }
+    .rules li { padding: 10px 0; border-bottom: 1px solid var(--line-soft); color: #bbb9b4; font-size: 11px; }
+    .rules li:last-child { border-bottom: 0; }
+    .rules b { color: var(--signal); font-weight: 560; }
+    .missing { border-color: rgba(255,117,106,.28); }
+    .missing h3 { color: var(--signal); }
+    .choices-wrap { margin-top: 22px; padding: 26px; border: 1px solid var(--line); border-radius: 16px; background: #0d0d0d; }
+    .choices-wrap h2 { margin: 0; font-size: 25px; line-height: 1.1; letter-spacing: -.04em; font-weight: 540; }
+    .choices-wrap > p { margin: 7px 0 18px; color: var(--muted); font-size: 13px; }
+    .choices { display: grid; grid-template-columns: repeat(3, 1fr); gap: 9px; }
+    .option { min-height: 116px; padding: 16px; border: 1px solid var(--line); border-radius: 12px; background: #111; color: var(--text); text-align: left; cursor: pointer; transition: transform 160ms var(--ease-out), border-color 160ms ease, background 160ms ease; }
+    .option:active { transform: scale(.98); }
+    .option.selected { border-color: var(--signal); background: rgba(255,117,106,.06); }
+    .option strong { display: block; margin: 7px 0 4px; font-size: 14px; }
+    .option span { color: var(--muted); font-size: 11px; line-height: 1.45; }
+    @media (hover:hover) and (pointer:fine) {
+      .option:hover { transform: translateY(-2px); border-color: #4b4945; }
+      .nav-cta:hover, .hero-cta:hover, .final-cta button:hover { background: #fff; }
+    }
+    @media (max-width: 1100px) {
+      .brief-header { grid-template-columns: 1fr; gap: 18px; }
+      .workspace { grid-template-columns: 1fr; }
+      .rail { position: static; grid-template-columns: repeat(2, 1fr); }
+    }
+    @media (max-width: 760px) {
+      .shell { width: min(100% - 24px, 1500px); padding-top: 24px; }
+      .brief-header h1 { font-size: 42px; }
+      .navlinks, .link { display: none; }
+      .landing-hero { min-height: 590px; }
+      .hero-copy h2 { font-size: 54px; }
+      .aperture { width: 640px; opacity: .25; }
+      .system-statement, .core-diagram, .system-ui, .choices, .rail { grid-template-columns: 1fr; }
+      .system-statement h3 { position: static; }
+      .mode-card:nth-child(2), .mode-card:nth-child(3) { margin-left: 0; }
+      .core { width: 180px; justify-self: center; }
+      .outputs .node { justify-content: flex-start; text-align: left; }
+      .system-ui article:first-child { grid-column: auto; grid-template-columns: 1fr; }
+    }
+    @media (prefers-reduced-motion: reduce) {
+      .option { transition: border-color 120ms ease; }
+      .option:hover, .option:active { transform: none; }
+    }
+  </style>
+</head>
+<body>
+  <main class="shell">
+    <header class="brief-header">
+      <div>
+        <div class="label">Direction C / AI Operating System</div>
+        <h1>Build, Studio ve Hack’i aynı agent çekirdeğinin üç eşit çalışma modu yap.</h1>
+      </div>
+      <div>
+        <p>Bu yön mevcut kategorileri takip etmiyor. RIFT’i yazılım, medya ve sistem araştırması için ortak bir operating layer olarak tanımlıyor.</p>
+        <div class="dials"><span>Variance 8</span><span>Motion 7</span><span>Density 5</span></div>
+      </div>
+    </header>
+
+    <div class="workspace">
+      <section class="site-frame" aria-label="Direction C landing mockup">
+        <div class="framebar"><i></i><i></i><i></i><span>localhost:3060/landing/v2</span></div>
+        <div class="landing">
+          <nav class="nav">
+            <div class="brand"><span class="brand-mark" aria-hidden="true"></span>RIFT</div>
+            <div class="navlinks"><span>System</span><span>Research</span><span>Enterprise</span><span>Company</span></div>
+            <div class="nav-actions"><span class="link">Sign in</span><button class="nav-cta">Enter RIFT</button></div>
+          </nav>
+
+          <section class="landing-hero">
+            <img class="aperture" src="/files/rift-aperture-c-preview.png" alt="RIFT Aperture procedural identity study" />
+            <div class="hero-copy">
+              <h2>One system. Three ways to work.</h2>
+              <p>Build software, create media and investigate systems through the same agent layer.</p>
+              <div class="hero-actions"><button class="hero-cta">Enter RIFT</button><button class="hero-secondary">See the system</button></div>
+            </div>
+            <div class="mode-dock" aria-label="RIFT modes"><span>BUILD</span><span>STUDIO</span><span>HACK</span></div>
+          </section>
+
+          <section class="system-statement">
+            <h3>Three modes share one context.</h3>
+            <div class="mode-stack">
+              <article class="mode-card"><img src="http://localhost:3060/landing-v2/app-build.webp" alt="RIFT Build interface" /><div class="shade"></div><div class="mode-copy"><b>BUILD</b><div><strong>Plan, code and ship</strong><span>Production work with visible plans, tools and verification.</span></div></div></article>
+              <article class="mode-card"><img src="http://localhost:3060/landing-v2/app-studio.webp" alt="RIFT Studio interface" /><div class="shade"></div><div class="mode-copy"><b>STUDIO</b><div><strong>Direct every medium</strong><span>Image, video and audio generation inside the same project context.</span></div></div></article>
+              <article class="mode-card"><img src="http://localhost:3060/landing-v2/app-hack.webp" alt="RIFT Hack interface" /><div class="shade"></div><div class="mode-copy"><b>HACK</b><div><strong>Investigate deep systems</strong><span>Technical analysis without breaking the shared execution history.</span></div></div></article>
+            </div>
+          </section>
+
+          <section class="context-core">
+            <h3>The thread survives every mode change.</h3>
+            <p>Files, decisions, prompts and outputs stay attached to one piece of work instead of fragmenting across separate tools.</p>
+            <div class="core-diagram">
+              <div class="inputs"><div class="node">Intent and constraints</div><div class="node">Files and repositories</div><div class="node">Human approvals</div></div>
+              <div class="core">RIFT CORE</div>
+              <div class="outputs"><div class="node">Working software</div><div class="node">Finished media</div><div class="node">Verified findings</div></div>
+            </div>
+          </section>
+
+          <section class="system-ui">
+            <article><div><div class="label">Product system</div><h3>One shell across every surface.</h3><p>Navigation, composer, execution history and approval patterns remain consistent across Build, Studio and Hack.</p></div><div class="ui-chrome"><div class="ui-top"></div><div class="ui-body"><div class="ui-side"><i></i><i></i><i></i><i></i></div><div class="ui-main"><i></i><i></i><i></i><i></i></div></div></div></article>
+            <article><div class="label">Control</div><h3>Actions stay inspectable.</h3><p>Sensitive steps pause at explicit boundaries and return evidence with the result.</p></article>
+            <article><div class="label">Continuity</div><h3>Context does not reset.</h3><p>Moving from media to code or investigation keeps the same work history intact.</p></article>
+          </section>
+
+          <section class="final-cta"><img src="/files/rift-aperture-c-preview.png" alt="" /><h3>Choose the mode. Keep the system.</h3><p>One agent layer for everything that moves a project forward.</p><button>Enter RIFT</button></section>
+        </div>
+      </section>
+
+      <aside class="rail">
+        <section class="panel">
+          <div class="label">Typography</div>
+          <h3>One family, maximum authority</h3>
+          <div class="type-spec">
+            <div class="type-row"><span>Display</span><strong>Geist 520</strong></div>
+            <div class="type-row"><span>Body</span><strong>Geist 400 at 16-18px</strong></div>
+            <div class="type-row"><span>System</span><strong>JETBRAINS MONO</strong></div>
+          </div>
+          <p style="margin-top:13px">Hero reaches 94px only because the category statement is short. Product text never drops below 16px.</p>
+        </section>
+
+        <section class="panel">
+          <div class="label">Color system</div>
+          <h3>Monochrome with one alert signal</h3>
+          <div class="swatches"><div class="swatch" style="background:#080808"></div><div class="swatch" style="background:#101010"></div><div class="swatch" style="background:#272727"></div><div class="swatch" style="background:#f3f3ef"></div><div class="swatch" style="background:#ff756a"></div></div>
+          <div class="palette-code">#080808 / #101010 / #272727<br />#F3F3EF / #FF756A</div>
+          <p style="margin-top:10px">Body contrast 7.95:1. Primary text 18.00:1. Signal accent 7.63:1.</p>
+        </section>
+
+        <section class="panel">
+          <div class="label">Logo system</div>
+          <h3>Rift Aperture</h3>
+          <p>Üç farklı mikro yapı tek açıklık etrafında birleşir. Küçük boyutta yalnızca merkezdeki negatif alan ve üç kesik korunur.</p>
+          <div class="logo-art"><img src="/files/rift-aperture-c-preview.png" alt="Rift Aperture logo background exploration" /></div>
+          <div class="logo-note">16px: solid three-cut core. 28px: simplified aperture. 128px ve üstü: bars, lines and dots. Hareket: üç segment 900ms içinde yerini bulur.</div>
+        </section>
+
+        <section class="panel">
+          <div class="label">App visual system</div>
+          <h3>Shared shell rules</h3>
+          <ul class="rules"><li><b>Top bar:</b> 56px across all modes</li><li><b>Sidebar:</b> one information model</li><li><b>Composer:</b> same interaction anatomy</li><li><b>Radii:</b> 8px UI, 12px media</li><li><b>Mono:</b> data and execution only</li></ul>
+        </section>
+
+        <section class="panel">
+          <div class="label">Motion</div>
+          <h3>Rare brand moments</h3>
+          <ul class="rules"><li><b>Aperture:</b> 900ms once per visit</li><li><b>Mode switch:</b> 320ms shared transition</li><li><b>UI:</b> 150-220ms ease-out</li><li><b>Cards:</b> no perpetual float</li><li><b>Reduced motion:</b> static aperture</li></ul>
+        </section>
+
+        <section class="panel missing">
+          <div class="label">Positioning risk</div>
+          <h3>Category needs proof</h3>
+          <p>“AI operating system” büyük bir iddia. Landing, üç mod arasında gerçek context continuity göstermeden bu ifade yalnızca slogan olarak kalır.</p>
+        </section>
+      </aside>
+    </div>
+
+    <section class="choices-wrap">
+      <h2>C yönünün tonunu kilitleyelim.</h2>
+      <p>Bir seçeneğe tıkla. Ardından üç yönü tek karşılaştırmada sonuçlandıracağım.</p>
+      <div class="choices">
+        <button class="option" data-choice="C1 - Bu denge doğru" onclick="toggleSelect(this)"><div class="label">C1</div><strong>Bu denge doğru</strong><span>Kategori iddiası, ürün kanıtı ve kimlik alanı dengede kalır.</span></button>
+        <button class="option" data-choice="C2 - Daha sinematik" onclick="toggleSelect(this)"><div class="label">C2</div><strong>Daha sinematik</strong><span>Aperture büyür, scroll sahneleri uzar ve landing daha lansman odaklı olur.</span></button>
+        <button class="option" data-choice="C3 - Daha ürün odaklı" onclick="toggleSelect(this)"><div class="label">C3</div><strong>Daha ürün odaklı</strong><span>Operating system iddiası korunur, gerçek ekranlar daha erken ve daha büyük görünür.</span></button>
+      </div>
+    </section>
+  </main>
+</body>
+</html>

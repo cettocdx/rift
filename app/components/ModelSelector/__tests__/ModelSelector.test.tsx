@@ -7,13 +7,15 @@ const { ModelSelector } = jest.requireActual<
 >("../../ModelSelector");
 
 describe("ModelSelector (single-model)", () => {
-  it("renders a static, non-interactive model badge with no tier choices", () => {
+  it("renders nothing (single-model, no toolbar badge)", () => {
     const { container } = render(
       <ModelSelector value="auto" onChange={jest.fn()} mode="agent" />,
     );
 
+    // Single-model product: no model badge in the chat toolbar.
     expect(container.firstChild).toBeNull();
-    expect(screen.queryByRole("button")).not.toBeInTheDocument();
-    expect(screen.queryByText(/Recon|Strike|Dominate/)).not.toBeInTheDocument();
+    expect(
+      screen.queryByText(/Recon|Strike|Dominate|RIFT/),
+    ).not.toBeInTheDocument();
   });
 });

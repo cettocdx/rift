@@ -1,0 +1,29 @@
+name: RIFTSafariAcceptance
+options:
+  bundleIdPrefix: app.riftsys.acceptance
+  deploymentTarget:
+    iOS: '18.0'
+settings:
+  base:
+    SWIFT_VERSION: '5.0'
+    CODE_SIGN_STYLE: Automatic
+    GENERATE_INFOPLIST_FILE: YES
+    TARGETED_DEVICE_FAMILY: '1,2'
+targets:
+  SafariAcceptance:
+    type: bundle.ui-testing
+    platform: iOS
+    sources: [Tests]
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: app.riftsys.acceptance.safari
+schemes:
+  SafariAcceptance:
+    build:
+      targets:
+        SafariAcceptance: all
+    test:
+      targets: [SafariAcceptance]
+      environmentVariables:
+        RIFT_SAFARI_BUILD_URL: $(RIFT_SAFARI_BUILD_URL)
+        RIFT_SAFARI_HACK_URL: $(RIFT_SAFARI_HACK_URL)

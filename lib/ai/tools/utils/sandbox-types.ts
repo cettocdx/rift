@@ -17,6 +17,7 @@ export interface ConnectionInfo {
   isDesktop?: boolean;
   capabilities?: {
     commands: boolean;
+    commandReadiness?: boolean;
     pty: boolean;
   };
 }

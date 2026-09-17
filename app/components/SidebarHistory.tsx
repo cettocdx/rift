@@ -1,10 +1,12 @@
 "use client";
 
-import React, { useRef, useEffect } from "react";
-import { MessageSquare } from "lucide-react";
-import ChatItem from "./ChatItem";
-import Loading from "@/components/ui/loading";
 import { groupChatsByDate } from "@/lib/utils/chat-date-groups";
+import React, { useRef, useEffect, useState } from "react";
+import { ChevronDown } from "lucide-react";
+import { SidebarConversation } from "./SidebarConversation";
+import Loading from "@/components/ui/loading";
+import { SIDEBAR_SECTION_LABEL_CLASS } from "./SidebarHeader";
+import { SIDEBAR_ROW_HEIGHT_PX } from "@/lib/ui/workspace-chrome";
 
 interface SidebarHistoryProps {
   chats: any[];
@@ -17,14 +19,38 @@ interface SidebarHistoryProps {
   containerRef?: React.RefObject<HTMLDivElement | null>;
 }
 
+/**
+ * How many recent chats the rail shows before it asks.
+ *
+ * The list was uncapped and fed by an infinite scroll, so it grew for as long
+ * as you kept scrolling and ended up owning the whole rail -- a column of
+ * near-identical titles ("Merhaba", "Merhaba mesaji", "Merhaba") with the
+ * navigation squeezed above it. Ten is about a screen's worth of genuinely
+ * recent work; past that you are searching, not glancing, and the rest is one
+ * click away.
+ */
+const RECENT_COLLAPSED_COUNT = 10;
+
 const SidebarHistory: React.FC<SidebarHistoryProps> = ({
   chats,
   paginationStatus,
   loadMore,
 }) => {
+  const [showAllRecent, setShowAllRecent] = useState(false);
   const loaderRef = useRef<HTMLDivElement>(null);
   const observerRef = useRef<IntersectionObserver | null>(null);
   const statusRef = useRef(paginationStatus);
+  // Collapsed date-group labels (e.g. "Today"). Empty = all expanded.
+  const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(
+    () => new Set(),
+  );
+  const toggleGroup = (label: string) =>
+    setCollapsedGroups((prev) => {
+      const next = new Set(prev);
+      if (next.has(label)) next.delete(label);
+      else next.add(label);
+      return next;
+    });
 
   // IntersectionObserver for infinite scroll – reliable vs scroll listener on ref that can be null
   useEffect(() => {
@@ -33,7 +59,14 @@ const SidebarHistory: React.FC<SidebarHistoryProps> = ({
       observerRef.current.disconnect();
     }
 
-    if (paginationStatus === "CanLoadMore" && chats.length > 0 && loadMore) {
+    // Nothing to prefetch while the list is capped: the extra pages would be
+    // fetched and then not shown, which is how the rail used to fill itself.
+    if (
+      showAllRecent &&
+      paginationStatus === "CanLoadMore" &&
+      chats.length > 0 &&
+      loadMore
+    ) {
       const options: IntersectionObserverInit = {
         root: null,
         rootMargin: "50px",
@@ -58,17 +91,16 @@ const SidebarHistory: React.FC<SidebarHistoryProps> = ({
         observerRef.current.disconnect();
       }
     };
-  }, [paginationStatus, loadMore, chats.length]);
+  }, [paginationStatus, loadMore, chats.length, showAllRecent]);
 
   if (paginationStatus === "LoadingFirstPage") {
     // Loading state
     return (
-      <div className="p-2">
-        <div className="space-y-3">
+      <div className="px-1.5 py-2" aria-label="Loading recent chats">
+        <div className="space-y-1">
           {[...Array(5)].map((_, i) => (
-            <div key={i} className="animate-pulse">
-              <div className="h-4 bg-muted rounded w-3/4 mb-2"></div>
-              <div className="h-3 bg-muted rounded w-1/2"></div>
+            <div key={i} className="animate-pulse px-2 py-1">
+              <div className="h-2.5 w-3/4 rounded-[3px] bg-muted" />
             </div>
           ))}
         </div>
@@ -80,45 +112,86 @@ const SidebarHistory: React.FC<SidebarHistoryProps> = ({
     // Empty state
     return (
       <div
-        className="flex flex-col items-center justify-center h-full p-6 text-center"
+        className="flex h-full flex-col px-3 py-3"
         data-testid="sidebar-chat-empty"
       >
-        <p className="text-sm text-muted-foreground">No chats yet</p>
+        <p className="text-ui leading-5 text-muted-foreground">
+          No ungrouped chats
+        </p>
+        {paginationStatus === "CanLoadMore" ? (
+          <button
+            type="button"
+            className="mt-2 text-left text-ui-label hover:text-foreground"
+            onClick={() => loadMore?.(28)}
+          >
+            Load older chats
+          </button>
+        ) : null}
       </div>
     );
   }
 
-  const groups = groupChatsByDate(chats);
+  const visibleChats = showAllRecent
+    ? chats
+    : chats.slice(0, RECENT_COLLAPSED_COUNT);
+  const hiddenCount = chats.length - visibleChats.length;
 
   return (
-    <div className="px-1 py-0.5" data-testid="sidebar-chat-list">
-      {groups.map((group) => (
-        <div key={group.label} className="mb-1">
-          <div className="px-2 py-1.5 text-[11px] font-semibold tracking-wide text-muted-foreground/70">
-            {group.label}
-          </div>
-          <div className="space-y-0.5">
-            {group.chats.map((chat: any) => (
-              <ChatItem
-                key={chat._id}
-                id={chat.id}
-                title={chat.title}
-                isBranched={!!chat.branched_from_chat_id}
-                branchedFromTitle={chat.branched_from_title}
-                shareId={chat.share_id}
-                shareDate={chat.share_date}
-                isPinned={chat.pinned_at != null}
-                isStreaming={!!chat.active_stream_id}
+    <div
+      /* The workspace stylesheet keeps nested and standalone insets aligned. */
+      className="pro-sidebar-history px-1.5 py-1"
+      data-testid="sidebar-chat-list"
+    >
+      {groupChatsByDate(visibleChats).map((group) => {
+        const open = !collapsedGroups.has(group.label);
+        return (
+          <section key={group.label} aria-label={group.label}>
+            <button
+              type="button"
+              onClick={() => toggleGroup(group.label)}
+              aria-expanded={open}
+              className={`flex h-8 w-full items-center justify-between rounded-[6px] px-1.5 ${SIDEBAR_SECTION_LABEL_CLASS} hover:bg-sidebar-accent hover:text-foreground focus-visible:outline-none focus-visible:bg-sidebar-accent`}
+            >
+              {group.label}
+              <ChevronDown
+                className={`size-[11px] transition-transform ${open ? "" : "-rotate-90"}`}
+                strokeWidth={1.75}
               />
-            ))}
-          </div>
-        </div>
-      ))}
+            </button>
+            {open && (
+              <div className="space-y-px">
+                {group.chats.map((chat: any) => (
+                  <div
+                    key={chat._id}
+                    style={{
+                      contentVisibility: "auto",
+                      containIntrinsicSize: `${SIDEBAR_ROW_HEIGHT_PX}px`,
+                    }}
+                  >
+                    <SidebarConversation chat={chat} />
+                  </div>
+                ))}
+              </div>
+            )}
+          </section>
+        );
+      })}
+      {!showAllRecent &&
+        (hiddenCount > 0 || paginationStatus === "CanLoadMore") && (
+          <button
+            type="button"
+            data-testid="sidebar-show-all-recent"
+            onClick={() => setShowAllRecent(true)}
+            className="flex h-[30px] w-full items-center rounded-[6px] px-1.5 text-ui-nav font-[418] leading-[18px] tracking-[-0.08px] text-muted-foreground hover:bg-sidebar-accent hover:text-foreground focus-visible:outline-none focus-visible:bg-sidebar-accent"
+          >
+            Show more
+          </button>
+        )}
 
       {/* Loading indicator when loading more */}
       {paginationStatus === "LoadingMore" && (
-        <div className="flex justify-center py-2">
-          <Loading size={6} />
+        <div className="flex justify-center py-1.5" aria-label="Loading chats">
+          <Loading size={5} />
         </div>
       )}
 
@@ -127,11 +200,9 @@ const SidebarHistory: React.FC<SidebarHistoryProps> = ({
         <div
           ref={loaderRef}
           data-testid="sidebar-load-more-sentinel"
-          className="flex justify-center py-2 text-sidebar-accent-foreground"
+          className="h-px w-full"
           aria-hidden
-        >
-          <span className="text-xs">Scroll for more</span>
-        </div>
+        />
       )}
     </div>
   );

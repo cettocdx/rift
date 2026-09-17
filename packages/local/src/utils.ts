@@ -42,6 +42,20 @@ export interface ShellConfig {
   shellFlag: string;
 }
 
+/** Prefix a command with the runner's requested working directory. */
+export function withWorkingDirectory(
+  command: string,
+  cwd: string | undefined,
+  useCmd: boolean,
+): string {
+  if (!cwd || cwd.trim() === "") return command;
+  // Single quotes suppress expansion; close and reopen around literal quotes.
+  const posixCwd = `'${cwd.replace(/'/g, "'\"'\"'")}'`;
+  return useCmd
+    ? `cd /d "${cwd}" && ${command}`
+    : `cd ${posixCwd} 2>/dev/null && ${command}`;
+}
+
 /**
  * Get the default shell for a given platform.
  * On Windows, uses cmd.exe (not PowerShell, which aliases curl to Invoke-WebRequest

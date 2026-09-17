@@ -4,7 +4,7 @@ import React from "react";
 import Link from "next/link";
 import { ArrowRight } from "lucide-react";
 import { RiftWordmark } from "@/components/icons/rift-wordmark";
-import { AppPreview } from "./AppPreview";
+import { CapabilityFlow } from "./CapabilityFlow";
 import { CopyCodeBlock } from "./CopyCodeBlock";
 import { ReconProgressDemo } from "./ReconProgressDemo";
 import { LandingVariantSwitcher } from "./LandingVariantSwitcher";
@@ -41,11 +41,8 @@ export function LandingPageRift3() {
     <div className="landing-rift3 min-h-full bg-background pb-24 text-foreground">
       <header className="sticky top-0 z-40 border-b border-border/40 bg-background/90 backdrop-blur-md">
         <div className="mx-auto flex h-12 max-w-[680px] items-center justify-between px-4">
-          <Link
-            href="/"
-            className="rounded-md focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
-          >
-            <RiftWordmark height={13} className="text-foreground" />
+          <Link href="/" className="rounded-md focus-visible:outline-none">
+            <RiftWordmark height={20} className="text-foreground" />
           </Link>
           <button
             type="button"
@@ -97,7 +94,7 @@ export function LandingPageRift3() {
         </div>
 
         <div className="my-12 overflow-hidden rounded-xl border border-border sm:-mx-8">
-          <AppPreview />
+          <CapabilityFlow />
         </div>
 
         <p className="text-[15px] leading-[1.75] text-foreground/90">

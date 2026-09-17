@@ -34,8 +34,8 @@ export const TerminalWidgets = () => {
         </div>
         <div className="w-full bg-terminal-border h-1 mb-2">
           <div
-            className="bg-terminal-green h-1 transition-all duration-300"
-            style={{ width: `${systemStats.cpu}%` }}
+            className="bg-terminal-green h-1 w-full origin-left transition-transform duration-300 ease-linear motion-reduce:transition-none"
+            style={{ transform: `scaleX(${systemStats.cpu / 100})` }}
           />
         </div>
         <div className="flex justify-between items-center mb-1">
@@ -44,8 +44,8 @@ export const TerminalWidgets = () => {
         </div>
         <div className="w-full bg-terminal-border h-1 mb-2">
           <div
-            className="bg-terminal-green h-1 transition-all duration-300"
-            style={{ width: `${systemStats.memory}%` }}
+            className="bg-terminal-green h-1 w-full origin-left transition-transform duration-300 ease-linear motion-reduce:transition-none"
+            style={{ transform: `scaleX(${systemStats.memory / 100})` }}
           />
         </div>
         <div className="flex justify-between items-center mb-1">
@@ -56,8 +56,8 @@ export const TerminalWidgets = () => {
         </div>
         <div className="w-full bg-terminal-border h-1">
           <div
-            className="bg-terminal-green h-1 transition-all duration-300"
-            style={{ width: `${systemStats.network}%` }}
+            className="bg-terminal-green h-1 w-full origin-left transition-transform duration-300 ease-linear motion-reduce:transition-none"
+            style={{ transform: `scaleX(${systemStats.network / 100})` }}
           />
         </div>
       </div>

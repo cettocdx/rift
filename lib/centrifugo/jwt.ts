@@ -1,10 +1,12 @@
+import { getSandboxContext } from "@/lib/ai/sandbox-context";
 import { SignJWT } from "jose";
 
 export async function generateCentrifugoToken(
   userId: string,
   expSeconds: number,
+  origin = getSandboxContext().relay,
 ): Promise<string> {
-  const secret = process.env.CENTRIFUGO_TOKEN_SECRET;
+  const secret = origin.tokenSecret;
 
   if (!secret) {
     throw new Error("CENTRIFUGO_TOKEN_SECRET environment variable is not set");

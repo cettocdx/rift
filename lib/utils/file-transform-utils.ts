@@ -1,7 +1,7 @@
 import "server-only";
 
 import { api } from "@/convex/_generated/api";
-import { getConvexClient } from "@/lib/db/convex-client";
+import { getConvexClient, getConvexServiceKey } from "@/lib/db/convex-client";
 import { UIMessage } from "ai";
 import type { ChatMode, FileContent } from "@/types";
 import { Id } from "@/convex/_generated/dataModel";
@@ -19,7 +19,6 @@ import { logger } from "@/lib/logger";
 import { validateDownloadUrl } from "@/lib/ai/tools/utils/path-validation";
 import { stringifyRedactedError } from "@/lib/utils/error-redaction";
 
-const serviceKey = process.env.CONVEX_SERVICE_ROLE_KEY!;
 const MAX_PROVIDER_IMAGE_DOWNLOAD_SIZE = 30 * 1024 * 1024;
 
 type FileToProcess = {
@@ -307,7 +306,7 @@ const fetchFileUrls = async (
     return await getConvexClient().action(
       api.s3Actions.getFileUrlsByFileIdsAction,
       {
-        serviceKey,
+        serviceKey: getConvexServiceKey()!,
         userId,
         fileIds: fileIds as Id<"files">[],
       },
@@ -598,7 +597,7 @@ const addDocumentContentToMessages = async (
   try {
     const fileContents = await getConvexClient().query(
       api.fileStorage.getFileContentByFileIds,
-      { serviceKey, userId, fileIds },
+      { serviceKey: getConvexServiceKey()!, userId, fileIds },
     );
 
     const processableFiles = new Map<

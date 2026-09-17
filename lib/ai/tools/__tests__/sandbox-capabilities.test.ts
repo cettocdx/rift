@@ -15,6 +15,7 @@
 import {
   buildSandboxCommandOptions,
   MAX_COMMAND_EXECUTION_TIME,
+  DEFAULT_COMMAND_EXECUTION_TIME,
 } from "../utils/sandbox-command-options";
 import { isE2BSandbox } from "../utils/sandbox-types";
 
@@ -39,7 +40,30 @@ describe("Sandbox Capabilities for Network Tools", () => {
 
       expect(options).toHaveProperty("user", "root");
       expect(options).toHaveProperty("cwd", "/home/user");
-      expect(options.timeoutMs).toBe(MAX_COMMAND_EXECUTION_TIME);
+      expect(options.envs).toEqual({
+        HOME: "/root",
+        USER: "root",
+        LOGNAME: "root",
+      });
+      expect(options.timeoutMs).toBe(DEFAULT_COMMAND_EXECUTION_TIME);
+    });
+
+    it("does not let additional E2B env vars redirect root's login HOME", () => {
+      const e2bSandbox = createMockE2BSandbox();
+
+      const options = buildSandboxCommandOptions(e2bSandbox as any, undefined, {
+        HOME: "/home/user",
+        API_KEY: "server-owned",
+      });
+
+      expect(options.envs).toEqual(
+        expect.objectContaining({
+          HOME: "/root",
+          USER: "root",
+          LOGNAME: "root",
+          API_KEY: "server-owned",
+        }),
+      );
     });
 
     it("should NOT include user:root for CentrifugoSandbox (uses Docker capabilities)", () => {
@@ -49,7 +73,24 @@ describe("Sandbox Capabilities for Network Tools", () => {
 
       expect(options).not.toHaveProperty("user");
       expect(options).not.toHaveProperty("cwd");
-      expect(options.timeoutMs).toBe(MAX_COMMAND_EXECUTION_TIME);
+      expect(options.timeoutMs).toBe(DEFAULT_COMMAND_EXECUTION_TIME);
+    });
+
+    it("honors explicit long budgets while bounding invalid or excessive values", () => {
+      const sandbox = createMockCentrifugoSandbox() as any;
+      expect(
+        buildSandboxCommandOptions(sandbox, undefined, undefined, 630000)
+          .timeoutMs,
+      ).toBe(630000);
+      expect(
+        buildSandboxCommandOptions(sandbox, undefined, undefined, 9e9)
+          .timeoutMs,
+      ).toBe(MAX_COMMAND_EXECUTION_TIME);
+      for (const value of [NaN, Infinity, -1, 0])
+        expect(
+          buildSandboxCommandOptions(sandbox, undefined, undefined, value)
+            .timeoutMs,
+        ).toBe(DEFAULT_COMMAND_EXECUTION_TIME);
     });
 
     it("should include handlers when provided", () => {

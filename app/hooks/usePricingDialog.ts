@@ -1,18 +1,24 @@
 import type { SubscriptionTier } from "@/types";
 
 /**
- * Pricing/upgrade UI was removed with the billing teardown. This hook is
- * kept as an inert shim so the upgrade CTAs scattered across the app (rate-limit
- * prompts, file-upload limits, etc.) compile and simply do nothing until billing
- * is reworked.
+ * Upgrade CTAs across the app (rate-limit prompts, file-upload limits, the
+ * message error state, etc.) route here. They now send the user to the
+ * dedicated in-app `/upgrade` page, where subscribing redirects to the
+ * LemonSqueezy hosted checkout and credits can be topped up.
  */
+const goToUpgrade = () => {
+  if (typeof window !== "undefined") {
+    window.location.href = "/upgrade";
+  }
+};
+
 export const usePricingDialog = (_subscription?: SubscriptionTier) => {
   return {
     showPricing: false,
     handleClosePricing: () => {},
-    openPricing: () => {},
+    openPricing: goToUpgrade,
   };
 };
 
-/** No-op: pricing/upgrade flow has been removed. */
-export const redirectToPricing = () => {};
+/** Send the user to the dedicated upgrade page. */
+export const redirectToPricing = goToUpgrade;

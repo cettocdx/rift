@@ -1,0 +1,19 @@
+[[permission]]
+identifier = "allow-desktop-local-access"
+description = "Allows session-only, user-consented workspace and localhost access."
+commands.allow = [
+  "request_workspace_access",
+  "request_file_access",
+  "list_workspace_grants",
+  "revoke_workspace_access",
+  "list_workspace_entries",
+  "read_workspace_file",
+  "write_workspace_file",
+  "fetch_loopback_url",
+  "desktop_access_status",
+  "open_desktop_permission_settings",
+  "set_desktop_access",
+  "revoke_all_desktop_access",
+  "desktop_computer_action",
+  "open_visible_url_with_consent",
+]

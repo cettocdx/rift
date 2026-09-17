@@ -80,7 +80,22 @@ describe("formatDuration", () => {
 });
 
 describe("WorkedFor", () => {
-  it("shows a live working timer while timing", () => {
+  it("places the completed disclosure chevron after its summary", () => {
+    const { container } = render(
+      <WorkedFor hasWork>
+        <WorkedForTrigger durationMs={1_000} />
+        <WorkedForContent>Hidden work</WorkedForContent>
+      </WorkedFor>,
+    );
+
+    const trigger = screen.getByRole("button", { name: /worked for 1s/i });
+    const chevron = container.querySelector('[data-ui="work-summary-chevron"]');
+
+    expect(trigger.lastElementChild).toBe(chevron);
+    expect(trigger).toHaveTextContent("Worked for 1s");
+  });
+
+  it("shows a live run timer while timing", () => {
     jest.useFakeTimers();
     let now = 0;
     const dateNowSpy = jest.spyOn(Date, "now").mockImplementation(() => now);
@@ -93,7 +108,7 @@ describe("WorkedFor", () => {
     );
 
     expect(
-      screen.getByRole("button", { name: /working for 1s/i }),
+      screen.getByRole("button", { name: /running for 1s/i }),
     ).toBeInTheDocument();
 
     act(() => {
@@ -102,7 +117,7 @@ describe("WorkedFor", () => {
     });
 
     expect(
-      screen.getByRole("button", { name: /working for 23s/i }),
+      screen.getByRole("button", { name: /running for 23s/i }),
     ).toBeInTheDocument();
 
     dateNowSpy.mockRestore();
@@ -122,7 +137,7 @@ describe("WorkedFor", () => {
     );
 
     expect(
-      screen.getByRole("button", { name: /working for 25s/i }),
+      screen.getByRole("button", { name: /running for 25s/i }),
     ).toBeInTheDocument();
 
     act(() => {
@@ -131,7 +146,7 @@ describe("WorkedFor", () => {
     });
 
     expect(
-      screen.getByRole("button", { name: /working for 37s/i }),
+      screen.getByRole("button", { name: /running for 37s/i }),
     ).toBeInTheDocument();
 
     dateNowSpy.mockRestore();
@@ -146,7 +161,7 @@ describe("WorkedFor", () => {
       </WorkedFor>,
     );
 
-    const trigger = screen.getByRole("button", { name: /working for 1s/i });
+    const trigger = screen.getByRole("button", { name: /running for 1s/i });
 
     expect(trigger).toBeDisabled();
     expect(container.querySelector("svg")).not.toBeInTheDocument();
@@ -157,7 +172,7 @@ describe("WorkedFor", () => {
     expect(screen.getByText("Hidden work")).toBeVisible();
   });
 
-  it("auto-collapses when timing finishes", () => {
+  it("keeps the work visible after timing finishes (no auto-collapse)", () => {
     jest.useFakeTimers();
     const { rerender } = render(
       <WorkedFor hasWork isTiming>
@@ -167,7 +182,7 @@ describe("WorkedFor", () => {
     );
 
     expect(
-      screen.getByRole("button", { name: /working for 1s/i }),
+      screen.getByRole("button", { name: /running for 1s/i }),
     ).toBeDisabled();
     expect(screen.getByText("Hidden work")).toBeVisible();
 
@@ -182,18 +197,16 @@ describe("WorkedFor", () => {
       screen.getByRole("button", { name: /worked for 1s/i }),
     ).not.toBeDisabled();
 
+    // The transcript stays visible the moment timing ends...
     expect(screen.getByText("Hidden work")).toBeVisible();
 
+    // ...and keeps staying visible — the old 700ms auto-collapse is gone, so
+    // the reasoning + terminal steps no longer vanish when the answer arrives.
     act(() => {
-      jest.advanceTimersByTime(700);
+      jest.advanceTimersByTime(2_000);
     });
+    expect(screen.getByText("Hidden work")).toBeVisible();
 
-    const hiddenWork = screen.queryByText("Hidden work");
-    if (hiddenWork) {
-      expect(hiddenWork).not.toBeVisible();
-    } else {
-      expect(hiddenWork).not.toBeInTheDocument();
-    }
     jest.useRealTimers();
   });
 

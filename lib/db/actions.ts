@@ -1,8 +1,10 @@
+import { archiveMessage } from "./archive-message";
 import "server-only";
+import { WorkerChatSnapshot } from "./worker-chat-snapshot";
 
 import { api } from "@/convex/_generated/api";
 import { ChatSDKError } from "../errors";
-import { getConvexClient, setConvexUrl } from "./convex-client";
+import { getConvexClient, getConvexServiceKey } from "./convex-client";
 import { UIMessage, UIMessagePart } from "ai";
 import { extractFileIdsFromParts } from "@/lib/utils/file-token-utils";
 import {
@@ -12,23 +14,29 @@ import {
 } from "@/lib/utils/file-token-utils";
 import {
   countMessagesTokens,
-  getMaxTokensForSubscription,
+  getMessageTokenBudget,
   truncateMessagesToTokenLimit,
 } from "@/lib/token-utils";
 import { fixIncompleteMessageParts } from "@/lib/chat/chat-processor";
-import { compactMessageForStorage } from "@/lib/chat/compaction/prune-tool-outputs";
+import {
+  compactMessageForStorage,
+  type OffloadedEvidence,
+} from "@/lib/chat/compaction/prune-tool-outputs";
 import type { SubscriptionTier, NoteCategory } from "@/types";
 import type { Id } from "@/convex/_generated/dataModel";
 import { v4 as uuidv4 } from "uuid";
 import { AGENT_RESUME_PREAMBLE } from "@/lib/chat/summarization/prompts";
 import { isAgentMode } from "@/lib/utils/mode-helpers";
 import { hasRestageableLocalDesktopAttachments } from "@/lib/utils/local-attachment-messages";
-import type { ChatMode } from "@/types/chat";
+import {
+  getContextHistoryPageLimit,
+  type ContextLimitOptions,
+} from "@/lib/token-limits";
+import { coerceChatPurpose, type ChatMode } from "@/types/chat";
 import { getMessagePersistenceDiagnostics } from "./message-persistence-diagnostics";
 import { sanitizeForConvexValue } from "./convex-value-sanitizer";
 import { stringifyRedactedError } from "@/lib/utils/error-redaction";
 
-const serviceKey = process.env.CONVEX_SERVICE_ROLE_KEY!;
 const MAX_DATABASE_ERROR_MESSAGE_LENGTH = 500;
 const MAX_DATABASE_ERROR_DATA_STRING_LENGTH = 500;
 const MAX_DATABASE_ERROR_DATA_BYTES = 4 * 1024;
@@ -59,8 +67,6 @@ const sensitiveErrorDataKeys = new Set([
   "text",
   "token",
 ]);
-
-export { setConvexUrl };
 
 const stringifyError = (error: unknown): string => {
   return stringifyRedactedError(error);
@@ -280,7 +286,7 @@ const databaseError = (
 export async function getChatById({ id }: { id: string }) {
   try {
     const selectedChat = await getConvexClient().query(api.chats.getChatById, {
-      serviceKey,
+      serviceKey: getConvexServiceKey()!,
       id,
     });
     return selectedChat;
@@ -289,21 +295,77 @@ export async function getChatById({ id }: { id: string }) {
   }
 }
 
+export async function getActiveProjectForUser({
+  projectId,
+  userId,
+}: {
+  projectId: string;
+  userId: string;
+}) {
+  try {
+    return await getConvexClient().query(api.projects.getActiveForBackend, {
+      serviceKey: getConvexServiceKey()!,
+      id: projectId as Id<"projects">,
+      userId,
+    });
+  } catch (_error) {
+    // Invalid Convex IDs and unavailable/foreign projects have the same
+    // user-facing outcome. Keep raw validator details out of the response.
+    throw new ChatSDKError(
+      "forbidden:chat",
+      "The selected project is not available.",
+      {
+        project_context_invalid: true,
+      },
+    );
+  }
+}
+
+export async function getBotMeetingForRuntime(args: {
+  userId: string;
+  id: Id<"bot_meetings">;
+  chatId: string;
+  projectId: Id<"projects">;
+}) {
+  return getConvexClient().query(api.botMeetings.getForRuntime, {
+    ...args,
+    serviceKey: getConvexServiceKey()!,
+  });
+}
+
+export async function getProjectBotForRuntime(args: {
+  userId: string;
+  id: Id<"project_bots">;
+  chatId: string;
+  projectId: Id<"projects">;
+}) {
+  return getConvexClient().query(api.projectBots.getForRuntime, {
+    ...args,
+    serviceKey: getConvexServiceKey()!,
+  });
+}
+
 export async function saveChat({
   id,
   userId,
   title,
+  purpose,
+  projectId,
 }: {
   id: string;
   userId: string;
   title: string;
+  purpose?: string;
+  projectId?: Id<"projects">;
 }) {
   try {
     return await getConvexClient().mutation(api.chats.saveChat, {
-      serviceKey,
+      serviceKey: getConvexServiceKey()!,
       id,
       userId,
       title,
+      ...(purpose ? { purpose } : {}),
+      ...(projectId ? { projectId } : {}),
     });
   } catch (error) {
     throw databaseError("chats.saveChat", error, {
@@ -313,9 +375,67 @@ export async function saveChat({
     });
   }
 }
+/**
+ * Stores the evidence compaction lifted out of a message.
+ *
+ * Each write is independent and failure-tolerant: evidence is a record of the
+ * run, never a precondition for saving the message it came from. A failure here
+ * costs the detail of one tool call, not the conversation.
+ */
+async function persistOffloadedEvidence({
+  chatId,
+  userId,
+  messageId,
+  offloaded,
+}: {
+  chatId: string;
+  userId: string;
+  messageId: string;
+  offloaded: OffloadedEvidence[];
+}): Promise<void> {
+  const client = getConvexClient();
+
+  const results = await Promise.allSettled(
+    offloaded.map((item) =>
+      client.mutation(api.runs.recordEvidence, {
+        serviceKey: getConvexServiceKey()!,
+        chatId,
+        userId,
+        toolCallId: item.toolCallId,
+        kind: item.kind,
+        content: item.content,
+        command: item.command,
+        exitCode: item.exitCode,
+        startedAt: item.startedAt,
+        endedAt: item.endedAt,
+        durationMs: item.durationMs,
+      }),
+    ),
+  );
+
+  const failed = results.filter(
+    (result) => result.status === "rejected",
+  ).length;
+  if (failed > 0) {
+    console.warn(
+      JSON.stringify({
+        level: "warn",
+        event: "offloaded_evidence_partially_failed",
+        service: "chat-handler",
+        timestamp: new Date().toISOString(),
+        chat_id: chatId,
+        message_id: messageId,
+        attempted: offloaded.length,
+        failed,
+      }),
+    );
+  }
+}
+
 export async function saveMessage({
   chatId,
   userId,
+  expectedTriggerRunId,
   message,
   extraFileIds,
   model,
@@ -331,6 +451,7 @@ export async function saveMessage({
 }: {
   chatId: string;
   userId: string;
+  expectedTriggerRunId?: string;
   message: {
     id: string;
     role: "user" | "assistant" | "system";
@@ -377,8 +498,17 @@ export async function saveMessage({
       message.role === "assistant"
         ? compactMessageForStorage({ ...message, parts: convexSafeParts })
         : null;
-    const storageSafeParts =
-      storageSafeMessage?.message.parts ?? convexSafeParts;
+    let storageSafeParts = storageSafeMessage?.message.parts ?? convexSafeParts;
+    if (storageSafeMessage?.compacted) {
+      // Required, not best-effort: never replace detail with a placeholder
+      // until its complete original has been committed to file storage.
+      const archive = await archiveMessage({
+        message: { ...message, parts: convexSafeParts },
+        userId,
+        serviceKey: getConvexServiceKey()!,
+      });
+      storageSafeParts = [...storageSafeParts, archive];
+    }
     if (storageSafeMessage?.compacted) {
       console.info("[db] compacted assistant message before save", {
         chatId,
@@ -387,6 +517,42 @@ export async function saveMessage({
         afterSizeBytes: storageSafeMessage.afterSizeBytes,
         prunedCount: storageSafeMessage.prunedCount,
         strippedUiOnlyFields: storageSafeMessage.strippedUiOnlyFields,
+        strippedTerminalParts: storageSafeMessage.strippedTerminalParts,
+        excerptedInputs: storageSafeMessage.excerptedInputs,
+        offloadedEvidenceCount: storageSafeMessage.offloaded?.length ?? 0,
+      });
+    }
+    // Compaction that ran and still did not fit is the exact shape of the
+    // failure this cascade exists to prevent: the write below is about to be
+    // refused for size, and an hour of finished work goes with it. It is
+    // logged as an error on its own so it is findable BEFORE the database
+    // says no, rather than being read backwards out of a stack trace.
+    if (storageSafeMessage && !storageSafeMessage.fitsSoftLimit) {
+      console.error(
+        JSON.stringify({
+          level: "error",
+          event: "assistant_message_exceeds_storage_budget",
+          service: "chat-handler",
+          chat_id: chatId,
+          message_id: message.id,
+          before_size_bytes: storageSafeMessage.beforeSizeBytes,
+          after_size_bytes: storageSafeMessage.afterSizeBytes,
+          excerpted_inputs: storageSafeMessage.excerptedInputs,
+          pruned_count: storageSafeMessage.prunedCount,
+        }),
+      );
+    }
+
+    // What compaction removed is stored beside the message rather than dropped.
+    // Best-effort and awaited: a message must still save if evidence does not,
+    // but the write is ordered before the save so a reader never sees a
+    // placeholder whose evidence has not landed yet.
+    if (storageSafeMessage?.offloaded?.length) {
+      await persistOffloadedEvidence({
+        chatId,
+        userId,
+        messageId: message.id,
+        offloaded: storageSafeMessage.offloaded,
       });
     }
 
@@ -418,16 +584,20 @@ export async function saveMessage({
 
     // Extract file IDs from file parts
     const fileIds = extractFileIdsFromParts(partsForSave);
-    const mergedFileIds = [
-      ...fileIds,
-      ...((extraFileIds || []).filter(Boolean) as string[]),
-    ];
+    const mergedFileIds = Array.from(
+      new Set([
+        ...fileIds,
+        ...extractFileIdsFromParts(convexSafeParts),
+        ...((extraFileIds || []).filter(Boolean) as string[]),
+      ]),
+    );
 
     return await getConvexClient().mutation(api.messages.saveMessage, {
-      serviceKey,
+      serviceKey: getConvexServiceKey()!,
       id: message.id,
       chatId,
       userId,
+      expectedTriggerRunId,
       role: message.role,
       parts: partsForSave,
       fileIds: mergedFileIds.length > 0 ? (mergedFileIds as any) : undefined,
@@ -441,6 +611,12 @@ export async function saveMessage({
       isHidden,
     });
   } catch (error) {
+    if (
+      expectedTriggerRunId !== undefined &&
+      getDatabaseErrorCode(getNestedObject(error, "data")) === "AGENT_RUN_LOST"
+    ) {
+      throw error;
+    }
     throw databaseError("messages.saveMessage", error, {
       chat_id: chatId,
       user_id: userId,
@@ -467,6 +643,8 @@ export async function handleInitialChatAndUserMessage({
   regenerate,
   chat,
   isHidden,
+  purpose,
+  projectId,
 }: {
   chatId: string;
   userId: string;
@@ -474,6 +652,8 @@ export async function handleInitialChatAndUserMessage({
   regenerate?: boolean;
   chat: any; // Chat data from getMessagesByChatId
   isHidden?: boolean;
+  purpose?: string;
+  projectId?: Id<"projects">;
 }) {
   if (!chat) {
     // Save new chat and get the document _id
@@ -500,6 +680,8 @@ export async function handleInitialChatAndUserMessage({
       id: chatId,
       userId,
       title,
+      purpose,
+      projectId,
     });
   } else {
     // Check if user owns the chat
@@ -528,6 +710,8 @@ export async function handleInitialChatAndUserMessage({
 
 export async function updateChat({
   chatId,
+  expectedTriggerRunId,
+  expectedStreamId,
   title,
   finishReason,
   todos,
@@ -536,6 +720,8 @@ export async function updateChat({
   selectedModel,
 }: {
   chatId: string;
+  expectedTriggerRunId?: string;
+  expectedStreamId?: string;
   title?: string;
   finishReason?: string;
   todos?: Array<{
@@ -550,8 +736,10 @@ export async function updateChat({
 }) {
   try {
     return await getConvexClient().mutation(api.chats.updateChat, {
-      serviceKey,
+      serviceKey: getConvexServiceKey()!,
       chatId,
+      expectedTriggerRunId,
+      expectedStreamId,
       title,
       finishReason,
       todos,
@@ -576,6 +764,10 @@ export async function getMessagesByChatId({
   isTemporary,
   mode,
   useClientMessagesForRegenerate,
+  context,
+  workerChatSnapshot,
+  workerRunId,
+  hasPaidContextPromise,
 }: {
   chatId: string;
   userId: string;
@@ -585,16 +777,41 @@ export async function getMessagesByChatId({
   isTemporary?: boolean;
   mode?: import("@/types").ChatMode;
   useClientMessagesForRegenerate?: boolean;
+  context?: ContextLimitOptions;
+  workerChatSnapshot?: WorkerChatSnapshot;
+  workerRunId?: string;
+  /** Verified capacity may resolve while the first authorized history page loads. */
+  hasPaidContextPromise?: Promise<boolean>;
 }) {
   // For temporary chats, skip database operations
   let chat = undefined;
   let isNewChat = true;
   let existingMessages: UIMessage[] = [];
+  let contextOptions: ContextLimitOptions = { ...context, mode };
+  const paidContextReady = hasPaidContextPromise?.then((hasPaidContext) => {
+    contextOptions = { ...contextOptions, hasPaidContext };
+  });
+  // Validation or an earlier read can fail before this dependency is awaited.
+  void paidContextReady?.catch(() => {});
 
   if (!isTemporary) {
-    // Check if chat exists first to avoid unnecessary Convex query
-    chat = await getChatById({ id: chatId });
+    // Only a successful, matching worker activation may bypass this read.
+    // A confirmed null snapshot is distinct from an omitted snapshot.
+    if (workerChatSnapshot !== undefined) {
+      if (!(workerChatSnapshot instanceof WorkerChatSnapshot) || !workerRunId) {
+        throw new Error("Invalid worker chat snapshot");
+      }
+      chat = workerChatSnapshot.read({ userId, chatId, runId: workerRunId });
+    } else {
+      chat = await getChatById({ id: chatId });
+    }
     isNewChat = !chat;
+    contextOptions = {
+      ...contextOptions,
+      purpose: chat?.purpose
+        ? coerceChatPurpose(chat.purpose)
+        : context?.purpose,
+    };
 
     const shouldUseClientMessagesForRegenerate =
       !!regenerate &&
@@ -620,7 +837,24 @@ export async function getMessagesByChatId({
 
         // Adaptive paginated backfill: fetch pages until token budget is hit or cap reached
         const PAGE_SIZE = 24;
-        const MAX_PAGES = 4;
+        const readPage = (cursor: string | null) =>
+          getConvexClient().query(api.messages.getMessagesPageForBackend, {
+            serviceKey: getConvexServiceKey()!,
+            chatId,
+            userId,
+            paginationOpts: { numItems: PAGE_SIZE, cursor },
+          });
+        // Every context permits at least one page. Start that owner-filtered
+        // read now, but do not truncate or request more pages until capacity is
+        // verified. Promise.all observes either rejection while the other waits.
+        const [firstPage] = await Promise.all([
+          readPage(null),
+          paidContextReady,
+        ]);
+        const MAX_PAGES = getContextHistoryPageLimit(
+          subscription,
+          contextOptions,
+        );
 
         let cursor: string | null = null;
         let pagesFetched = 0;
@@ -634,15 +868,7 @@ export async function getMessagesByChatId({
             page: UIMessage[];
             isDone: boolean;
             continueCursor: string | null;
-          } = await getConvexClient().query(
-            api.messages.getMessagesPageForBackend,
-            {
-              serviceKey,
-              chatId,
-              userId,
-              paginationOpts: { numItems: PAGE_SIZE, cursor },
-            },
-          );
+          } = pagesFetched === 0 ? firstPage : await readPage(cursor);
           const { page, isDone, continueCursor: nextCursor } = pageResult;
 
           fetchedDesc = fetchedDesc.concat(page);
@@ -666,9 +892,7 @@ export async function getMessagesByChatId({
             }
           }
 
-          const maxTokens = getMaxTokensForSubscription(subscription, {
-            mode,
-          });
+          const maxTokens = getMessageTokenBudget(subscription, contextOptions);
           const truncatedMessages = truncateMessagesToTokenLimit(
             candidate,
             fileTokensFromLoop,
@@ -743,9 +967,10 @@ export async function getMessagesByChatId({
             };
 
             // Re-truncate real messages to leave room for the summary message
-            const maxTokens = getMaxTokensForSubscription(subscription, {
-              mode,
-            });
+            const maxTokens = getMessageTokenBudget(
+              subscription,
+              contextOptions,
+            );
             const summaryTokens = countMessagesTokens(
               [summaryMessage],
               fileTokensFromLoop,
@@ -781,6 +1006,8 @@ export async function getMessagesByChatId({
           };
         }
       } catch (error) {
+        // A rejected entitlement dependency must never become history fallback.
+        await paidContextReady;
         logChatMessagePreparationFailure("chat_history_fetch_failed", "warn", {
           chat_id: chatId,
           user_id: userId,
@@ -806,6 +1033,9 @@ export async function getMessagesByChatId({
       }
     }
   }
+
+  // Temporary, absent-chat and client-regenerate paths have no history page.
+  await paidContextReady;
 
   // Handle message merging based on regeneration flag
   let allMessages: UIMessage[];
@@ -834,6 +1064,7 @@ export async function getMessagesByChatId({
     mode === "agent", // Skip file tokens for agent mode (files go to sandbox)
     mode,
     userId,
+    contextOptions,
   );
   const truncatedMessages = truncateResult.messages;
   const fileTokens = truncateResult.fileTokens;
@@ -843,9 +1074,7 @@ export async function getMessagesByChatId({
     try {
       const fileIds = extractAllFileIdsFromMessages(allMessages);
       const fileTokens = await getFileTokensByIds(fileIds as any, userId);
-      const maxTokens = getMaxTokensForSubscription(subscription, {
-        mode,
-      });
+      const maxTokens = getMessageTokenBudget(subscription, contextOptions);
       const totalTokensBefore = countMessagesTokens(allMessages, fileTokens);
       const largestFileToken = Object.values(fileTokens).length
         ? Math.max(...Object.values(fileTokens))
@@ -906,7 +1135,7 @@ export async function getUserCustomization({ userId }: { userId: string }) {
     const userCustomization = await getConvexClient().query(
       api.userCustomization.getUserCustomizationForBackend,
       {
-        serviceKey,
+        serviceKey: getConvexServiceKey()!,
         userId,
       },
     );
@@ -928,7 +1157,7 @@ export async function setActiveTriggerRun({
 }) {
   try {
     await getConvexClient().mutation(api.chats.setActiveTriggerRun, {
-      serviceKey,
+      serviceKey: getConvexServiceKey()!,
       chatId,
       triggerRunId,
       ...(expectedRunId !== undefined ? { expectedRunId } : {}),
@@ -941,10 +1170,32 @@ export async function setActiveTriggerRun({
   }
 }
 
+/** Remember which OpenCode session (and sandbox) a chat's Build engine is using. */
+export async function setChatOpenCodeSession({
+  chatId,
+  sessionId,
+  sandboxId,
+}: {
+  chatId: string;
+  sessionId: string | null;
+  sandboxId?: string;
+}) {
+  try {
+    await getConvexClient().mutation(api.chats.setOpenCodeSession, {
+      serviceKey: getConvexServiceKey()!,
+      chatId,
+      sessionId,
+      ...(sandboxId !== undefined ? { sandboxId } : {}),
+    });
+  } catch {
+    // Best-effort: losing the binding only costs session continuity next leg.
+  }
+}
+
 export async function getActiveTriggerRun({ chatId }: { chatId: string }) {
   try {
     return await getConvexClient().query(api.chats.getActiveTriggerRun, {
-      serviceKey,
+      serviceKey: getConvexServiceKey()!,
       chatId,
     });
   } catch (error) {
@@ -961,7 +1212,7 @@ export async function startStream({
 }) {
   try {
     await getConvexClient().mutation(api.chatStreams.startStream, {
-      serviceKey,
+      serviceKey: getConvexServiceKey()!,
       chatId,
       streamId,
     });
@@ -971,11 +1222,21 @@ export async function startStream({
   }
 }
 
-export async function prepareForNewStream({ chatId }: { chatId: string }) {
+export async function prepareForNewStream({
+  chatId,
+  expectedTriggerRunId,
+  expectedStreamId,
+}: {
+  chatId: string;
+  expectedTriggerRunId?: string;
+  expectedStreamId?: string;
+}) {
   try {
     await getConvexClient().mutation(api.chatStreams.prepareForNewStream, {
-      serviceKey,
+      serviceKey: getConvexServiceKey()!,
       chatId,
+      expectedTriggerRunId,
+      expectedStreamId,
     });
     return;
   } catch (error) {
@@ -991,7 +1252,7 @@ export async function getCancellationStatus({ chatId }: { chatId: string }) {
     const status = await getConvexClient().query(
       api.chatStreams.getCancellationStatus,
       {
-        serviceKey,
+        serviceKey: getConvexServiceKey()!,
         chatId,
       },
     );
@@ -1012,7 +1273,7 @@ export async function startTempStream({
 }) {
   try {
     await getConvexClient().mutation(api.tempStreams.startTempStream, {
-      serviceKey,
+      serviceKey: getConvexServiceKey()!,
       chatId,
       userId,
     });
@@ -1030,7 +1291,7 @@ export async function getTempCancellationStatus({
     return await getConvexClient().query(
       api.tempStreams.getTempCancellationStatus,
       {
-        serviceKey,
+        serviceKey: getConvexServiceKey()!,
         chatId,
       },
     );
@@ -1048,7 +1309,7 @@ export async function deleteTempStreamForBackend({
     await getConvexClient().mutation(
       api.tempStreams.deleteTempStreamForBackend,
       {
-        serviceKey,
+        serviceKey: getConvexServiceKey()!,
         chatId,
       },
     );
@@ -1068,7 +1329,7 @@ export async function saveChatSummary({
 }) {
   try {
     await getConvexClient().mutation(api.chats.saveLatestSummary, {
-      serviceKey,
+      serviceKey: getConvexServiceKey()!,
       chatId,
       summaryText,
       summaryUpToMessageId,
@@ -1099,7 +1360,7 @@ export async function getLatestSummary({ chatId }: { chatId: string }) {
     const summary = await getConvexClient().query(
       api.chats.getLatestSummaryForBackend,
       {
-        serviceKey,
+        serviceKey: getConvexServiceKey()!,
         chatId,
       },
     );
@@ -1131,7 +1392,7 @@ export async function createNote({
     const result = await getConvexClient().mutation(
       api.notes.createNoteForBackend,
       {
-        serviceKey,
+        serviceKey: getConvexServiceKey()!,
         userId,
         title,
         content,
@@ -1163,7 +1424,7 @@ export async function listNotes({
     const result = await getConvexClient().query(
       api.notes.listNotesForBackend,
       {
-        serviceKey,
+        serviceKey: getConvexServiceKey()!,
         userId,
         category,
         tags,
@@ -1196,7 +1457,7 @@ export async function updateNote({
     const result = await getConvexClient().mutation(
       api.notes.updateNoteForBackend,
       {
-        serviceKey,
+        serviceKey: getConvexServiceKey()!,
         userId,
         noteId,
         title,
@@ -1224,7 +1485,7 @@ export async function deleteNote({
     const result = await getConvexClient().mutation(
       api.notes.deleteNoteForBackend,
       {
-        serviceKey,
+        serviceKey: getConvexServiceKey()!,
         userId,
         noteId,
       },
@@ -1247,7 +1508,7 @@ export async function getNotes({
 }) {
   try {
     const notes = await getConvexClient().query(api.notes.getNotesForBackend, {
-      serviceKey,
+      serviceKey: getConvexServiceKey()!,
       userId,
       subscription,
     });
@@ -1280,7 +1541,11 @@ export async function logUsageRecord({
   userId: string;
   organizationId?: string;
   chatId?: string;
-  endpoint?: "/api/chat" | "/api/agent-long";
+  endpoint?:
+    | "/api/chat"
+    | "/api/agent-long"
+    | "/api/hack-long"
+    | "/api/console/model";
   mode?: ChatMode;
   subscription?: SubscriptionTier;
   model: string;
@@ -1297,7 +1562,7 @@ export async function logUsageRecord({
 }) {
   try {
     await getConvexClient().mutation(api.usageLogs.logUsage, {
-      serviceKey,
+      serviceKey: getConvexServiceKey()!,
       user_id: userId,
       organization_id: organizationId,
       chat_id: chatId,

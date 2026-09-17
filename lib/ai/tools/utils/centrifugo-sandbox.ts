@@ -1,6 +1,7 @@
 import { EventEmitter } from "events";
 import { Centrifuge, type Subscription } from "centrifuge";
 
+import { waitForCommandReceiver } from "@/lib/centrifugo/command-readiness";
 import { generateCentrifugoToken } from "@/lib/centrifugo/jwt";
 import {
   sandboxConnectionChannel,
@@ -21,6 +22,8 @@ const VALID_MESSAGE_TYPES = new Set([
 ]);
 
 const IGNORED_MESSAGE_TYPES = new Set([
+  "runner_probe",
+  "runner_ready",
   "pty_create",
   "pty_input",
   "pty_resize",
@@ -29,6 +32,8 @@ const IGNORED_MESSAGE_TYPES = new Set([
   "pty_data",
   "pty_exit",
   "pty_error",
+  "desktop_local_access_request",
+  "desktop_local_access_result",
 ]);
 
 export function parseSandboxMessage(
@@ -107,13 +112,18 @@ export interface CentrifugoConfig {
 export class CentrifugoSandbox extends EventEmitter {
   readonly sandboxKind = "centrifugo" as const;
   private activeClients: Centrifuge[] = [];
+  private readonly config: Readonly<CentrifugoConfig>;
 
   constructor(
     private userId: string,
     private connectionInfo: ConnectionInfo,
-    private config: CentrifugoConfig,
+    config: CentrifugoConfig,
   ) {
     super();
+    this.config = Object.freeze({
+      wsUrl: config.wsUrl,
+      tokenSecret: config.tokenSecret,
+    });
   }
 
   getConnectionId(): string {
@@ -141,7 +151,7 @@ export class CentrifugoSandbox extends EventEmitter {
    * signing secret encapsulated — callers never see `tokenSecret`.
    */
   async issueToken(ttlSeconds: number): Promise<string> {
-    return generateCentrifugoToken(this.userId, ttlSeconds);
+    return generateCentrifugoToken(this.userId, ttlSeconds, this.config);
   }
 
   /**
@@ -204,7 +214,11 @@ Commands run directly on the host OS "${hostname}" without Docker isolation. Be 
 
       // Generate short-lived JWT for this subscription (30s + command timeout)
       const tokenExpSeconds = Math.ceil(timeout / 1000) + 30;
-      const token = await generateCentrifugoToken(this.userId, tokenExpSeconds);
+      const token = await generateCentrifugoToken(
+        this.userId,
+        tokenExpSeconds,
+        this.config,
+      );
 
       // Create a centrifuge client for this command
       const client = new Centrifuge(this.config.wsUrl, {
@@ -213,6 +227,9 @@ Commands run directly on the host OS "${hostname}" without Docker isolation. Be 
       this.activeClients.push(client);
 
       const result = await new Promise<CommandResult>((resolve, reject) => {
+        const receivedDeliveries = new Set<string>();
+        const readinessAbort = new AbortController();
+        let awaitingReadiness = false;
         let stdout = "";
         let stderr = "";
         let settled = false;
@@ -223,7 +240,8 @@ Commands run directly on the host OS "${hostname}" without Docker isolation. Be 
         let cancelRequested = false;
         let cancelPublishStarted = false;
 
-        const maxWaitTime = timeout + 5000; // Add 5s buffer for network
+        const maxWaitTime = timeout + 5000; // Execution plus exit-delivery allowance.
+        const admissionWaitTime = 15000; // Bound connection/subscription/readiness separately.
 
         // Timing diagnostics — track which phase we reached before timeout
         const t0 = Date.now();
@@ -233,6 +251,7 @@ Commands run directly on the host OS "${hostname}" without Docker isolation. Be 
         let tFirstMessage = 0;
 
         const cleanup = () => {
+          readinessAbort.abort();
           if (timeoutId) {
             clearTimeout(timeoutId);
             timeoutId = undefined;
@@ -293,6 +312,10 @@ Commands run directly on the host OS "${hostname}" without Docker isolation. Be 
         };
 
         const handleAbort = () => {
+          if (awaitingReadiness) {
+            resolveCanceled();
+            return;
+          }
           publishCancel();
         };
 
@@ -302,25 +325,30 @@ Commands run directly on the host OS "${hostname}" without Docker isolation. Be 
         }
         opts?.signal?.addEventListener("abort", handleAbort, { once: true });
 
-        // Set up timeout
-        timeoutId = setTimeout(() => {
-          if (!settled) {
-            settled = true;
-            cleanup();
-            const phases = [
-              `connected: ${tConnected ? `${tConnected - t0}ms` : "no"}`,
-              `subscribed: ${tSubscribed ? `${tSubscribed - t0}ms` : "no"}`,
-              `published: ${tPublished ? `${tPublished - t0}ms` : "no"}`,
-              `firstMsg: ${tFirstMessage ? `${tFirstMessage - t0}ms` : "no"}`,
-            ].join(", ");
-            reject(
-              new Error(
-                `Command timeout after ${maxWaitTime}ms [${phases}]` +
-                  ` connectionId=${this.connectionInfo.connectionId}`,
-              ),
-            );
-          }
-        }, maxWaitTime);
+        // Admission must not consume the process observation budget. Arm
+        // the execution timer once, immediately before the first publication.
+        const armTimeout = (duration: number) => {
+          if (timeoutId) clearTimeout(timeoutId);
+          timeoutId = setTimeout(() => {
+            if (!settled) {
+              settled = true;
+              cleanup();
+              const phases = [
+                `connected: ${tConnected ? `${tConnected - t0}ms` : "no"}`,
+                `subscribed: ${tSubscribed ? `${tSubscribed - t0}ms` : "no"}`,
+                `published: ${tPublished ? `${tPublished - t0}ms` : "no"}`,
+                `firstMsg: ${tFirstMessage ? `${tFirstMessage - t0}ms` : "no"}`,
+              ].join(", ");
+              reject(
+                new Error(
+                  `Command timeout after ${duration}ms [${phases}]` +
+                    ` connectionId=${this.connectionInfo.connectionId}`,
+                ),
+              );
+            }
+          }, duration);
+        };
+        armTimeout(admissionWaitTime);
 
         // Subscribe to the sandbox channel
         subscription = client.newSubscription(channel);
@@ -333,6 +361,12 @@ Commands run directly on the host OS "${hostname}" without Docker isolation. Be 
           if (message.commandId !== commandId) return;
           if (message.type === "command" || message.type === "command_cancel") {
             return;
+          }
+          const deliveryId = (message as unknown as { deliveryId?: unknown })
+            .deliveryId;
+          if (typeof deliveryId === "string") {
+            if (receivedDeliveries.has(deliveryId)) return;
+            receivedDeliveries.add(deliveryId);
           }
           if (!tFirstMessage) tFirstMessage = Date.now();
 
@@ -397,7 +431,9 @@ Commands run directly on the host OS "${hostname}" without Docker isolation. Be 
         // "subscribed" fires after the server confirms the subscription,
         // ensuring we receive messages published to the channel.
         subscription.on("subscribed", () => {
-          if (settled) return;
+          // This event repeats on reconnect. A lost acknowledgement is not
+          // evidence that the runner did not already execute the command.
+          if (settled || publishedCommand || commandPublishInFlight) return;
           tSubscribed = Date.now();
           const commandMessage: CommandMessage = {
             type: "command",
@@ -412,8 +448,23 @@ Commands run directly on the host OS "${hostname}" without Docker isolation. Be 
           };
 
           commandPublishInFlight = true;
-          subscription!
-            .publish(commandMessage)
+          Promise.resolve()
+            .then(async () => {
+              if (this.connectionInfo.capabilities?.commandReadiness) {
+                awaitingReadiness = true;
+                await waitForCommandReceiver(
+                  subscription!,
+                  this.connectionInfo.connectionId,
+                  readinessAbort.signal,
+                );
+                awaitingReadiness = false;
+              }
+              if (settled || cancelRequested || opts?.signal?.aborted) {
+                throw new Error("Command stopped before publication");
+              }
+              armTimeout(maxWaitTime);
+              return subscription!.publish(commandMessage);
+            })
             .then(() => {
               commandPublishInFlight = false;
               tPublished = Date.now();

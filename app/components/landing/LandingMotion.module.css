@@ -1,0 +1,50 @@
+.reveal {
+  opacity: 1;
+  transform: translate3d(0, 0, 0);
+}
+
+.reveal[data-motion-state="pending"] {
+  opacity: 0;
+  transform: translate3d(0, 1.125rem, 0);
+}
+
+.reveal[data-motion-state="visible"] {
+  transition:
+    opacity 640ms cubic-bezier(0.22, 1, 0.36, 1),
+    transform 640ms cubic-bezier(0.22, 1, 0.36, 1);
+  transition-delay: var(--landing-reveal-delay, 0ms);
+}
+
+.sequence {
+  display: inline;
+}
+
+.word {
+  display: inline-block;
+  opacity: 1;
+  transform: translate3d(0, 0, 0);
+}
+
+.sequence[data-motion-state="pending"] .word {
+  opacity: 0;
+  transform: translate3d(0, 0.5em, 0);
+}
+
+.sequence[data-motion-state="visible"] .word {
+  transition:
+    opacity 560ms cubic-bezier(0.22, 1, 0.36, 1),
+    transform 560ms cubic-bezier(0.22, 1, 0.36, 1);
+  transition-delay: calc(var(--landing-word-index) * 46ms);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .reveal,
+  .reveal[data-motion-state="pending"],
+  .reveal[data-motion-state="visible"],
+  .sequence[data-motion-state="pending"] .word,
+  .sequence[data-motion-state="visible"] .word {
+    opacity: 1;
+    transform: none;
+    transition: none;
+  }
+}

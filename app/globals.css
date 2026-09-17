@@ -1,19 +1,41 @@
-@import url("https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&display=swap");
 @import "tailwindcss";
 @import "tw-animate-css";
+@import "./tui-skin.css";
 @source "../node_modules/streamdown/dist/index.js";
 
 @custom-variant dark (&:is(.dark *));
 @custom-variant desktop (@media (min-width: 950px));
+/*
+ * Density on precise pointers. Components across settings, plugins, artifacts
+ * and the MCP marketplace already write `pointer-fine:` utilities to tighten
+ * their rows, but the variant was never registered, so every one of those
+ * classes compiled to nothing and the chrome stayed at touch-target height on
+ * desktop.
+ */
+@custom-variant pointer-fine (@media (pointer: fine));
 
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
-  /* Refined dark-SaaS type system: Geist body, Space Grotesk display, JetBrains
-     Mono for terminal/command output only. */
-  --font-sans: var(--font-geist), system-ui, sans-serif;
-  --font-mono: var(--font-jetbrains-mono), ui-monospace, monospace;
-  --font-display: var(--font-space-grotesk), sans-serif;
+  /* Cursor-compatible system typography for product chrome. Public surfaces
+     can still provide their own local font variables without changing the
+     authenticated workspace contract. */
+  --font-sans:
+    var(--font-cursor-ui, -apple-system, BlinkMacSystemFont, "Segoe UI"),
+    system-ui, sans-serif;
+  --font-mono:
+    var(--font-cursor-mono, var(--font-jetbrains-mono)), ui-monospace, monospace;
+  /* One face for the whole product. Display used to fall back to Space
+     Grotesk outside the workspace, so a heading on a public page was set in a
+     different typeface from the same heading inside the app. Space Grotesk
+     stays available as an explicit appearance preference. */
+  --font-display:
+    var(--font-cursor-ui, -apple-system, BlinkMacSystemFont, "Segoe UI"),
+    system-ui, sans-serif;
+  --font-pixel: var(--font-pixel-src), "Courier New", monospace;
+  --font-weight-normal: var(--cursor-font-weight-normal, 400);
+  --font-weight-medium: var(--cursor-font-weight-medium, 500);
+  --font-weight-semibold: var(--cursor-font-weight-semibold, 600);
   --color-sidebar-ring: var(--sidebar-ring);
   --color-sidebar-border: var(--sidebar-border);
   --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
@@ -53,6 +75,34 @@
   --radius-lg: var(--radius);
   --radius-xl: calc(var(--radius) + 4px);
 
+  /* Motion curves. The browser's built-in `ease`/`ease-out` are too weak to
+     read as deliberate, so surfaces were each reaching for their own timing
+     and the app drifted out of step with itself. These are the house curves:
+     `ease-out` for anything entering or leaving, `ease-drawer` for sheets and
+     docks. `ease-in` is deliberately absent — it starts slow at exactly the
+     moment the user is watching, which is why it always reads as sluggish.
+
+     Only the curves and durations something actually uses are declared: an
+     unused entry here is not emitted at all, so a longer "scale" would read as
+     available while resolving to nothing at runtime. Add the next one when the
+     surface that needs it arrives.
+
+     `--duration-hover` arrives with the sweep that gave the shell one timing
+     for a colour change. Before it, the same interaction was written four
+     ways — `duration-100`, `duration-150`, a bare `transition-colors` falling
+     through to 150ms, and an explicit property list at 100ms — across the
+     sidebar, the chat rows and the activity panel. 120ms is the hover figure
+     from the animation reference; the point is not the number, it is that
+     there is one of them. */
+  --ease-out: cubic-bezier(0.23, 1, 0.32, 1);
+  --ease-drawer: cubic-bezier(0.32, 0.72, 0, 1);
+  --duration-hover: 120ms;
+  /* A press has to answer on the frame you make it. 140ms was long enough
+     that the control looked like it was catching up with the finger rather
+     than responding to it; the return is what can afford to be gentle. */
+  --duration-press: 90ms;
+  --duration-sheet: 320ms;
+
   /* RIFT v2 — "Command Center" system. One cyan signal accent + layered
      neutral surfaces, mapped to per-theme vars below so every utility
      (bg-signal, text-signal, bg-surface-2, border-strong, …) re-themes
@@ -89,6 +139,32 @@
   --color-rift-deep: var(--signal-soft);
   --color-rift-hot: var(--signal-bright);
   --color-alarm: var(--destructive);
+
+  /* Workbench surfaces stay deliberately denser than the chat shell, but use
+     one semantic contract so explorer, editor, diff, and PTY re-theme in sync. */
+  --color-workbench-canvas: var(--workbench-canvas);
+  --color-workbench-panel: var(--workbench-panel);
+  --color-workbench-terminal: var(--workbench-terminal);
+  --color-workbench-control: var(--workbench-control);
+  --color-workbench-hover: var(--workbench-hover);
+  --color-workbench-active: var(--workbench-active);
+  --color-workbench-border: var(--workbench-border);
+  --color-workbench-border-strong: var(--workbench-border-strong);
+  --color-workbench-text: var(--workbench-text);
+  --color-workbench-muted: var(--workbench-muted);
+  --color-workbench-faint: var(--workbench-faint);
+  --color-workbench-success: var(--workbench-success);
+  --color-workbench-warning: var(--workbench-warning);
+  --color-workbench-error: var(--workbench-error);
+  --color-workbench-info: var(--workbench-info);
+  --color-workbench-warning-surface: var(--workbench-warning-surface);
+  --color-workbench-warning-border: var(--workbench-warning-border);
+  --color-workbench-error-surface: var(--workbench-error-surface);
+  --color-workbench-error-border: var(--workbench-error-border);
+  --color-workbench-diff-add: var(--workbench-diff-add);
+  --color-workbench-diff-add-surface: var(--workbench-diff-add-surface);
+  --color-workbench-diff-remove: var(--workbench-diff-remove);
+  --color-workbench-diff-remove-surface: var(--workbench-diff-remove-surface);
 }
 
 :root {
@@ -97,79 +173,99 @@
   --mascot-face: #ffffff;
   --mascot-detail: #1a1a1a;
 
-  /* ── Light mode — clean, professional, soft-neutral ── */
-  --background: #ffffff;
-  --foreground: #14161a;
-  --card: #f7f8f9;
-  --card-foreground: #14161a;
-  --popover: #ffffff;
-  --popover-foreground: #14161a;
-  --primary: #14161a;
+  /* ── Light mode — read out of Cursor.app's own cursor-light-color-theme.json,
+     the same source as the dark palette below.
+
+     editor.background is #FCFCFC and the chrome around it is #F3F3F3 -- a
+     near-white content plane on a slightly grey shell, not pure #ffffff on
+     cool blue-grey. Text is #141414, the exact inverse of the dark theme's
+     #F0F0F0, which is why the two themes feel like one product rather than
+     two. Interaction states are black overlays at Cursor's alphas: hairline
+     and hover #14141414 (8%), focus #14141433 (20%). ── */
+  --background: #fcfcfc;
+  --foreground: #141414;
+  --cursor-text-primary: #141414;
+  --cursor-text-secondary: #4d4d4d;
+  --cursor-text-tertiary: #6b7280;
+  --cursor-text-quaternary: #9ca3af;
+  --cursor-icon-secondary: #6f6f6f;
+  --card: #f3f3f3;
+  --card-foreground: #141414;
+  /* editorWidget/menu background in Cursor Light. */
+  --popover: #f3f3f3;
+  --popover-foreground: #141414;
+  --primary: #0169cc;
   --primary-foreground: #ffffff;
-  --secondary: #f0f1f3;
-  --secondary-foreground: #14161a;
-  --muted: #f0f1f3;
-  --muted-foreground: #5d636d;
-  --accent: #eceef1;
-  --accent-foreground: #14161a;
-  --destructive: #e5484d;
-  --border: #e6e8eb;
-  --input: #e6e8eb;
-  --ring: var(--signal);
-  --chart-1: #0b8ea0;
-  --chart-2: #2b7fff;
-  --chart-3: #1a9d5e;
-  --chart-4: #c08a2e;
-  --chart-5: #e5707a;
-  --sidebar: #fafbfc;
-  --sidebar-foreground: #14161a;
-  --sidebar-primary: #14161a;
-  --sidebar-primary-foreground: #ffffff;
-  --sidebar-accent: #eef0f2;
-  --sidebar-accent-foreground: #14161a;
-  --sidebar-border: #e9ebee;
-  --sidebar-ring: var(--signal);
+  --secondary: #f3f3f3;
+  --secondary-foreground: #141414;
+  --muted: #f3f3f3;
+  /* descriptionForeground: #141414BD, i.e. the same ink at 74%. */
+  --muted-foreground: #141414bd;
+  /* list.hoverBackground — black at 8%, so it works on both light planes. */
+  --accent: #14141414;
+  --accent-foreground: #141414;
+  --destructive: #e02e2a;
+  /* editorGroup/panel/titleBar border, all #14141414 in Cursor Light. */
+  --border: #14141414;
+  --input: #fcfcfc;
+  --ring: #14141433;
+  --chart-1: #0169cc;
+  --chart-2: #b9822b;
+  --chart-3: #5f7a45;
+  --chart-4: #a8743f;
+  --chart-5: #cc6a4f;
+  /* sideBar.background. The chrome plane sits *under* the content plane in
+     light, the mirror of dark where it sits over it. */
+  --sidebar: #f3f3f3;
+  --sidebar-foreground: #141414;
+  --sidebar-primary: #141414;
+  --sidebar-primary-foreground: #fcfcfc;
+  --sidebar-accent: #14141414;
+  --sidebar-accent-foreground: #141414;
+  --sidebar-border: #14141414;
+  --sidebar-ring: #14141433;
 
-  /* Command-center primitives (light) */
-  --signal: #0b8ea0;
-  --signal-bright: #11a9be;
-  --signal-dim: #0a7280;
-  --signal-soft: rgba(11, 142, 160, 0.1);
-  --surface-1: #fafbfc;
-  --surface-2: #f5f6f8;
-  --surface-3: #eef0f2;
-  --surface-4: #e6e9ec;
+  /* Claude clay/coral primitives (light) */
+  --signal: #0169cc;
+  --signal-bright: #0169cc;
+  --signal-dim: #014f9c;
+  --signal-soft: rgba(1, 105, 204, 0.1);
+  --surface-1: #f8f9fb;
+  --surface-2: #f1f3f5;
+  --surface-3: #eaecef;
+  --surface-4: #e2e5e9;
   --elevated: #ffffff;
-  --success: #1a9d5e;
+  --success: #00a240;
   --warning: #b9822b;
-  --info: #2b7fff;
+  --info: #a8743f;
 
-  --surface: #f5f6f8;
-  --border-strong: #d3d7dd;
-  --rift-glow: rgba(0, 0, 0, 0.05);
-  --grid-dot: rgba(0, 0, 0, 0.05);
+  --surface: #f1f3f5;
+  --border-strong: #d1d5db;
+  --rift-glow: rgba(1, 105, 204, 0.06);
+  --grid-dot: rgba(0, 0, 0, 0.043);
 
-  --fill-input-chat: #f5f6f8;
-  --link-color: #2b7fff;
+  /* Chat composer shares the sidebar's elevated tone (see dark note). */
+  --fill-input-chat: #f8f9fb;
+  --link-color: #0169cc;
 
-  --premium-bg: #f0f1f3;
-  --premium-text: #14161a;
-  --premium-hover: #14161a;
+  --premium-bg: #f1f3f5;
+  --premium-text: #1c1e21;
+  --premium-hover: #1c1e21;
 
   --scrollbar-track: transparent;
-  --scrollbar-thumb: rgba(0, 0, 0, 0.16);
-  --scrollbar-thumb-hover: rgba(0, 0, 0, 0.28);
+  --scrollbar-thumb: rgba(0, 0, 0, 0.14);
+  --scrollbar-thumb-hover: rgba(0, 0, 0, 0.26);
 
   --sidebar-mask: linear-gradient(
     90deg,
-    #fafbfc 0%,
-    #fafbfc 95%,
+    #f8f9fb 0%,
+    #f8f9fb 95%,
     transparent 100%
   );
   --sidebar-mask-active: linear-gradient(
     90deg,
-    #e6e9ec 0%,
-    #e6e9ec 88%,
+    #e2e5e9 0%,
+    #e2e5e9 88%,
     transparent 93%,
     transparent 100%
   );
@@ -179,69 +275,97 @@
 }
 
 .dark {
-  --mascot-bg: #1c1f25;
-  --mascot-face: #eceef1;
-  --mascot-detail: #0c0d0f;
+  --mascot-bg: #1e1e1e;
+  --mascot-face: #fcfcfc;
+  --mascot-detail: #111111;
 
-  /* ── Dark mode — "Command Center": layered cool-neutral void, one cyan
-     signal accent. Primary surface for the product. ── */
-  --background: #0c0d0f;
-  --foreground: #eceef1;
-  --card: #16181d;
-  --card-foreground: #eceef1;
-  --popover: #1a1d22;
-  --popover-foreground: #eceef1;
-  --primary: #eceef1;
-  --primary-foreground: #0c0d0f;
-  --secondary: #1c1f25;
-  --secondary-foreground: #eceef1;
-  --muted: #1c1f25;
-  --muted-foreground: #8b919b;
-  --accent: #242830;
-  --accent-foreground: #eceef1;
-  --destructive: #f0726e;
-  --border: #222429;
-  --input: #222429;
-  --ring: var(--signal);
-  --chart-1: #34d2e6;
-  --chart-2: #5aa8f6;
-  --chart-3: #46d18a;
-  --chart-4: #e3b75c;
-  --chart-5: #f0726e;
-  --sidebar: #121317;
-  --sidebar-foreground: #d6d9de;
-  --sidebar-primary: #eceef1;
-  --sidebar-primary-foreground: #0c0d0f;
-  --sidebar-accent: #1c1f25;
-  --sidebar-accent-foreground: #eceef1;
-  --sidebar-border: #1b1d22;
-  --sidebar-ring: var(--signal);
+  /* Legacy dark fallback before saved appearance is applied. The Graphite
+     preset uses the sampled Cursor Agents palette in appearance/presets.ts;
+     these fallback values are not a claim about Cursor's current UI. */
+  --background: #151515;
+  --foreground: #f5f5f5;
+  --cursor-text-primary: #f5f5f5;
+  --composer-command: #5aa2ff;
+  --cursor-text-secondary: #a3a29a;
+  --cursor-text-tertiary: #898782;
+  --cursor-text-quaternary: #666666;
+  --cursor-icon-secondary: #a7a7a7;
+  --card: #1f1f1f;
+  --card-foreground: #f0f0f0;
+  /* editorWidget/menu/quickInput background in Cursor Dark. */
+  --popover: #141414;
+  --popover-foreground: #f0f0f0;
+  --primary: #0169cc;
+  --primary-foreground: #ffffff;
+  --secondary: #1f1f1f;
+  --secondary-foreground: #f0f0f0;
+  --muted: #1f1f1f;
+  --muted-foreground: #898782;
+  /* list.hoverBackground in Cursor Dark: white at 6.7%, not a solid grey.
+     An overlay keeps hover legible on both planes; a fixed grey only works
+     on the one it was picked against. */
+  --accent: #f0f0f011;
+  --accent-foreground: #f0f0f0;
+  --destructive: #e02e2a;
+  /* sideBar.border / panel.border / titleBar.border, all #F0F0F013. */
+  --border: #f0f0f013;
+  --input: #f0f0f00a;
+  --ring: #f0f0f026;
+  --chart-1: #0169cc;
+  --chart-2: #d4a857;
+  --chart-3: #7ba05b;
+  --chart-4: #c8956a;
+  --chart-5: #e5694a;
+  /* Sidebar — Cursor's sideBar.background, which is the DARKER plane at
+     #141414. This used to be #2b373e, a desaturated blue-gray: a different
+     hue family from every other surface, so the one panel the eye rests on
+     longest was the one thing in the shell that was not neutral.
 
-  /* Command-center primitives (dark) */
-  --signal: #34d2e6;
-  --signal-bright: #7fe9f5;
-  --signal-dim: #1f8d9b;
-  --signal-soft: rgba(52, 210, 230, 0.12);
-  --surface-1: #121317;
-  --surface-2: #16181d;
-  --surface-3: #1c1f25;
-  --surface-4: #242830;
-  --elevated: #1a1d22;
-  --success: #46d18a;
-  --warning: #e3b75c;
-  --info: #5aa8f6;
+     Its states are the same white overlays Cursor uses, so the panel stays
+     coherent whether it sits on the opaque plane or on the window vibrancy. */
+  --sidebar: #141414;
+  --sidebar-foreground: #f0f0f0;
+  --sidebar-primary: #f0f0f0;
+  --sidebar-primary-foreground: #141414;
+  /* list.hoverBackground / list.activeSelectionBackground. */
+  /* Cursor writes its list fills as white overlays, not baked greys:
+     list.hoverBackground #F0F0F011 (6.7%) and list.activeSelectionBackground
+     #F0F0F01E (11.8%), read out of theme-cursor's own JSON. Carrying the
+     alpha rather than a flat hex is what keeps the fill correct over the
+     translucent sidebar, and it is why hover reads as half a selection: the
+     call sites take this at /60, which lands on 7.1%. */
+  --sidebar-accent: #f0f0f00f;
+  --sidebar-accent-foreground: #f0f0f0;
+  --sidebar-border: #f0f0f013;
+  --sidebar-ring: #f0f0f026;
 
-  --surface: #16181d;
-  --border-strong: #2f333b;
-  --rift-glow: rgba(52, 210, 230, 0.1);
+  /* Claude clay/coral primitives (dark) */
+  --signal: #0169cc;
+  --signal-bright: #e8916f;
+  --signal-dim: #b85f42;
+  --signal-soft: rgba(1, 105, 204, 0.13);
+  --surface-1: #1a1a1a;
+  --surface-2: #1a1a1a;
+  --surface-3: #1c1c1c;
+  --surface-4: #1e1e1e;
+  --elevated: #1e1e1e;
+  --success: #00a240;
+  --warning: #d4a857;
+  --info: #c8956a;
+
+  --surface: #1c1c1c;
+  --border-strong: #333333;
+  --rift-glow: rgba(1, 105, 204, 0.12);
   --grid-dot: rgba(255, 255, 255, 0.03);
 
-  --fill-input-chat: #16181d;
-  --link-color: #5aa8f6;
+  /* Chat composer shares the sidebar's elevated tone so the two read as one
+     harmonious surface above the darker canvas. */
+  --fill-input-chat: #1a1a1a;
+  --link-color: #0169cc;
 
-  --premium-bg: #1c1f25;
-  --premium-text: #eceef1;
-  --premium-hover: #eceef1;
+  --premium-bg: #1e1e1e;
+  --premium-text: #fcfcfc;
+  --premium-hover: #fcfcfc;
 
   --scrollbar-track: transparent;
   --scrollbar-thumb: rgba(120, 126, 138, 0.3);
@@ -249,20 +373,1102 @@
 
   --sidebar-mask: linear-gradient(
     90deg,
-    #121317 0%,
-    #121317 95%,
+    #1a1a1a 0%,
+    #1a1a1a 95%,
     transparent 100%
   );
   --sidebar-mask-active: linear-gradient(
     90deg,
-    #242830 0%,
-    #242830 88%,
+    #1e1e1e 0%,
+    #1e1e1e 88%,
     transparent 93%,
     transparent 100%
   );
 
   --neon-glow: none;
   --neon-glow-intense: none;
+}
+
+/* Authenticated application shell
+   --------------------------------
+   Keep the product workspace on its own semantic palette so marketing pages
+   and the self-contained Hack Workbench retain their existing art direction.
+   Explicit body shell-presence attributes also theme Radix portals outside the shell;
+   the direct selector is the progressive fallback for the workspace itself. */
+body[data-rift-shell-workspace],
+body[data-rift-shell-pro],
+[data-rift-workspace],
+.pro-shell {
+  color-scheme: light;
+  --radius: 6px;
+  /* The platform UI font, because that is the reference's own face: Cursor's
+     workbench resolves --vscode-font-family to -apple-system on a Mac, and the
+     product is set to Cursor. Geist and Space Grotesk stay available as
+     appearance preferences — see the ui-font rules at the end of this file,
+     and the matching default in lib/appearance/presets.ts. */
+  --font-cursor-ui: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+
+  /* The one saturated colour in a monochrome shell, and it earns it: a slash
+     token turns this the instant the runtime can resolve it, so the field
+     answers "yes, that is a real command" before Enter is pressed. */
+  --composer-command: #2f7ae5;
+  --font-cursor-mono:
+    "SFMono-Regular", Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+  --cursor-font-size-base: 13px;
+  --cursor-font-size-lg: 14px;
+  --cursor-font-size-sm: 12px;
+  --cursor-font-size-xs: 11px;
+  /* Measured off Cursor's own app on 18 Aug 2026: every body string there is
+     weight 400 in system-ui, with no synthesised in-between. 418 is a variable
+     axis value that renders fractionally heavier than the reference and, on
+     faces without that axis, snaps to 500 — which is why some rows read bolder
+     than others for no reason a designer chose. */
+  --cursor-font-weight-normal: 400;
+  --cursor-font-weight-medium: 500;
+  --cursor-font-weight-semibold: 600;
+  --font-display: var(--font-cursor-ui);
+  --font-sans: var(--font-cursor-ui);
+  --font-mono: var(--font-cursor-mono);
+  font-family: var(--font-cursor-ui);
+  font-size: var(--rift-ui-font-size, var(--cursor-font-size-base));
+  font-weight: var(--cursor-font-weight-normal);
+  font-synthesis: none;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+
+  --background: #ffffff;
+  --foreground: #171717;
+  --cursor-text-primary: #171717;
+  --cursor-text-secondary: #4d4d4d;
+  --cursor-text-tertiary: #6f6f6f;
+  --cursor-text-quaternary: #a6a6a6;
+  --cursor-icon-secondary: #6f6f6f;
+  --card: #fbfbfb;
+  --card-foreground: #171717;
+  --popover: #ffffff;
+  --popover-foreground: #171717;
+  --primary: #303030;
+  --primary-foreground: #ffffff;
+  --secondary: #f3f3f4;
+  --secondary-foreground: #202124;
+  --muted: #f3f3f4;
+  --muted-foreground: #606269;
+  --accent: #eeeeef;
+  --accent-foreground: #171717;
+  --destructive: #c93636;
+  --border: #e3e3e5;
+  --input: #909194;
+  --ring: #777777;
+
+  --chart-1: #1967b3;
+  --chart-2: #7a6b45;
+  --chart-3: #4e7459;
+  --chart-4: #77658a;
+  --chart-5: #9a5d58;
+
+  --sidebar: #f7f7f7;
+  --sidebar-foreground: #202124;
+  --sidebar-primary: #303030;
+  --sidebar-primary-foreground: #ffffff;
+  --sidebar-accent: #eaeaec;
+  --sidebar-accent-foreground: #171717;
+  --sidebar-border: #e1e1e3;
+  --sidebar-ring: #777777;
+
+  --signal: #4f4f4f;
+  --signal-bright: #6a6a6a;
+  --signal-dim: #303030;
+  --signal-soft: rgba(23, 23, 23, 0.07);
+  --surface-1: #fbfbfb;
+  --surface-2: #f6f6f7;
+  --surface-3: #f0f0f1;
+  --surface-4: #e9e9eb;
+  --elevated: #ffffff;
+  --surface: #f5f5f6;
+  --border-strong: #cdced1;
+  --success: #2d7d46;
+  --warning: #8a611f;
+  --info: #1967b3;
+  --rift-glow: rgba(45, 127, 196, 0.045);
+  --grid-dot: rgba(23, 23, 23, 0.035);
+
+  --fill-input-chat: #f3f3f4;
+  --link-color: #303030;
+  --premium-bg: #f1f1f2;
+  --premium-text: #171717;
+  --premium-hover: #202124;
+
+  --scrollbar-track: transparent;
+  --scrollbar-thumb: rgba(23, 23, 23, 0.16);
+  --scrollbar-thumb-hover: rgba(23, 23, 23, 0.28);
+  --app-scrim: rgba(10, 10, 10, 0.38);
+
+  /* Codex-style product shell primitives. Component rules below consume only
+     these semantic values, so ProShell follows the same light/dark contract as
+     the regular workspace instead of forcing a second black-only palette. */
+  --pro-shell-canvas: var(--background);
+  --pro-workspace-bg: var(--card);
+  --pro-sidebar-bg: var(--sidebar);
+  --pro-main-bg: var(--background);
+  /* The chrome plane, opaque. A 94% mix reads as the sidebar colour against a
+     browser's own white, and as the desktop wallpaper through a transparent
+     Tauri window -- and either way it puts a seam between the title bar and
+     the sidebar that continues below it. */
+  --pro-titlebar-bg: var(--sidebar);
+  --pro-control-bg: color-mix(in srgb, var(--foreground) 4%, transparent);
+  --pro-control-hover: color-mix(in srgb, var(--foreground) 8%, transparent);
+  --pro-selection: color-mix(in srgb, var(--foreground) 10%, transparent);
+  --pro-text-secondary: color-mix(in srgb, var(--foreground) 74%, transparent);
+  --pro-text-muted: var(--muted-foreground);
+  --pro-text-faint: color-mix(in srgb, var(--foreground) 36%, transparent);
+  --pro-border: var(--border);
+  --pro-border-strong: var(--border-strong);
+  --pro-shadow: color-mix(in srgb, var(--foreground) 14%, transparent);
+  --pro-signal-glow: color-mix(in srgb, var(--signal) 20%, transparent);
+  --pro-terminal-bg: color-mix(
+    in srgb,
+    var(--background) 94%,
+    var(--foreground)
+  );
+
+  --hack-nav-border: color-mix(in srgb, var(--signal) 24%, var(--border));
+  --hack-nav-border-active: color-mix(
+    in srgb,
+    var(--signal) 38%,
+    var(--border)
+  );
+  --hack-nav-bg: color-mix(in srgb, var(--signal) 7%, var(--sidebar));
+  --hack-nav-bg-active: color-mix(in srgb, var(--signal) 12%, var(--sidebar));
+  --hack-nav-glow: color-mix(in srgb, var(--signal) 22%, transparent);
+
+  --sidebar-mask: linear-gradient(
+    90deg,
+    #f7f7f7 0%,
+    #f7f7f7 95%,
+    transparent 100%
+  );
+  --sidebar-mask-active: linear-gradient(
+    90deg,
+    #eaeaec 0%,
+    #eaeaec 88%,
+    transparent 94%,
+    transparent 100%
+  );
+
+  --neon-glow: none;
+  --neon-glow-intense: none;
+}
+
+.dark body[data-rift-shell-workspace],
+.dark body[data-rift-shell-pro],
+.dark [data-rift-workspace],
+.dark .pro-shell {
+  color-scheme: dark;
+
+  /* Workspace fallback while appearance initializes. Saved palettes override
+     these semantic roles below; keep non-Graphite preset defaults stable. */
+  --background: #151515;
+  --foreground: #f5f5f5;
+  --cursor-text-primary: #f5f5f5;
+  --composer-command: #5aa2ff;
+  --cursor-text-secondary: #a3a29a;
+  --cursor-text-tertiary: #898782;
+  --cursor-text-quaternary: #666666;
+  --cursor-icon-secondary: #a7a7a7;
+  --card: #181818;
+  --card-foreground: #f0f0f0;
+  --popover: #1f1f1f;
+  --popover-foreground: #f0f0f0;
+  --primary: #969696;
+  --primary-foreground: #181818;
+  --secondary: #1f1f1f;
+  --secondary-foreground: #b8b8b8;
+  --muted: #1f1f1f;
+  --muted-foreground: #898782;
+  --accent: #292929;
+  --accent-foreground: #f0f0f0;
+  --destructive: #df5b67;
+  --border: #292929;
+  --input: #363636;
+  --ring: #707070;
+
+  --chart-1: #599ce7;
+  --chart-2: #88c0d0;
+  --chart-3: #3fa266;
+  --chart-4: #f1b467;
+  --chart-5: #e34671;
+
+  --sidebar: #141414;
+  --sidebar-foreground: #f0f0f0;
+  --sidebar-primary: #969696;
+  --sidebar-primary-foreground: #181818;
+  /* Cursor writes its list fills as white overlays, not baked greys:
+     list.hoverBackground #F0F0F011 (6.7%) and list.activeSelectionBackground
+     #F0F0F01E (11.8%), read out of theme-cursor's own JSON. Carrying the
+     alpha rather than a flat hex is what keeps the fill correct over the
+     translucent sidebar, and it is why hover reads as half a selection: the
+     call sites take this at /60, which lands on 7.1%. */
+  --sidebar-accent: #f0f0f00f;
+  --sidebar-accent-foreground: #f0f0f0;
+  --sidebar-border: #242424;
+  --sidebar-ring: #707070;
+
+  --signal: #969696;
+  --signal-bright: #b8b8b8;
+  --signal-dim: #727272;
+  --signal-soft: #ffffff0f;
+  --surface-1: #181818;
+  --surface-2: #1f1f1f;
+  --surface-3: #222222;
+  --surface-4: #252525;
+  --elevated: #1f1f1f;
+  --surface: #1f1f1f;
+  --border-strong: #363636;
+  --success: #4aa878;
+  --warning: #d5a84f;
+  --info: #88c0d0;
+  --rift-glow: transparent;
+  --grid-dot: transparent;
+
+  --fill-input-chat: #1f1f1f;
+  --link-color: #b8b8b8;
+  --premium-bg: #1f1f1f;
+  --premium-text: #f0f0f0;
+  --premium-hover: #f0f0f0;
+
+  --scrollbar-track: transparent;
+  --scrollbar-thumb: #f0f0f02e;
+  --scrollbar-thumb-hover: #f0f0f052;
+  --app-scrim: #000000b8;
+
+  --sidebar-mask: none;
+  --sidebar-mask-active: none;
+
+  --pro-shell-canvas: #151515;
+  --pro-workspace-bg: #151515;
+  --pro-sidebar-bg: #141414;
+  --pro-main-bg: #151515;
+  --pro-titlebar-bg: #141414;
+  --pro-control-bg: #1f1f1f;
+  --pro-control-hover: #262626;
+  --pro-selection: #2a2a2a;
+  --pro-text-secondary: #b8b8b8;
+  --pro-text-muted: #999999;
+  --pro-text-faint: #666666;
+  --pro-border: #282828;
+  --pro-border-strong: #363636;
+  --pro-shadow: transparent;
+  --pro-signal-glow: transparent;
+  --pro-terminal-bg: #141414;
+
+  --neon-glow: none;
+  --neon-glow-intense: none;
+}
+
+/* User-selectable application themes. Tokens are applied only to product
+   workspaces; marketing, auth, and the isolated Hack Workbench keep their own
+   art direction. Runtime values live on <html>, while this late block wins the
+   semantic-token cascade without component-specific overrides. */
+html[data-rift-appearance="ready"] body[data-rift-shell-workspace],
+html[data-rift-appearance="ready"] body[data-rift-shell-pro],
+html[data-rift-appearance="ready"] [data-rift-workspace],
+html[data-rift-appearance="ready"] .pro-shell {
+  --cursor-text-primary: var(--rift-appearance-foreground);
+  /* Keep small labels readable across every shipped palette. Hierarchy uses
+     type size and spacing as well as these opaque, high-contrast colors. */
+  --cursor-text-secondary: color-mix(
+    in srgb,
+    var(--rift-appearance-foreground) 86%,
+    var(--rift-appearance-background)
+  );
+  --cursor-text-tertiary: color-mix(
+    in srgb,
+    var(--rift-appearance-foreground) 84%,
+    var(--rift-appearance-background)
+  );
+  --cursor-text-quaternary: color-mix(
+    in srgb,
+    var(--rift-appearance-foreground) 82%,
+    var(--rift-appearance-background)
+  );
+  --cursor-icon-secondary: color-mix(
+    in srgb,
+    var(--rift-appearance-foreground) 80%,
+    var(--rift-appearance-sidebar)
+  );
+  --background: var(--rift-appearance-background);
+  --foreground: var(--rift-appearance-foreground);
+  --card: var(--rift-appearance-background);
+  --card-foreground: var(--rift-appearance-foreground);
+  --popover: color-mix(
+    in srgb,
+    var(--rift-appearance-background) 94%,
+    var(--rift-appearance-foreground)
+  );
+  --popover-foreground: var(--rift-appearance-foreground);
+  --primary: var(--rift-appearance-accent);
+  --primary-foreground: var(--rift-appearance-on-accent);
+  --secondary: var(--rift-appearance-surface);
+  --secondary-foreground: var(--rift-appearance-foreground);
+  --muted: var(--rift-appearance-surface);
+  --muted-foreground: var(--cursor-text-secondary);
+  --accent: color-mix(
+    in srgb,
+    var(--rift-appearance-foreground) 7%,
+    var(--rift-appearance-background)
+  );
+  --accent-foreground: var(--rift-appearance-foreground);
+  --border: var(--rift-appearance-border);
+  /* 60/40 rather than 68/32.
+     A control's edge has to stay visible against its own plane -- the app
+     holds itself to 3:1 there. The measured palette moved the ink to a warm
+     #c3c2b8, which is dimmer than the #f0f0f0 it replaced, so the old 68%
+     mix landed at 2.64:1 and control borders went quietly indistinct. 60%
+     restores it to 3.1:1 on the same measured border and ink; the weight is a
+     derived formula, not a sampled value, so it is the part that gives. */
+  --input: color-mix(
+    in srgb,
+    var(--rift-appearance-border) 60%,
+    var(--rift-appearance-foreground)
+  );
+  /* Focus is a neutral, not the accent.
+     The accent is the primary action's colour — white in dark, ink in light —
+     so drawing focus in it put a bright line inside every box you clicked. A
+     focus indicator has to be visible, not loud: this is the border stepped up
+     until it reads as deliberate. */
+  --ring: color-mix(
+    in srgb,
+    var(--rift-appearance-foreground) 48%,
+    var(--rift-appearance-background)
+  );
+
+  --sidebar: var(--rift-appearance-sidebar);
+  --sidebar-foreground: var(--rift-appearance-foreground);
+  --sidebar-primary: var(--rift-appearance-accent);
+  --sidebar-primary-foreground: var(--rift-appearance-on-accent);
+  /* The same 11.8% overlay the static blocks carry, expressed against the
+     active preset's own ink so a light preset tints with ink rather than
+     white. 6% was half the reference's selection and read as barely there. */
+  --sidebar-accent: color-mix(
+    in srgb,
+    var(--rift-appearance-foreground) 12%,
+    transparent
+  );
+  --sidebar-accent-foreground: var(--rift-appearance-foreground);
+  --sidebar-border: var(--rift-appearance-border);
+  --sidebar-ring: var(--ring);
+
+  --signal: var(--rift-appearance-accent);
+  --signal-bright: color-mix(
+    in srgb,
+    var(--rift-appearance-accent) 72%,
+    var(--rift-appearance-foreground)
+  );
+  --signal-dim: color-mix(
+    in srgb,
+    var(--rift-appearance-accent) 72%,
+    var(--rift-appearance-background)
+  );
+  --signal-soft: color-mix(
+    in srgb,
+    var(--rift-appearance-accent) 12%,
+    transparent
+  );
+  --surface-1: var(--rift-appearance-background);
+  --surface-2: var(--rift-appearance-surface);
+  --surface-3: color-mix(
+    in srgb,
+    var(--rift-appearance-surface) 84%,
+    var(--rift-appearance-foreground)
+  );
+  --surface-4: color-mix(
+    in srgb,
+    var(--rift-appearance-surface) 72%,
+    var(--rift-appearance-foreground)
+  );
+  --surface: var(--rift-appearance-surface);
+  --elevated: var(--popover);
+  --border-strong: color-mix(
+    in srgb,
+    var(--rift-appearance-border) 72%,
+    var(--rift-appearance-foreground)
+  );
+  --fill-input-chat: var(--rift-appearance-surface);
+  --link-color: var(--rift-appearance-accent);
+  --premium-bg: var(--rift-appearance-surface);
+  --premium-text: var(--rift-appearance-foreground);
+  --premium-hover: var(--rift-appearance-foreground);
+  --rift-glow: transparent;
+  --grid-dot: transparent;
+  --sidebar-mask: none;
+  --sidebar-mask-active: none;
+
+  --pro-shell-canvas: var(--rift-appearance-background);
+  --pro-workspace-bg: var(--rift-appearance-background);
+  --pro-sidebar-bg: var(--rift-appearance-sidebar);
+  --pro-main-bg: var(--rift-appearance-background);
+  /* The sidebar plane, not the content plane: the strip sits above both and
+     has to continue one of them, and it is chrome. */
+  --pro-titlebar-bg: var(--rift-appearance-sidebar);
+  --pro-control-bg: var(--rift-appearance-surface);
+  --pro-control-hover: color-mix(
+    in srgb,
+    var(--rift-appearance-foreground) 8%,
+    var(--rift-appearance-background)
+  );
+  --pro-selection: color-mix(
+    in srgb,
+    var(--rift-appearance-foreground) 10%,
+    var(--rift-appearance-background)
+  );
+  --pro-text-secondary: var(--cursor-text-secondary);
+  --pro-text-muted: var(--cursor-text-tertiary);
+  --pro-text-faint: var(--cursor-text-quaternary);
+  --pro-border: var(--rift-appearance-border);
+  --pro-border-strong: var(--border-strong);
+  --pro-shadow: transparent;
+  --pro-signal-glow: transparent;
+  --pro-terminal-bg: color-mix(
+    in srgb,
+    var(--rift-appearance-background) 92%,
+    #000000
+  );
+
+  font-family: var(--font-cursor-ui);
+  font-size: var(--rift-ui-font-size, var(--cursor-font-size-base));
+  font-weight: var(--cursor-font-weight-normal);
+}
+
+/* Light controls need a stronger outline than passive hairlines. Mixing more
+   foreground into the control border keeps every shipped light preset above
+   the 3:1 non-text contrast target without making the whole UI grid-heavy. */
+html:not(.dark)[data-rift-appearance="ready"] body[data-rift-shell-workspace],
+html:not(.dark)[data-rift-appearance="ready"] body[data-rift-shell-pro],
+html:not(.dark)[data-rift-appearance="ready"] [data-rift-workspace],
+html:not(.dark)[data-rift-appearance="ready"] .pro-shell {
+  --input: color-mix(
+    in srgb,
+    var(--rift-appearance-border) 45%,
+    var(--rift-appearance-foreground)
+  );
+}
+
+/* Graphite shares the same readable text roles as every workspace theme. */
+html.dark[data-rift-appearance="ready"][data-rift-preset="cursor"]
+  :is(
+    body[data-rift-shell-workspace],
+    body[data-rift-shell-pro],
+    [data-rift-workspace],
+    .pro-shell
+  ) {
+  /* Distinct Agents text roles: the former 86/84/82 mixes made
+     supporting copy and section labels almost the same brightness. Keep
+     these adjustments scoped to Graphite; other/custom presets retain their
+     contrast-safe palette. Secondary and tertiary use alpha, matching the installed Agents palette;
+     mixing into a fixed background changes their tone on native glass. */
+  --cursor-text-secondary: color-mix(
+    in srgb,
+    var(--rift-appearance-foreground) 74%,
+    transparent
+  );
+  --cursor-text-tertiary: color-mix(
+    in srgb,
+    var(--rift-appearance-foreground) 60%,
+    transparent
+  );
+  --cursor-text-quaternary: color-mix(
+    in srgb,
+    var(--rift-appearance-foreground) 56%,
+    var(--rift-appearance-background)
+  );
+  /* Icons have their own contrast role in Agents (66%), above the tertiary
+     labels (60%). Sharing that label token made navigation glyphs too dim. */
+  --cursor-icon-secondary: color-mix(
+    in srgb,
+    var(--rift-appearance-foreground) 66%,
+    transparent
+  );
+  --sidebar-accent: color-mix(
+    in srgb,
+    var(--rift-appearance-foreground) 6%,
+    transparent
+  );
+  --composer-command: #5aa2ff;
+  /* Agents titlebar shares its content plane. Honor customized backgrounds. */
+  --pro-titlebar-bg: var(--rift-appearance-background);
+  --pro-terminal-bg: var(--rift-appearance-background);
+}
+
+html[data-rift-contrast="high"] body[data-rift-shell-workspace],
+html[data-rift-contrast="high"] body[data-rift-shell-pro],
+html[data-rift-contrast="high"] [data-rift-workspace],
+html[data-rift-contrast="high"] .pro-shell {
+  --cursor-text-secondary: var(--rift-appearance-foreground);
+  --cursor-text-tertiary: var(--rift-appearance-foreground);
+  --cursor-text-quaternary: var(--rift-appearance-foreground);
+  --cursor-icon-secondary: var(--rift-appearance-foreground);
+  --muted-foreground: color-mix(
+    in srgb,
+    var(--rift-appearance-foreground) 90%,
+    var(--rift-appearance-background)
+  );
+  --border: color-mix(
+    in srgb,
+    var(--rift-appearance-foreground) 28%,
+    var(--rift-appearance-background)
+  );
+  --sidebar-border: var(--border);
+  --pro-border: var(--border);
+}
+
+/* The sidebar's material: polished metal.
+   Restored verbatim after a detour. It was removed because the blur it
+   declared never applied — a hand-written -webkit-backdrop-filter beside the
+   standard property made the CSS pipeline keep only the prefixed one — and
+   without the blur the specular read as a smudge. The prefix is gone now (see
+   the note below), so this is the material as designed, with the blur it was
+   always meant to have.
+
+   Do not hand-write -webkit-backdrop-filter beside backdrop-filter anywhere in
+   this file: the pipeline treats the two as one property and keeps only the
+   last one it sees. Written once, unprefixed, the compiler emits both. */
+/* Glass is a desktop material.
+   The mobile drawer slides over the page rather than sitting beside it, so a
+   translucent pane there shows the conversation straight through the nav —
+   the labels compete with whatever text happens to be underneath them. Below
+   the desktop breakpoint the drawer is simply opaque. */
+@media (max-width: 767px) {
+  html[data-rift-sidebar="translucent"] [data-rift-sidebar-panel],
+  html[data-rift-sidebar="translucent"] [data-mobile-navigation-drawer] {
+    background: var(--rift-appearance-sidebar, var(--sidebar));
+    backdrop-filter: none;
+    box-shadow: none;
+  }
+
+  html[data-rift-sidebar="translucent"] [data-rift-sidebar-panel]::before,
+  html[data-rift-sidebar="translucent"] [data-slot="sidebar"]::before,
+  html[data-rift-sidebar="translucent"] [data-sidebar="sidebar"]::before,
+  html[data-rift-sidebar="translucent"]
+    [data-mobile-navigation-drawer]::before {
+    display: none;
+  }
+}
+
+/* Dark only, and not as a shortcut.
+   The material is a specular raked across a near-black pane: on ink it reads
+   as polish, and the same highlight on near-white reads as a smudge dragged
+   across the nav labels. The light theme paints a solid sidebar, which is what
+   every app this one is measured against does in both themes. */
+html.dark[data-rift-sidebar="translucent"] body[data-rift-shell-workspace],
+html.dark[data-rift-sidebar="translucent"] body[data-rift-shell-pro],
+html.dark[data-rift-sidebar="translucent"] [data-rift-workspace],
+html.dark[data-rift-sidebar="translucent"] .pro-shell {
+  --sidebar: color-mix(
+    in srgb,
+    var(--rift-appearance-sidebar) 82%,
+    transparent
+  );
+  --pro-sidebar-bg: var(--sidebar);
+}
+
+html.dark[data-rift-sidebar="translucent"]:not(.rift-vibrancy)
+  [data-sidebar="sidebar"],
+html.dark[data-rift-sidebar="translucent"]:not(.rift-vibrancy)
+  [data-slot="sidebar"],
+/* The landing page's replica of the workspace opts into the same material by
+   class, so the marketing sidebar and the product sidebar are literally the
+   same declarations rather than two copies that drift. */
+.rift-sidebar-metal {
+  position: relative;
+  isolation: isolate;
+  /* No backdrop-filter.
+     This declared a 22px blur for a long time and never ran one: a
+     hand-written -webkit- duplicate beside it made the pipeline keep only the
+     prefixed property. Fixing that turned the blur on for the first time — a
+     full-height blurred surface repainting every frame, which is what made the
+     app feel like it was catching up with the pointer.
+
+     And it buys nothing here. The pane sits beside the content, not over it,
+     so what is behind it is a flat ground: blurring it returns the same flat
+     ground. The material below is what does the work, and it is exactly the
+     material that was on screen when this look was approved. */
+  /* Blur alone reads as fog. Glass reads as glass because its edges catch
+     light: a bright hairline along the top where the pane meets nothing, a
+     dark one along the bottom where it meets the page. */
+  /* No top highlight.
+     A lit top edge is right for a pane that sits inside a window. This one
+     starts at the very top of the screen, so the highlight had nothing above
+     it to catch light from and read as a stray bright line across the top of
+     the app rather than as an edge. The trailing and bottom edges stay: they
+     face real surfaces. */
+  box-shadow:
+    inset 0 -1px 0 color-mix(in srgb, var(--background) 60%, transparent),
+    inset -1px 0 0 color-mix(in srgb, var(--foreground) 14%, transparent);
+}
+
+/* Polished metal. Brushed metal scatters light and reads matte; a polished
+   surface mirrors its surroundings, so the shine has to come from a reflected
+   environment rather than a soft wash. This is the chrome ramp: sky at the top,
+   a hard horizon, a bright specular band, then ground below. The stops are
+   deliberately close together — the abruptness is what makes it read as
+   reflection instead of gradient. A narrow diagonal streak crosses it as the
+   highlight a light source leaves on a curved face.
+
+   Pointer-events off and behind the content: this is a material. */
+html.dark[data-rift-sidebar="translucent"]:not(.rift-vibrancy)
+  [data-sidebar="sidebar"]::before,
+html.dark[data-rift-sidebar="translucent"]:not(.rift-vibrancy)
+  [data-slot="sidebar"]::before,
+.rift-sidebar-metal::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  background:
+    /* specular streak, raked across the face */
+    linear-gradient(
+      168deg,
+      transparent 0%,
+      transparent 26%,
+      color-mix(in srgb, var(--foreground) 13%, transparent) 31%,
+      color-mix(in srgb, var(--foreground) 3%, transparent) 34%,
+      transparent 38%,
+      transparent 100%
+    ),
+    /* the reflected environment */
+    linear-gradient(
+        180deg,
+        color-mix(in srgb, var(--foreground) 15%, transparent) 0%,
+        color-mix(in srgb, var(--foreground) 7%, transparent) 4%,
+        color-mix(in srgb, var(--foreground) 1%, transparent) 10%,
+        transparent 22%,
+        color-mix(in srgb, var(--foreground) 8%, transparent) 47%,
+        color-mix(in srgb, var(--foreground) 10%, transparent) 50%,
+        color-mix(in srgb, var(--foreground) 2%, transparent) 55%,
+        transparent 72%,
+        color-mix(in srgb, var(--foreground) 5%, transparent) 94%,
+        color-mix(in srgb, var(--foreground) 9%, transparent) 100%
+      ),
+    /* the faint grain that keeps it metal rather than plastic */
+    repeating-linear-gradient(
+        90deg,
+        color-mix(in srgb, var(--foreground) 2%, transparent) 0px,
+        transparent 1px,
+        transparent 3px,
+        color-mix(in srgb, var(--foreground) 1%, transparent) 4px
+      );
+}
+
+/* Transparency is a preference, not a given. Without it the sidebar keeps its
+   solid fill and loses only the sheen. */
+@media (prefers-reduced-transparency: reduce) {
+  html.dark[data-rift-sidebar="translucent"]:not(.rift-vibrancy)
+    [data-sidebar="sidebar"],
+  html.dark[data-rift-sidebar="translucent"]:not(.rift-vibrancy)
+    [data-slot="sidebar"],
+  .rift-sidebar-metal {
+    backdrop-filter: none;
+    background: var(--rift-appearance-sidebar);
+  }
+
+  html.dark[data-rift-sidebar="translucent"]:not(.rift-vibrancy)
+    [data-sidebar="sidebar"]::before,
+  html.dark[data-rift-sidebar="translucent"]:not(.rift-vibrancy)
+    [data-slot="sidebar"]::before,
+  .rift-sidebar-metal::before {
+    display: none;
+  }
+}
+
+/* Someone asking the system for more contrast is telling you the subtle version
+   is not working for them. Glass is the first thing to go: the blurred page
+   showing through a translucent panel is exactly the low-contrast noise they
+   opted out of. The panel becomes opaque and its edge becomes a real line
+   rather than a hairline you have to hunt for. */
+@media (prefers-contrast: more) {
+  html[data-rift-sidebar="translucent"] [data-sidebar="sidebar"],
+  html[data-rift-sidebar="translucent"] [data-slot="sidebar"],
+  .rift-sidebar-metal {
+    backdrop-filter: none;
+    background: var(--rift-appearance-sidebar);
+  }
+
+  html[data-rift-sidebar="translucent"] [data-sidebar="sidebar"]::before,
+  html[data-rift-sidebar="translucent"] [data-slot="sidebar"]::before {
+    display: none;
+  }
+
+  /* Borders carry structure once shadow and translucency stop doing it. */
+  [data-slot="sidebar"],
+  [data-slot="dialog-content"],
+  [data-slot="popover-content"],
+  [data-slot="dropdown-menu-content"] {
+    border-color: var(--border-strong, var(--border));
+  }
+}
+
+/* Native macOS titlebar overlay
+   -----------------------------
+   Tauri keeps native decorations and traffic lights, while the titlebar itself
+   overlays the webview instead of taking a separate row. Only deliberate empty
+   chrome is draggable; links, controls, and form fields remain interactive. */
+[data-rift-native-titlebar] {
+  -webkit-app-region: drag;
+  user-select: none;
+}
+
+[data-rift-native-titlebar]
+  :is(a, button, input, select, textarea, [role="button"], [role="menuitem"]) {
+  -webkit-app-region: no-drag;
+}
+
+.rift-native-window-drag-strip {
+  display: none;
+}
+
+@media (min-width: 768px) {
+  /* Permanent, but it paints nothing.
+     Neither reference window has a band across its top. In both, the sidebar
+     column runs the full height of the window with the traffic lights sitting
+     on it, and the content pane runs the full height beside it -- there is no
+     horizontal seam between a title bar and the work, because there is no
+     title bar as a separate surface. A strip with its own background made one
+     regardless of what colour it was painted: against the content plane beside
+     it, any colour draws a line across the window.
+     So the strip is a transparent overlay that only carries the drag region
+     and the window controls, and the two columns below reserve its height for
+     themselves and paint their own plane all the way up. */
+  [data-pro-workbench] .rift-native-window-drag-strip,
+  [data-auth-surface="split"] [data-rift-native-titlebar="auth-window"],
+  html.rift-vibrancy .rift-native-window-drag-strip {
+    position: absolute;
+    inset: 0 0 auto;
+    z-index: 25;
+    display: flex;
+    align-items: center;
+    padding-left: 8px;
+    background: transparent;
+    /* The strip must stay hittable: -webkit-app-region only works on an element
+       that receives pointer events, and without it the window cannot be dragged
+       by its own title bar. It paints nothing, so the planes below still show
+       through; it only owns the native titlebar band the window controls sit in. */
+    pointer-events: auto;
+    user-select: none;
+    -webkit-app-region: drag;
+  }
+
+  /* workspace.css shares the titlebar height across the sidebar and panes. */
+
+  /* The strip itself is inert so the panes beneath it stay clickable; its own
+     controls opt back in. */
+  .rift-native-window-drag-strip button,
+  .rift-native-window-drag-strip a {
+    pointer-events: auto;
+  }
+
+  /* Clear the native macOS traffic lights so the control sits immediately
+     after them. In a browser there are none, so the strip keeps its 8px. */
+  html.rift-vibrancy .rift-native-window-drag-strip {
+    padding-left: 78px;
+  }
+
+  [data-auth-surface="split"] [data-rift-native-titlebar="auth-window"] {
+    position: fixed;
+    inset: 0 0 auto;
+    height: 28px;
+    padding-left: 0;
+  }
+
+  html.rift-vibrancy .rift-titlebar {
+    pointer-events: auto;
+    user-select: none;
+    -webkit-app-region: drag;
+  }
+
+  html.rift-vibrancy .rift-titlebar button,
+  html.rift-vibrancy .rift-titlebar a,
+  html.rift-vibrancy .rift-titlebar input {
+    -webkit-app-region: no-drag;
+  }
+}
+
+html.rift-vibrancy [data-auth-window-header] {
+  padding-left: 44px;
+}
+
+html.rift-vibrancy [data-rift-native-titlebar="workbench-mobile"] {
+  padding-left: 78px;
+}
+
+/* Native macOS sidebar material
+   -----------------------------
+   The root Tauri window already owns the real NSVisualEffectView. The web
+   layer must expose it only beneath the navigation plane, tint it once, and
+   tint the sidebar and workspace independently. `rift-vibrancy` is injected before
+   paint only by the macOS RIFT wrapper, so browsers and non-macOS shells keep
+   their normal solid surfaces. */
+@media (min-width: 950px) {
+  html.rift-vibrancy,
+  html.rift-vibrancy body[data-rift-shell-chat],
+  html.rift-vibrancy [data-rift-route-shell="chat"],
+  html.rift-vibrancy [data-rift-workspace],
+  html.rift-vibrancy .pro-shell,
+  html.rift-vibrancy .pro-workspace {
+    background: transparent !important;
+  }
+
+  /* Cursor Agents paints a root surface in addition to its independent
+     sidebar/chat tints: white 16% in light, black 42% in dark. Paint this on
+     content rather than the WebView canvas; nested shells stay clear. */
+  html.rift-vibrancy [data-rift-route-shell="chat"] {
+    background: rgb(255 255 255 / 16%) !important;
+  }
+  html.dark.rift-vibrancy [data-rift-route-shell="chat"] {
+    background: rgb(0 0 0 / 42%) !important;
+  }
+
+  html.rift-vibrancy [data-rift-main-panel] {
+    background: var(--pro-main-bg, var(--background)) !important;
+  }
+
+  /* Opaque by default, like the window this one is measured against. The Tauri
+     window is transparent, so anything short of 100% here lets the desktop
+     wallpaper through and the sidebar reads as a wash of whatever is behind
+     the window rather than a plane. Translucency is the same one preference
+     that governs the material everywhere else. */
+  html.rift-vibrancy [data-rift-sidebar-panel] {
+    background: var(--pro-sidebar-bg, var(--sidebar)) !important;
+  }
+
+  html.rift-vibrancy[data-rift-sidebar="translucent"]
+    [data-rift-sidebar-panel] {
+    background: color-mix(
+      in srgb,
+      var(--rift-appearance-sidebar, var(--sidebar)) 42%,
+      transparent
+    ) !important;
+  }
+
+  html.dark.rift-vibrancy[data-rift-sidebar="translucent"]
+    [data-rift-sidebar-panel] {
+    background: color-mix(
+      in srgb,
+      var(--rift-appearance-sidebar, var(--sidebar)) 36%,
+      transparent
+    ) !important;
+  }
+
+  /* Surface weights verified against installed Cursor Agents glass CSS.
+     Native compositing and base palettes still require visual verification.
+     Use the untinted palette to avoid multiplying native tint twice. */
+  html.rift-vibrancy[data-rift-sidebar="translucent"] [data-rift-main-panel] {
+    background: color-mix(
+      in srgb,
+      var(--rift-appearance-background, var(--background)) 84%,
+      transparent
+    ) !important;
+  }
+  html.dark.rift-vibrancy[data-rift-sidebar="translucent"]
+    [data-rift-main-panel] {
+    background: color-mix(
+      in srgb,
+      var(--rift-appearance-background, var(--background)) 72%,
+      transparent
+    ) !important;
+  }
+  html.rift-vibrancy[data-rift-sidebar][data-rift-contrast="high"]
+    [data-rift-sidebar-panel] {
+    background: var(--rift-appearance-sidebar, var(--sidebar)) !important;
+  }
+  html.rift-vibrancy[data-rift-sidebar][data-rift-contrast="high"]
+    [data-rift-main-panel] {
+    background: var(--rift-appearance-background, var(--background)) !important;
+  }
+
+  html.rift-vibrancy
+    [data-rift-sidebar-panel]
+    :is(
+      [data-slot="sidebar-wrapper"],
+      [data-slot="sidebar"],
+      [data-sidebar="sidebar"],
+      [data-slot="sidebar"],
+      [data-testid="sidebar-session-dock"]
+    ) {
+    background: transparent !important;
+    backdrop-filter: none !important;
+  }
+}
+
+@media (min-width: 950px) and (prefers-reduced-transparency: reduce),
+  (min-width: 950px) and (prefers-contrast: more) {
+  html:is(.dark, :root).rift-vibrancy[data-rift-sidebar]
+    [data-rift-sidebar-panel] {
+    background: var(--rift-appearance-sidebar, var(--sidebar)) !important;
+  }
+  html:is(.dark, :root).rift-vibrancy[data-rift-sidebar]
+    [data-rift-main-panel] {
+    background: var(--rift-appearance-background, var(--background)) !important;
+  }
+}
+
+/* Portals mount at the end of <body>, outside the workspace element, so a rule
+   scoped to the workspace alone left dialogs, menus and toasts on the fallback
+   family. Declaring on <body> as well covers them, because a portal is still a
+   descendant of the body that opened it. */
+html[data-rift-ui-font="system"] body,
+html[data-rift-ui-font="system"] body[data-rift-shell-workspace],
+html[data-rift-ui-font="system"] body[data-rift-shell-pro],
+html[data-rift-ui-font="system"] [data-rift-workspace],
+html[data-rift-ui-font="system"] .pro-shell {
+  --font-cursor-ui: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  --font-display: var(--font-cursor-ui);
+  --font-sans: var(--font-cursor-ui);
+}
+
+html[data-rift-ui-font="geist"] body,
+html[data-rift-ui-font="geist"] body[data-rift-shell-workspace],
+html[data-rift-ui-font="geist"] body[data-rift-shell-pro],
+html[data-rift-ui-font="geist"] [data-rift-workspace],
+html[data-rift-ui-font="geist"] .pro-shell {
+  --font-cursor-ui: var(--font-geist), ui-sans-serif, system-ui, sans-serif;
+  --font-display: var(--font-cursor-ui);
+  --font-sans: var(--font-cursor-ui);
+}
+
+html[data-rift-ui-font="space-grotesk"] body,
+html[data-rift-ui-font="space-grotesk"] body[data-rift-shell-workspace],
+html[data-rift-ui-font="space-grotesk"] body[data-rift-shell-pro],
+html[data-rift-ui-font="space-grotesk"] [data-rift-workspace],
+html[data-rift-ui-font="space-grotesk"] .pro-shell {
+  --font-cursor-ui:
+    var(--font-space-grotesk), ui-sans-serif, system-ui, sans-serif;
+  --font-display: var(--font-cursor-ui);
+  --font-sans: var(--font-cursor-ui);
+}
+
+html[data-rift-code-font="sf-mono"] body[data-rift-shell-workspace],
+html[data-rift-code-font="sf-mono"] body[data-rift-shell-pro],
+html[data-rift-code-font="sf-mono"] [data-rift-workspace],
+html[data-rift-code-font="sf-mono"] .pro-shell {
+  --font-cursor-mono:
+    "SFMono-Regular", Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+  --font-mono: var(--font-cursor-mono);
+}
+
+html[data-rift-code-font="jetbrains"] body[data-rift-shell-workspace],
+html[data-rift-code-font="jetbrains"] body[data-rift-shell-pro],
+html[data-rift-code-font="jetbrains"] [data-rift-workspace],
+html[data-rift-code-font="jetbrains"] .pro-shell {
+  --font-cursor-mono: var(--font-jetbrains-mono), "SFMono-Regular", monospace;
+  --font-mono: var(--font-cursor-mono);
+}
+
+html[data-rift-code-font="menlo"] body[data-rift-shell-workspace],
+html[data-rift-code-font="menlo"] body[data-rift-shell-pro],
+html[data-rift-code-font="menlo"] [data-rift-workspace],
+html[data-rift-code-font="menlo"] .pro-shell {
+  --font-cursor-mono: Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+  --font-mono: var(--font-cursor-mono);
+}
+
+html[data-rift-pointer="enabled"]
+  body[data-rift-shell-workspace]
+  :is(button, a, select, summary, [role="button"]),
+html[data-rift-pointer="enabled"]
+  body[data-rift-shell-pro]
+  :is(button, a, select, summary, [role="button"]) {
+  cursor: pointer;
+}
+
+html[data-rift-pointer="disabled"]
+  body[data-rift-shell-workspace]
+  :is(button, a, select, summary, [role="button"]):not(:disabled):not(
+    [aria-disabled="true"]
+  ),
+html[data-rift-pointer="disabled"]
+  body[data-rift-shell-pro]
+  :is(button, a, select, summary, [role="button"]):not(:disabled):not(
+    [aria-disabled="true"]
+  ) {
+  cursor: default !important;
+}
+
+html[data-rift-appearance="ready"][data-rift-shell-workspace]:is(html),
+html[data-rift-appearance="ready"][data-rift-shell-pro]:is(html) {
+  font-size: var(--rift-root-font-size, 16px);
+}
+
+html[data-rift-appearance="ready"]
+  body[data-rift-shell-workspace]
+  :is(code, pre, kbd, samp, .font-mono):not([data-rift-character-art] *),
+html[data-rift-appearance="ready"]
+  body[data-rift-shell-pro]
+  :is(code, pre, kbd, samp, .font-mono):not([data-rift-character-art] *) {
+  font-family: var(--font-cursor-mono);
+}
+
+html[data-rift-appearance="ready"]
+  body[data-rift-shell-workspace]
+  :is(code, pre, kbd, samp):not([data-rift-character-art] *),
+html[data-rift-appearance="ready"]
+  body[data-rift-shell-pro]
+  :is(code, pre, kbd, samp):not([data-rift-character-art] *) {
+  font-size: var(--rift-code-font-size, 14px);
+}
+
+[data-workbench-surface="graphite"] {
+  color-scheme: light;
+  --workbench-canvas: #ffffff;
+  --workbench-panel: #f7f7f7;
+  --workbench-terminal: #fbfbfb;
+  --workbench-control: #f0f0f1;
+  --workbench-hover: #e9e9eb;
+  --workbench-active: #e2e3e5;
+  --workbench-border: #dedee1;
+  --workbench-border-strong: #c8c9cd;
+  --workbench-text: #202124;
+  --workbench-muted: #5f6268;
+  --workbench-faint: #6d7077;
+  --workbench-success: #237a42;
+  --workbench-warning: #8a611f;
+  --workbench-error: #b92f3d;
+  --workbench-info: #1967b3;
+  --workbench-warning-surface: #fff8e8;
+  --workbench-warning-border: #d6b36a;
+  --workbench-error-surface: #fff1f2;
+  --workbench-error-border: #d78c94;
+  --workbench-diff-add: #1d6a39;
+  --workbench-diff-add-surface: #e9f6ed;
+  --workbench-diff-remove: #a32937;
+  --workbench-diff-remove-surface: #fcebed;
+}
+
+.dark [data-workbench-surface="graphite"] {
+  color-scheme: dark;
+  --workbench-canvas: #181818;
+  --workbench-panel: #181818;
+  --workbench-terminal: #141414;
+  --workbench-control: #1f1f1f;
+  --workbench-hover: #252525;
+  --workbench-active: #2a2a2a;
+  --workbench-border: #2b2b2b;
+  --workbench-border-strong: #363636;
+  --workbench-text: #f0f0f0;
+  --workbench-muted: #999999;
+  --workbench-faint: #737373;
+  --workbench-success: #65b98a;
+  --workbench-warning: #d5a84f;
+  --workbench-error: #df7a84;
+  --workbench-info: #78a9df;
+  --workbench-warning-surface: #211d16;
+  --workbench-warning-border: #5d4a25;
+  --workbench-error-surface: #22181a;
+  --workbench-error-border: #5b2c33;
+  --workbench-diff-add: #8fd3a9;
+  --workbench-diff-add-surface: #183125;
+  --workbench-diff-remove: #ed9da5;
+  --workbench-diff-remove-surface: #351d22;
 }
 
 @layer base {
@@ -286,6 +1492,34 @@
   /* Tabular figures for stats / token meters / counters */
   .tabular-nums {
     font-variant-numeric: tabular-nums;
+  }
+}
+
+/* Progress indicators under reduced motion.
+   ------------------------------------------------------------------
+   A spinner is the one animation that cannot simply be switched off: a
+   stopped spinner does not read as "motion removed", it reads as "the app
+   has hung". The signal *is* the movement. So `reduce` slows the two
+   indeterminate indicators rather than killing them — 1s → 2s for the
+   spinner, 2s → 3.6s for the pulse — which drops them well under the rate
+   that causes discomfort while keeping the "still working" message intact.
+   This is the same call Bootstrap makes for `.spinner-border`.
+
+   Only `animation-duration` is set, never the `animation` shorthand, so the
+   rule composes instead of competing: a surface that carries an explicit
+   `motion-reduce:animate-none` (Skeleton, the Radix overlays) still resolves
+   to `animation-name: none` and this duration applies to nothing. Written
+   unlayered on purpose — Tailwind's utilities live in `@layer utilities`, and
+   unlayered rules win over layered ones regardless of source order.
+
+   38 call sites spell `animate-spin` and 27 spell `animate-pulse`; asking each
+   of them to remember a variant is how the guard goes missing on the 39th. */
+@media (prefers-reduced-motion: reduce) {
+  .animate-spin {
+    animation-duration: 2s;
+  }
+  .animate-pulse {
+    animation-duration: 3.6s;
   }
 }
 
@@ -398,215 +1632,31 @@
   background-size: 28px 28px;
 }
 
-.landing-rift2-bg {
-  background:
-    radial-gradient(
-      ellipse 120% 80% at 70% 10%,
-      rgba(52, 210, 230, 0.05),
-      transparent 55%
+/* GUARDBASE-inspired Swiss blueprint grid: faint hairline lattice used behind
+   cinematic sections. Pair with the <Corners /> crosshair marks. */
+.blueprint-grid {
+  background-image:
+    linear-gradient(
+      to right,
+      var(--blueprint-line, rgba(255, 255, 255, 0.04)) 1px,
+      transparent 1px
     ),
-    radial-gradient(
-      ellipse 90% 70% at 10% 90%,
-      rgba(80, 60, 40, 0.04),
-      transparent 50%
-    ),
-    var(--background);
+    linear-gradient(
+      to bottom,
+      var(--blueprint-line, rgba(255, 255, 255, 0.04)) 1px,
+      transparent 1px
+    );
+  background-size: 46px 46px;
 }
 
-/* Authenticated app shell — same family as landing, tuned quieter */
-.app-rift2-shell {
-  background:
-    radial-gradient(
-      ellipse 110% 70% at 72% 0%,
-      rgba(52, 210, 230, 0.035),
-      transparent 52%
-    ),
-    radial-gradient(
-      ellipse 85% 65% at 8% 100%,
-      rgba(80, 60, 40, 0.025),
-      transparent 48%
-    ),
-    var(--background);
-}
-
-.rift2-glass-panel {
-  border: 1px solid color-mix(in oklab, var(--border) 55%, transparent);
-  background: color-mix(in oklab, var(--background) 68%, transparent);
-  backdrop-filter: blur(14px);
-}
-
-.rift2-shell-sidebar {
-  background: color-mix(in oklab, var(--surface-1) 82%, transparent);
-  backdrop-filter: blur(18px);
-  border-color: color-mix(in oklab, var(--border) 42%, transparent);
-}
-
-.rift2-titlebar {
-  background: color-mix(in oklab, var(--surface-1) 75%, transparent);
-  backdrop-filter: blur(16px);
-  border-color: color-mix(in oklab, var(--border) 40%, transparent);
-}
-
-/* App Studio — warm editorial void, violet signal, solid panels */
-.app-studio-shell {
-  background:
-    radial-gradient(
-      ellipse 90% 55% at 50% -8%,
-      rgba(167, 139, 250, 0.07),
-      transparent 52%
-    ),
-    radial-gradient(
-      ellipse 70% 45% at 100% 100%,
-      rgba(212, 165, 116, 0.045),
-      transparent 48%
-    ),
-    #0a0908;
-}
-
-.dark .app-studio-shell {
-  --background: #0a0908;
-  --foreground: #edeae6;
-  --card: #141312;
-  --card-foreground: #edeae6;
-  --popover: #181716;
-  --popover-foreground: #edeae6;
-  --muted: #1a1918;
-  --muted-foreground: #9a9590;
-  --accent: #242220;
-  --border: #2a2826;
-  --input: #2a2826;
-  --fill-input-chat: #121110;
-  --signal: #b794f6;
-  --signal-bright: #d6bcfa;
-  --signal-dim: #805ad5;
-  --signal-soft: rgba(183, 148, 246, 0.12);
-  --surface-1: #11100f;
-  --surface-2: #181716;
-  --surface-3: #201f1d;
-  --surface-4: #2a2826;
-  --elevated: #1c1b19;
-  --border-strong: #3a3734;
-  --sidebar: #11100f;
-  --sidebar-foreground: #d8d4cf;
-  --sidebar-accent: #1a1918;
-  --sidebar-border: #242220;
-}
-
-.studio-shell-sidebar {
-  background: var(--surface-1);
-  border-color: color-mix(in oklab, var(--border) 70%, transparent);
-}
-
-.studio-titlebar {
-  background: var(--surface-1);
-  border-color: color-mix(in oklab, var(--border) 55%, transparent);
-}
-
-.studio-panel {
-  position: relative;
-  border-bottom: 1px solid color-mix(in oklab, var(--border) 65%, transparent);
-  background: var(--surface-2);
-}
-
-.studio-panel::before {
-  content: "";
-  position: absolute;
-  left: 0;
-  top: 0;
-  bottom: 0;
-  width: 2px;
-  background: linear-gradient(
-    to bottom,
-    color-mix(in oklab, var(--signal-dim) 80%, transparent),
-    var(--signal)
+/* Coral dot-matrix texture for dark cinematic panels. */
+.coral-matrix {
+  background-image: radial-gradient(
+    circle at 1px 1px,
+    rgba(1, 105, 204, 0.16) 1px,
+    transparent 0
   );
-  opacity: 0.85;
-}
-
-.studio-display {
-  font-family: var(--font-serif), Georgia, "Times New Roman", serif;
-  letter-spacing: -0.02em;
-}
-
-.studio-composer {
-  border-radius: 0.875rem;
-  border: 1px solid color-mix(in oklab, var(--border) 85%, transparent);
-  background: var(--fill-input-chat);
-  box-shadow:
-    inset 0 1px 0 color-mix(in oklab, white 4%, transparent),
-    0 10px 36px -18px rgba(0, 0, 0, 0.65);
-}
-
-.app-studio-shell .studio-new-chat {
-  border-radius: 0.625rem;
-  border-color: color-mix(in oklab, var(--border) 75%, transparent);
-  background: var(--surface-2);
-  font-family: var(--font-serif), Georgia, serif;
-  letter-spacing: -0.01em;
-}
-
-.app-studio-shell .studio-new-chat:hover {
-  border-color: color-mix(in oklab, var(--signal) 35%, var(--border));
-  background: var(--surface-3);
-}
-
-.app-studio-shell .studio-search {
-  border-radius: 0.625rem;
-  background: var(--surface-1);
-}
-
-.app-studio-shell .studio-title-pill {
-  border-radius: 0.5rem;
-}
-
-.app-studio-shell .studio-hero-title {
-  font-family: var(--font-serif), Georgia, serif;
-  font-weight: 500;
-  letter-spacing: -0.03em;
-}
-
-.rift2-display {
-  font-family: var(--font-space-grotesk), system-ui, sans-serif;
-}
-
-.rift2-serif {
-  font-family: var(--font-serif), Georgia, serif;
-}
-
-.rift2-demo-tilt {
-  transform: rotateX(2.5deg);
-  transform-origin: center top;
-}
-
-@media (min-width: 1024px) {
-  .rift2-demo-stage .rift2-demo-tilt {
-    animation: rift2-demo-float 9s ease-in-out infinite;
-  }
-}
-
-@keyframes rift2-demo-float {
-  0%,
-  100% {
-    transform: rotateX(2.5deg) translateY(0);
-  }
-  50% {
-    transform: rotateX(1.5deg) translateY(-8px);
-  }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .rift2-demo-stage .rift2-demo-tilt {
-    animation: none;
-    transform: rotateX(1deg);
-  }
-}
-
-.landing-rift3 {
-  background: var(--background);
-}
-
-.landing-rift3 article strong {
-  font-weight: 500;
+  background-size: 18px 18px;
 }
 
 @keyframes shimmer {
@@ -749,6 +1799,351 @@
   animation-name: text-shimmer;
   animation-iteration-count: infinite;
   animation-timing-function: linear;
+}
+
+/* The working label, in colour.
+   Every transient "the agent is doing something" line (Loading skills,
+   Running command, Summarizing chat context...) renders through one Shimmer
+   component, and it used to sweep white light over grey — activity read as a
+   glint, not as work in progress. This is the same mechanism wearing colour:
+   a periodic five-hue gradient clipped to the glyphs, drifting continuously.
+   The first and last stops are the same hue, so at 200% tile size the loop
+   has no seam. Mid-saturation values sit close to the muted ink's luminance
+   on both themes, so the line stays quieter than the message text above it
+   despite the colour. Reduced motion keeps the colour and drops the drift:
+   the gradient itself still says "in progress", nothing has to move. */
+@keyframes rift-rainbow-drift {
+  from {
+    background-position-x: 0%;
+  }
+  to {
+    background-position-x: -200%;
+  }
+}
+
+.rift-rainbow-shimmer {
+  background-image: linear-gradient(
+    90deg,
+    #4f8ef7 0%,
+    #9a6bff 22%,
+    #e5679e 45%,
+    #d98e3c 62%,
+    #3fae8a 82%,
+    #4f8ef7 100%
+  );
+  background-size: 200% 100%;
+  background-clip: text;
+  -webkit-background-clip: text;
+  color: transparent;
+  -webkit-text-fill-color: transparent;
+  animation: rift-rainbow-drift 3s linear infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .rift-rainbow-shimmer {
+    animation: none;
+  }
+}
+
+/* Dot-matrix forming image (aicss image-generation): a faint dot grid over
+   the canvas, with a denser layer showing only through two soft elliptical
+   masks that drift and breathe -- an image condensing out of grain. Runs
+   only while the run is busy; reduced motion holds the masks still. */
+@keyframes rift-ig-morph {
+  0%,
+  100% {
+    mask-size:
+      52% 46%,
+      40% 40%;
+    mask-position:
+      16% 20%,
+      30% 32%;
+  }
+  25% {
+    mask-size:
+      46% 58%,
+      44% 38%;
+    mask-position:
+      84% 16%,
+      66% 30%;
+  }
+  50% {
+    mask-size:
+      60% 44%,
+      38% 46%;
+    mask-position:
+      82% 84%,
+      62% 68%;
+  }
+  75% {
+    mask-size:
+      48% 54%,
+      46% 40%;
+    mask-position:
+      14% 82%,
+      34% 66%;
+  }
+}
+@keyframes rift-ig-breathe {
+  0%,
+  100% {
+    opacity: 0.5;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+.rift-ig-dots {
+  background-image: radial-gradient(
+    circle,
+    var(--cursor-text-quaternary) 0.7px,
+    transparent 1.3px
+  );
+  background-size: 11px 11px;
+  opacity: 0.28;
+}
+.rift-ig-glow {
+  background-image: radial-gradient(
+    circle,
+    var(--foreground) 1.1px,
+    transparent 1.6px
+  );
+  background-size: 11px 11px;
+  mask-image:
+    radial-gradient(ellipse at center, #000 0%, transparent 60%),
+    radial-gradient(ellipse at center, #000 0%, transparent 62%);
+  mask-repeat: no-repeat, no-repeat;
+  animation:
+    rift-ig-morph 4.2s cubic-bezier(0.35, 1.55, 0.65, 1) infinite,
+    rift-ig-breathe 1.9s cubic-bezier(0.66, 0, 0.34, 1) infinite;
+}
+@media (prefers-reduced-motion: reduce) {
+  .rift-ig-glow {
+    animation: none;
+    opacity: 0.7;
+    mask-size:
+      52% 46%,
+      40% 40%;
+    mask-position:
+      16% 20%,
+      30% 32%;
+  }
+}
+
+/* Keep the reasoning viewport stable across stream completion. Follow the
+   newest text only while the reader is at the bottom; history remains scrollable.
+   The live edge fade is removed while reading history or after completion. */
+.rift-reasoning-live {
+  max-height: min(320px, 42vh);
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-width: thin;
+}
+.rift-reasoning-live[data-streaming="true"][data-following="true"] {
+  mask-image: linear-gradient(
+    to bottom,
+    transparent 0,
+    #000 16px,
+    #000 calc(100% - 4px),
+    transparent 100%
+  );
+  -webkit-mask-image: linear-gradient(
+    to bottom,
+    transparent 0,
+    #000 16px,
+    #000 calc(100% - 4px),
+    transparent 100%
+  );
+}
+
+/* ── To-do grammar, from the aicss task-list pattern, in this app's tokens.
+   A pie that fills as the run advances, digits that roll when the count
+   changes, and a strike that sweeps across a finished label. The pie is a
+   conic fill under a dashed ring; the roll is two glyphs in a column sliding
+   one slot; the strike is a scaling ::after so it draws, not appears. ── */
+.rift-todo-pie {
+  position: relative;
+  display: inline-flex;
+  width: 16px;
+  height: 16px;
+  border-radius: 9999px;
+  background: conic-gradient(
+    var(--cursor-text-secondary) var(--todo-pie, 0%),
+    transparent 0
+  );
+}
+.rift-roll {
+  display: inline-block;
+  position: relative;
+  height: 1em;
+  overflow: hidden;
+  vertical-align: -0.15em;
+}
+.rift-roll-inner {
+  display: flex;
+  flex-direction: column;
+  transition: transform 320ms cubic-bezier(0.3, 0.9, 0.3, 1);
+}
+.rift-roll-inner.rift-roll-up {
+  transform: translateY(-1em);
+}
+.rift-roll-inner > span {
+  height: 1em;
+  line-height: 1em;
+}
+.rift-todo-label {
+  position: relative;
+}
+.rift-todo-label::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 50%;
+  height: 1px;
+  width: 100%;
+  background: currentColor;
+  opacity: 0.7;
+  transform: scaleX(0);
+  transform-origin: left center;
+  transition: transform 360ms cubic-bezier(0.3, 0.9, 0.3, 1);
+}
+.rift-todo-label[data-struck="true"]::after {
+  transform: scaleX(1);
+}
+@media (prefers-reduced-motion: reduce) {
+  .rift-roll-inner,
+  .rift-todo-label::after {
+    transition: none;
+  }
+}
+
+/* Live "thinking" label — a light source passes behind the letters.
+
+   The curve is measured from Grok's own in-progress trace rows, not invented:
+   a long ramp from 28% to a full-brightness peak at 61%, then a sharp fall by
+   66%. The asymmetry is the whole point — a symmetric pulse reads as a
+   throbbing spinner, this reads as something moving past. Travel is 200% to
+   -200% across a 200% background, so each pass is followed by a quiet beat.
+   See docs/product-transformation/grok-agent-behaviour-2026-08-17.md. */
+/* Preview pane building state: a light beam travels a grid ray, then the ray
+   goes dark for the rest of the cycle. Staggered delays keep the field alive
+   without reading as a loop. */
+@keyframes rift-preview-beam {
+  0% {
+    stroke-dashoffset: 1.18;
+    opacity: 0;
+  }
+  6% {
+    opacity: 0.9;
+  }
+  26% {
+    stroke-dashoffset: 0;
+    opacity: 0;
+  }
+  100% {
+    stroke-dashoffset: 0;
+    opacity: 0;
+  }
+}
+.rift-preview-beam {
+  animation: rift-preview-beam 11s linear infinite;
+}
+
+/* Conversation prose — measured off Cursor's own app, 18 Aug 2026: 13px on an
+   18px line, system-ui, weight 400, tracking normal, with emphasis at 600.
+   This replaces an earlier pass that set the conversation at Grok's 15px/22.5
+   in Geist. Two type systems were running in one product — the chrome on
+   Cursor's metrics and the conversation on Grok's — which is why the answer
+   read as a different application from the panel beside it.
+
+   Cursor uses no tracking at any size. Negative letter-spacing on 13px text is
+   the tell of a design that copied a display setting down into body copy. */
+.rift-conversation-prose {
+  font-family: var(--font-cursor-ui);
+  font-size: var(--cursor-font-size-base);
+  line-height: 18px;
+  letter-spacing: normal;
+  font-weight: var(--cursor-font-weight-normal);
+}
+.rift-conversation-prose strong,
+.rift-conversation-prose b {
+  font-weight: var(--cursor-font-weight-semibold);
+}
+
+/* Per-word text reveal — Grok's second measured animation (17 Aug 2026):
+   each word is its own element with a `gaussian` animation, 100ms,
+   ease-in-out, one iteration. Words fade in individually as they stream
+   rather than the paragraph appearing at once.
+
+   Streamdown's animate plugin splits the text nodes and hands each word a
+   `[data-sd-animate]` span carrying --sd-animation / --sd-duration /
+   --sd-easing / --sd-delay; the keyframes and the rule that consumes them are
+   ours. The name is theirs: a gaussian arrival is opacity plus a short blur
+   settling out, not a hard cut. */
+@keyframes sd-gaussian {
+  from {
+    opacity: 0;
+    filter: blur(4px);
+  }
+  to {
+    opacity: 1;
+    filter: blur(0);
+  }
+}
+
+[data-sd-animate] {
+  display: inline;
+  animation-name: var(--sd-animation, sd-gaussian);
+  animation-duration: var(--sd-duration, 100ms);
+  animation-timing-function: var(--sd-easing, ease-in-out);
+  animation-delay: var(--sd-delay, 0ms);
+  animation-iteration-count: 1;
+  animation-fill-mode: both;
+}
+
+/* Text that arrives while the reader cannot tolerate motion should simply be
+   there. The spans stay — only their animation is dropped. */
+@media (prefers-reduced-motion: reduce) {
+  [data-sd-animate] {
+    animation: none;
+    opacity: 1;
+    filter: none;
+  }
+}
+
+@keyframes rift-text-sweep {
+  from {
+    background-position-x: 200%;
+  }
+  to {
+    background-position-x: -200%;
+  }
+}
+
+.rift-thinking-shimmer {
+  background-image: linear-gradient(
+    100deg,
+    var(--cursor-text-tertiary) 0%,
+    var(--cursor-text-tertiary) 30%,
+    var(--foreground) 48%,
+    var(--foreground) 55%,
+    var(--cursor-text-tertiary) 73%,
+    var(--cursor-text-tertiary) 100%
+  );
+  background-size: 200% 100%;
+  background-clip: text;
+  -webkit-background-clip: text;
+  color: transparent;
+  -webkit-text-fill-color: transparent;
+  animation: rift-text-sweep 2000ms linear infinite;
+}
+@media (prefers-reduced-motion: reduce) {
+  .rift-thinking-shimmer {
+    animation: none;
+    color: var(--foreground);
+    -webkit-text-fill-color: var(--foreground);
+  }
 }
 
 .worked-for-content {
@@ -999,19 +2394,7 @@
   }
 }
 
-@keyframes marquee {
-  from {
-    transform: translateX(0);
-  }
-  to {
-    transform: translateX(-50%);
-  }
-}
-
 /* ---- application utilities ---- */
-.animate-marquee {
-  animation: marquee 36s linear infinite;
-}
 .animate-fade-in-up {
   animation: fadeInUp 0.8s ease-out both;
 }
@@ -1044,7 +2427,6 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .animate-marquee,
   .animate-fade-in-up,
   .animate-view-enter,
   .animate-hero-highlight,
@@ -1059,14 +2441,6 @@
    RIFT — Surveillance Brutalism primitives
    Pure-black void · cold cyan signal · HUD chrome · dot-matrix
    ============================================================ */
-
-/* --- Motion tokens --- */
-:root {
-  --rift-dur-fast: 120ms;
-  --rift-dur-base: 220ms;
-  --rift-dur-slow: 480ms;
-  --rift-ease-snap: cubic-bezier(0.16, 1, 0.3, 1);
-}
 
 /* --- HUD panel: hairline border + L-shaped corner registration marks --- */
 .hud {
@@ -1248,7 +2622,7 @@
   }
 }
 
-/* RIFT app shell — chat workspace typography */
+/* Cursor mockup layout — authenticated chat shell */
 .rift-cursor-app {
   font-size: 13px;
   line-height: 1.5;
@@ -1264,52 +2638,154 @@
   color: var(--signal-bright);
 }
 
-/* Cursor mockup — "Planning next moves" indicator */
+/* Live agent activity rail. This mirrors the compact terminal state used by
+   /hack without turning an in-progress step into another card. */
 @keyframes cursor-thinking-pulse {
   0%,
-  80%,
   100% {
-    opacity: 0.3;
+    opacity: 0.28;
+    transform: scaleY(0.42);
   }
-  40% {
-    opacity: 1;
+  50% {
+    opacity: 0.9;
+    transform: scaleY(1);
   }
 }
 
-.rift-cursor-app .cursor-thinking-dots span {
-  display: inline-block;
-  width: 5px;
-  height: 5px;
-  border-radius: 50%;
-  background: var(--signal);
-  animation: cursor-thinking-pulse 1.2s infinite;
+.rift-cursor-app .cursor-thinking {
+  display: grid;
+  grid-template-columns: auto auto auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 9px;
+  width: 100%;
+  min-height: 38px;
+  margin: 10px 0 0;
+  overflow: hidden;
+  border-top: 1px solid var(--border);
+  border-bottom: 1px solid var(--border);
+  padding: 5px 10px;
+  color: var(--muted-foreground);
 }
 
-.rift-cursor-app .cursor-thinking-dots span:nth-child(2) {
-  animation-delay: 0.2s;
+.rift-cursor-app .cursor-thinking-terminal {
+  flex: 0 0 auto;
+  color: currentColor;
 }
 
-.rift-cursor-app .cursor-thinking-dots span:nth-child(3) {
-  animation-delay: 0.4s;
+.rift-cursor-app .cursor-thinking-pulse {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  width: 12px;
+  height: 16px;
+}
+
+.rift-cursor-app .cursor-thinking-pulse i {
+  display: block;
+  width: 2px;
+  height: 12px;
+  border-radius: 1px;
+  background: currentColor;
+  opacity: 0.28;
+  transform-origin: center;
+  animation: cursor-thinking-pulse 0.9s steps(2, end) infinite;
+}
+
+.rift-cursor-app .cursor-thinking-pulse i:nth-child(2) {
+  animation-delay: 0.15s;
+}
+
+.rift-cursor-app .cursor-thinking-pulse i:nth-child(3) {
+  animation-delay: 0.3s;
+}
+
+.rift-cursor-app .cursor-thinking-phase {
+  border: 1px solid var(--border);
+  border-radius: 2px;
+  padding: 3px 6px;
+  font-family: var(--font-mono);
+  font-size: 9px;
+  font-weight: 600;
+  letter-spacing: 0.05em;
+  line-height: 1;
+  white-space: nowrap;
+}
+
+.rift-cursor-app .cursor-thinking-copy {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.rift-cursor-app .cursor-thinking-copy b,
+.rift-cursor-app .cursor-thinking-copy code {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.rift-cursor-app .cursor-thinking-copy b {
+  color: var(--foreground);
+  font-family:
+    -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+  font-size: 11.5px;
+  font-weight: 550;
+  line-height: 1.1;
+}
+
+.rift-cursor-app .cursor-thinking-copy code {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--muted-foreground);
+  font-family: var(--font-mono);
+  font-size: 9.5px;
+  line-height: 1.1;
+}
+
+.rift-cursor-app .cursor-thinking-timer {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+@media (max-width: 640px) {
+  .rift-cursor-app .cursor-thinking {
+    grid-template-columns: auto auto minmax(0, 1fr) auto;
+    gap: 7px;
+    padding-inline: 8px;
+  }
+
+  .rift-cursor-app .cursor-thinking-phase,
+  .rift-cursor-app .cursor-thinking-copy code {
+    display: none;
+  }
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .rift-cursor-app .cursor-thinking-dots span {
+  .rift-cursor-app .cursor-thinking-pulse i {
     animation: none;
-    opacity: 0.6;
+    opacity: 0.65;
+    transform: none;
   }
 }
 
-/* Prevent iOS Safari auto-zoom on input focus (triggers when font-size < 16px) */
-@media (max-width: 767px) {
+/* Prevent touch-device input zoom without enlarging narrow desktop panes.
+   Keep larger appearance text preferences: 16px is a floor, not a fixed size. */
+@media (max-width: 767px) and (pointer: coarse) {
   textarea,
+  input:not([type]),
+  input[type="url"],
+  input[type="tel"],
   input[type="text"],
   input[type="search"],
   input[type="email"],
   input[type="password"],
   input[type="number"],
   select {
-    font-size: 16px !important;
+    font-size: max(16px, var(--rift-type-body, 16px)) !important;
   }
 }
 
@@ -1332,8 +2808,819 @@ body {
     height: 100%;
     overscroll-behavior: none;
   }
+}
+@media (max-width: 767px) and (pointer: coarse) {
   [contenteditable="true"],
   [contenteditable=""] {
-    font-size: 16px !important;
+    font-size: max(16px, var(--rift-type-body, 16px)) !important;
   }
+}
+
+/* ── Landing (air.dev-inspired) ambient background motion ── */
+@keyframes rift-glow-pulse {
+  0%,
+  100% {
+    opacity: 0.5;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.9;
+    transform: scale(1.06);
+  }
+}
+@keyframes rift-blob-drift {
+  0%,
+  100% {
+    transform: translate3d(0, 0, 0);
+  }
+  50% {
+    transform: translate3d(0, -24px, 0);
+  }
+}
+@keyframes rift-twinkle {
+  0%,
+  100% {
+    opacity: 0.45;
+  }
+  50% {
+    opacity: 0.95;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .rift-motion {
+    animation: none !important;
+  }
+}
+
+/* Featured Hack Workbench navigation. The same semantic treatment is shared
+   by the expanded and collapsed sidebars; only the layout changes in JSX. */
+.rift-hack-nav {
+  border-color: transparent;
+  background: transparent;
+  color: var(--foreground);
+  box-shadow: none;
+}
+
+.rift-hack-nav:hover {
+  border-color: transparent;
+  background: var(--sidebar-accent);
+}
+
+.rift-hack-nav[data-active="true"] {
+  border-color: transparent;
+  background: var(--sidebar-accent);
+  box-shadow: none;
+}
+
+.rift-hack-nav:focus-visible {
+  outline: 1px solid color-mix(in srgb, var(--ring) 45%, transparent);
+  outline-offset: 2px;
+}
+
+.rift-hack-nav-icon {
+  border-color: var(--hack-nav-border);
+  background: color-mix(in srgb, var(--signal) 9%, var(--sidebar));
+  color: var(--signal-dim);
+  box-shadow: inset 0 1px 0 var(--pro-control-hover);
+}
+
+.dark .rift-hack-nav-icon {
+  color: var(--signal);
+}
+
+.rift-hack-nav-badge {
+  color: var(--signal-dim);
+}
+
+.dark .rift-hack-nav-badge {
+  color: var(--signal);
+}
+
+/* ─── RIFT Pro Lab (localhost /lab only) ─── */
+.pro-shell {
+  background: var(--pro-shell-canvas);
+  color: var(--foreground);
+  font-family: var(--font-cursor-ui);
+  font-size: 13px;
+  font-feature-settings: normal;
+  letter-spacing: 0;
+}
+
+.pro-shell ::selection {
+  background: var(--pro-selection);
+  color: var(--foreground);
+}
+
+.pro-shell
+  :where(button, a, input, textarea, select, [role="button"]):focus-visible {
+  outline: 1px solid color-mix(in srgb, var(--foreground) 34%, transparent);
+  outline-offset: -1px;
+}
+
+.pro-shell-bg {
+  background: var(--pro-shell-canvas);
+}
+
+.pro-workspace {
+  border-radius: 0;
+  border: 0;
+  background: var(--pro-main-bg);
+  box-shadow: none;
+}
+
+.pro-sidebar {
+  background: var(--pro-sidebar-bg);
+  color: var(--sidebar-foreground);
+}
+
+.pro-main {
+  background: var(--pro-main-bg);
+}
+
+.pro-titlebar {
+  background: var(--pro-titlebar-bg);
+  backdrop-filter: none;
+  color: var(--foreground);
+  user-select: none;
+}
+
+.pro-shell .pro-composer textarea:focus-visible {
+  outline: none;
+}
+
+.pro-resize-handle {
+  position: relative;
+  z-index: 30;
+  width: 12px;
+  flex: 0 0 12px;
+  margin-inline: -6px;
+  cursor: col-resize;
+  background: transparent;
+  touch-action: none;
+  user-select: none;
+  -webkit-user-select: none;
+  outline: none;
+}
+
+.pro-resize-handle::before {
+  position: absolute;
+  inset-block: 0;
+  left: 50%;
+  width: 1px;
+  content: "";
+  pointer-events: none;
+  background: transparent;
+  transform: translateX(-50%);
+  transition: background-color 120ms ease;
+}
+
+.pro-resize-handle:hover::before {
+  background: var(--pro-border-strong);
+}
+
+.pro-resize-handle:focus-visible::before,
+.pro-resize-handle:active::before,
+.pro-resize-handle[data-resizing="true"]::before {
+  background: var(--ring);
+}
+
+html[data-rift-panel-resizing="true"] body,
+html[data-rift-panel-resizing="true"] body * {
+  cursor: col-resize !important;
+}
+
+html[data-rift-panel-resizing="true"] iframe {
+  pointer-events: none !important;
+}
+
+.pro-landing {
+  position: relative;
+}
+
+.pro-sidebar-rail {
+  background: var(--pro-sidebar-bg);
+  color: var(--sidebar-foreground);
+}
+
+.pro-shell
+  :where(
+    [data-rift-sidebar-panel] [aria-current="page"],
+    [data-rift-sidebar-panel] [data-active="true"],
+    .pro-sidebar-rail [data-active="true"],
+    .pro-titlebar [aria-expanded="true"]
+  ) {
+  background: var(--pro-selection);
+  color: var(--foreground);
+}
+
+/* Selected navigation must tint its own plane. Mixing the main canvas
+   into this fill made it nearly disappear over the native sidebar. */
+.pro-shell
+  [data-rift-sidebar-panel]
+  :is([aria-current="page"], [data-active="true"]) {
+  background: var(--sidebar-accent);
+}
+
+.pro-empty-mark {
+  box-shadow: none;
+}
+
+.pro-quick-prompt {
+  border: 1px solid var(--pro-border);
+  background: var(--pro-control-bg);
+}
+
+.pro-quick-prompt:hover {
+  border-color: var(--pro-border-strong);
+  background: var(--pro-control-hover);
+}
+
+.pro-operation-bar > div {
+  border-color: var(--pro-border);
+  background: var(--pro-control-bg);
+  padding-top: 0.375rem;
+  padding-bottom: 0.375rem;
+}
+
+.pro-main .pro-composer {
+  box-shadow: none;
+}
+
+.pro-shell [data-testid="sidebar"] {
+  --sidebar: transparent;
+}
+
+.pro-shell [data-testid="sidebar"] [data-slot="sidebar"] {
+  width: 100%;
+}
+
+.pro-sidebar-footer {
+  height: 52px;
+  overflow: hidden;
+}
+
+.pro-sidebar-footer > .relative {
+  display: flex;
+  height: 100%;
+  align-items: center;
+  gap: 2px;
+}
+
+.pro-sidebar-footer > .relative > button:first-of-type {
+  width: 28px;
+  min-width: 28px;
+  margin: 0;
+  padding: 0;
+  justify-content: center;
+  border-radius: 6px;
+}
+
+.pro-sidebar-footer > .relative > button:first-of-type > :not(:first-child) {
+  display: none;
+}
+
+.pro-sidebar-footer > .relative > button:last-of-type {
+  min-width: 0;
+  height: 28px;
+  flex: 1;
+  gap: 6px;
+  padding: 2px 4px;
+  border-radius: 6px;
+}
+
+.pro-sidebar-footer [data-slot="avatar"] {
+  width: 24px;
+  height: 24px;
+}
+
+.pro-empty-hero {
+  padding-bottom: 0.5rem;
+}
+
+.pro-shell .pro-sidebar [data-sidebar="sidebar"] {
+  background: transparent;
+}
+
+.pro-shell .pro-main .messages-scroll {
+  scrollbar-color: var(--scrollbar-thumb) transparent;
+}
+
+.pro-feature-card {
+  transition:
+    border-color 0.15s,
+    background 0.15s;
+}
+.pro-feature-card:hover {
+  border-color: var(--pro-border-strong);
+  background: var(--pro-control-bg);
+}
+
+.pro-cta {
+  box-shadow: none;
+}
+
+.pro-status-bar {
+  height: 22px;
+  background: var(--pro-sidebar-bg);
+}
+
+.pro-composer-palette {
+  animation: pro-palette-in 0.12s ease-out;
+}
+
+@keyframes pro-palette-in {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.pro-shell [cmdk-root] {
+  background: var(--popover);
+  border: 1px solid var(--pro-border);
+}
+
+.pro-shell [cmdk-item][data-selected="true"] {
+  background: var(--accent);
+}
+
+.pro-shell .pro-sidebar [data-sidebar="menu-button"] {
+  border-radius: 6px;
+}
+
+.pro-shell .pro-sidebar [data-sidebar="menu-button"][data-active="true"] {
+  background: var(--sidebar-accent);
+}
+
+.pro-shell .pro-main .computer-sidebar,
+.pro-shell .pro-main [data-computer-sidebar] {
+  background: var(--pro-sidebar-bg);
+  border-left: 1px solid var(--pro-border);
+}
+
+.pro-dropdown {
+  background: var(--popover);
+  border-color: var(--pro-border-strong);
+}
+
+.pro-shell .messages-scroll {
+  scrollbar-width: thin;
+}
+
+.pro-titlebar {
+  -webkit-app-region: drag;
+}
+
+.pro-titlebar button {
+  -webkit-app-region: no-drag;
+}
+
+.pro-composer-toolbar button,
+.pro-composer-toolbar [role="combobox"] {
+  border-radius: 8px;
+}
+
+/* The composer is the primary action surface: visually stronger than the
+   canvas, but still flat enough to feel native beside the Codex-style shell. */
+.rift-composer {
+  box-shadow: none;
+}
+
+.rift-composer:focus-within {
+  background: var(--fill-input-chat);
+  box-shadow: none;
+}
+
+/* Cursor keeps the transcript narrow while giving the composer a full-width
+   writing row above its controls. */
+.pro-shell .messages-scroll > [data-testid="messages-container"] {
+  max-width: 660px;
+}
+
+.pro-shell [data-ui="composer-column"] {
+  max-width: 760px;
+}
+
+.pro-shell [data-ui="composer-region"][data-centered="true"] {
+  width: 100%;
+  padding-inline: 0;
+}
+
+.pro-shell
+  [data-ui="composer-region"][data-centered="true"]
+  [data-ui="composer-column"] {
+  max-width: 640px;
+}
+
+.pro-shell
+  [data-ui="composer-region"][data-centered="true"]
+  [data-ui="composer-shell"] {
+  min-height: 108px;
+}
+
+.pro-shell [data-ui="composer-region"][data-centered="true"] textarea {
+  min-height: 64px;
+  padding: 14px 16px 8px;
+}
+
+.pro-shell
+  [data-ui="composer-region"][data-centered="false"]
+  [data-ui="composer-shell"] {
+  min-height: 100px;
+}
+
+.pro-shell
+  [data-ui="composer-region"][data-centered="false"]
+  [data-ui="composer-frame"] {
+  min-height: 98px;
+}
+
+.pro-shell
+  [data-ui="composer-region"][data-centered="false"]
+  [data-testid="active-goal-status"] {
+  grid-column: 1 / -1;
+}
+
+.pro-shell
+  [data-ui="composer-region"][data-centered="false"]
+  [data-ui="composer-textarea"]
+  textarea {
+  min-height: 60px;
+  padding: 12px;
+}
+
+.pro-shell [data-ui="composer-region"] textarea {
+  font-size: var(--rift-type-message);
+  line-height: 1.4286;
+}
+
+[data-rift-sidebar-panel] [data-testid^="chat-item-"][role="button"] {
+  min-height: 28px;
+  border-radius: 6px;
+  font-size: 13px;
+  line-height: 18px;
+  transition:
+    color 100ms ease,
+    background-color 100ms ease;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .rift-composer,
+  .pro-composer-palette,
+  [data-rift-sidebar-panel] [data-testid^="chat-item-"][role="button"] {
+    animation: none !important;
+    transition: none !important;
+  }
+}
+
+.pro-composer-toolbar button:hover {
+  background: var(--pro-control-hover);
+}
+
+.pro-terminal-pane {
+  min-width: min(280px, 72%);
+  max-width: 72%;
+  background: var(--pro-terminal-bg);
+  border-left: 1px solid var(--pro-border);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .pro-resize-handle::before {
+    transition: none;
+  }
+}
+
+/* The travelling specular used behind landing surfaces. Only
+   background-position moves, so it stays off the layout path, and the 18s
+   cycle keeps it clear of the slow-oscillation band that reads as flicker. */
+@keyframes rift-sheen {
+  from {
+    background-position: -60% 0;
+  }
+  to {
+    background-position: 160% 0;
+  }
+}
+
+/* The travelling dash on the model-flow diagram. A 7px dash on a 640px gap,
+   pushed back past the start and animated to zero, walks one packet down each
+   route. Declared here rather than inline because the keyframes are shared by
+   six paths that differ only in delay. */
+.rift-model-flow-pulse {
+  stroke-dasharray: 7 640;
+  stroke-dashoffset: 647;
+  animation: rift-model-flow 3.3s linear infinite;
+}
+
+@keyframes rift-model-flow {
+  to {
+    stroke-dashoffset: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .rift-model-flow-pulse {
+    animation: none;
+    opacity: 0;
+  }
+}
+
+/*
+ * The parallel landing's travelling pulse.
+ *
+ * One dot climbing the isometric's flow line, bottom to top, on a slow loop —
+ * enough to say "this flows upward" without animating the drawing itself. It
+ * lives here rather than in a Motion component because whether to run it is a
+ * question about the visitor's preferences, and a server has no answer: asking
+ * the hook produces one result during server rendering and the opposite in the
+ * browser, and React reports a hydration mismatch for every element whose
+ * markup depended on it. A media query answers the same question in the one
+ * place that can actually see it.
+ */
+/*
+ * The /landing/x mark visuals.
+ *
+ * Transform and opacity only — no colour literals, which is what the theme
+ * contract test enforces below the Pro Lab marker and what keeps these on the
+ * compositor rather than triggering paint on every frame.
+ *
+ * They are CSS rather than JS for a reason this project has paid for twice:
+ * a highlight driven by React state renders one way on the server and another
+ * in the browser, which is a hydration mismatch on every element it touches.
+ * A per-element `animation-delay` gives the same staggered sweep with no
+ * timer, no state, and nothing to mismatch.
+ */
+@keyframes x-orbit-mark {
+  0%,
+  100% {
+    opacity: 0.55;
+    transform: scale(1);
+  }
+  6% {
+    opacity: 1;
+    transform: scale(1.07);
+  }
+  22% {
+    opacity: 0.55;
+    transform: scale(1);
+  }
+}
+
+/* A pulse of energy travelling from a vendor mark inward to the one key. Each
+   spoke carries a light along its own path (set per-spoke as offset-path) at a
+   staggered delay, so the centre reads as continuously fed by all six. */
+@keyframes x-influx {
+  0% {
+    offset-distance: 0%;
+    opacity: 0;
+  }
+  14% {
+    opacity: 1;
+  }
+  86% {
+    opacity: 0.9;
+  }
+  100% {
+    offset-distance: 100%;
+    opacity: 0;
+  }
+}
+
+/* The core's glow, breathing as the pulses arrive. */
+@keyframes x-core {
+  0%,
+  100% {
+    opacity: 0.35;
+    transform: translate(-50%, -50%) scale(0.9);
+  }
+  50% {
+    opacity: 0.7;
+    transform: translate(-50%, -50%) scale(1.08);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  /* Not "no feedback" — a legible resting state. Every mark stays visible at
+     the brightness it would otherwise pulse to. */
+  [class*="x-orbit-mark"] {
+    animation: none !important;
+    opacity: 0.7;
+  }
+  /* The travelling pulses are decorative motion — remove them entirely and let
+     the static wires and lit marks carry the composition. */
+  [class*="x-influx"] {
+    display: none !important;
+  }
+  [class*="x-core"] {
+    animation: none !important;
+    opacity: 0.5 !important;
+  }
+}
+
+@keyframes pi-pulse-travel {
+  0% {
+    offset-distance: 0%;
+    opacity: 0;
+  }
+  12% {
+    opacity: 1;
+  }
+  86% {
+    opacity: 1;
+  }
+  100% {
+    offset-distance: 100%;
+    opacity: 0;
+  }
+}
+
+.pi-pulse {
+  /* The flow line the dot climbs, in the isometric's own viewBox units. It
+     lives with the keyframe rather than in a style prop because a style object
+     and its serialised CSS string do not compare equal during hydration, and
+     React reports the difference as a failed tree. */
+  offset-path: path("M230 392 V110");
+  animation: pi-pulse-travel 3.4s linear infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .pi-pulse {
+    animation: none;
+    opacity: 0;
+  }
+}
+
+/*
+ * The landing reveals, under a reduced-motion preference.
+ *
+ * The components render one markup for everybody — a class-driven opacity and
+ * 6px settle — because asking `useReducedMotion()` during server rendering has
+ * no answer, and branching on it produces a hydration mismatch on every
+ * element that does. The preference is honoured here instead, where a media
+ * query can actually see it, and it resolves to *settled*, not to hidden: a
+ * request for less movement must never turn into a blank section.
+ */
+/*
+ * The connector globe's rotation (landing-x). Two keyframes, opposite signs:
+ * the field turns one way and the puck layer counter-turns so the logos stay
+ * upright. Compositor-only, and the component pauses both off-screen.
+ */
+/* The optimize card's plan→build→verify comet: a rotating wrapper carrying a
+ * dot around the ring. A transform on a positioned HTML box, not an SVG
+ * stroke, because the latter animated invisibly in Chrome. */
+/* The optimize cards' value swap: the figure that changes on each tick
+ * arrives rather than cutting. Keyed on the value in React, so it replays. */
+/* The optimize record card's scan line drifting across its grid. */
+@keyframes x-scan {
+  from {
+    transform: translateX(0);
+  }
+  to {
+    transform: translateX(100%);
+  }
+}
+
+@keyframes x-opt-in {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@keyframes x-comet-sweep {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@keyframes x-globe-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+@keyframes x-globe-spin-rev {
+  to {
+    transform: rotate(-360deg);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  [data-landing-reveal] {
+    opacity: 1 !important;
+    transform: none !important;
+    /* The landing-x reveal defocuses rather than translating, so clearing
+       transform alone would leave every block pinned at blur(10px) forever —
+       a reduced-motion setting that renders the page unreadable. */
+    filter: none !important;
+    transition: none !important;
+  }
+}
+
+/*
+ * Keyboard focus on the landing pages.
+ *
+ * A sweep of the parallel landing found 59 links and buttons with no
+ * focus-visible treatment of any kind: tabbing through the page moved an
+ * invisible cursor. A handful of controls had been given a ring individually,
+ * which is exactly how this ends up inconsistent — the ones somebody
+ * remembered are styled and the rest are not.
+ *
+ * One rule for both landings instead. `:focus-visible` rather than `:focus`,
+ * so a pointer click never paints a ring; `outline` rather than a box-shadow,
+ * so it follows the element's own shape and cannot be clipped by an ancestor's
+ * `overflow: hidden` the way an inset shadow can.
+ *
+ * The colour is the page's own ink on both, which clears 4.5:1 against every
+ * surface either page uses.
+ */
+/*
+ * A keyboard focus ring for everything that does not already have one.
+ *
+ * Two earlier shapes of this rule were wrong in opposite directions. Scoping
+ * it to the two landing roots missed every other public page — a sweep of
+ * /download found the whole marketing nav, its links and the sign-in button
+ * with no focus treatment at all, so tabbing moved an invisible cursor.
+ * Widening it with `:where()` made it apply everywhere and win nowhere:
+ * zero specificity loses to Tailwind's own `outline-none` utility, which most
+ * of these controls carry, and the browser's default blue ring came back.
+ *
+ * So: real specificity, and an explicit exclusion instead of a weak selector.
+ * Controls that already declare a `focus-visible:ring-*` or their own
+ * `focus-visible:outline-*` are left alone — they have been designed, and two
+ * indicators on one control is worse than one. Everything else gets the floor.
+ *
+ * On the colour: `currentColor` was tried and is wrong for inverted controls.
+ * The ring is drawn *outside* the element, on the page, so a light pill with
+ * black text produced a black ring sitting on a near-black ground — measured
+ * at zero on all three channels on the "Start building" button.
+ * `--foreground` is near-white, defined at the document root for every surface
+ * in this product, and the ground is dark everywhere the ring can appear, so
+ * it reads against all of them.
+ *
+ * Note for whoever appends to this file next: the app-theme contract slices
+ * everything after the Pro Lab marker and forbids colour literals in it —
+ * including inside comments. Name a measurement, do not spell it.
+ */
+:is(
+    a[href],
+    button,
+    summary,
+    input,
+    select,
+    textarea,
+    [role="button"],
+    [role="tab"]
+  ):not([class*="focus-visible:ring"]):not(
+    [class*="focus-visible:outline-"]
+  ):not([class*="focus:ring"]):focus-visible {
+  /* A hairline that hugs the control, not a box drawn around it.
+     This was 2px of near-white at a 2px offset. It reads as a bright rectangle
+     appearing beside whatever you touch — and once the ring utilities were
+     removed from the product's own controls, every one of them fell through to
+     this rule and got it. Keyboard focus still has to be findable, so the
+     indicator stays; it just stops being the loudest thing on the screen. */
+  outline: 1px solid var(--ring);
+  outline-offset: 1px;
+  border-radius: 4px;
+
+  /* Text fields already have an edge. Draw focus on that edge instead of
+     adding a second rectangle around a focused input or subagent task. */
+  &:is(input, textarea, select):not([type="checkbox"]):not([type="radio"]):not(
+      [type="range"]
+    ):not([type="color"]) {
+    outline-color: var(--ring);
+    outline-offset: -1px;
+  }
+}
+
+/*
+ * A floor under the hit area — on the page's own chrome only.
+ *
+ * The same sweep found 28 controls shorter than 24px. Most of them are inside
+ * the embedded mini-applications, and those are deliberately pixel-identical
+ * to the real product: growing their controls here would make the landing show
+ * something the app does not do, which is a worse fault than a small target on
+ * a demo nobody submits with the keyboard.
+ *
+ * So this is scoped to `[data-landing-chrome]` — the nav, the announcement bar
+ * and the page's own buttons — and the mini-apps are left exactly as they are.
+ * The text stays the size it is; only the target grows around it. 24px is the
+ * WCAG 2.2 minimum and the point below which a control starts costing people a
+ * second attempt.
+ */
+[data-landing-chrome] :is(a, button, [role="button"]) {
+  min-height: 24px;
+  display: inline-flex;
+  align-items: center;
 }

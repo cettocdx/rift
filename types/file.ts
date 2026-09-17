@@ -41,6 +41,8 @@ export interface UploadedFileState {
 // File part interface for rendering components
 export interface FilePart {
   url?: string;
+  /** Requested media canvas, reserved before the image has decoded. */
+  aspectRatio?: string;
   fileId?: Id<"files">; // Database file ID for fetching URLs via action
   name?: string;
   filename?: string;
@@ -57,12 +59,16 @@ export interface FilePartRendererProps {
   partIndex: number;
   messageId: string;
   totalFileParts?: number;
+  /** Render images at a larger size (e.g. assistant-generated images). */
+  large?: boolean;
 }
 
 // File upload preview interfaces
 export interface FileUploadPreviewProps {
   uploadedFiles: UploadedFileState[];
   onRemoveFile: (index: number) => void;
+  /** Media Studio labels current-turn images as generation inputs. */
+  mediaKind?: "image" | "video";
 }
 
 export interface FilePreview {

@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import type { AnySandbox } from "@/types";
 import type { createTerminalHandler } from "@/lib/utils/terminal-executor";
 import { FULL_OUTPUT_SAVED_MESSAGE } from "@/lib/token-utils";
@@ -11,6 +12,7 @@ import { isE2BSandbox } from "./sandbox-types";
 export async function saveFullOutputToFile(
   sandbox: AnySandbox,
   fullOutput: string,
+  contentAddressedPtySnapshot = false,
 ): Promise<string | null> {
   try {
     const now = new Date();
@@ -24,7 +26,10 @@ export async function saveFullOutputToFile(
     const dir = isE2BSandbox(sandbox)
       ? "/home/user/terminal_full_output"
       : "/tmp/terminal_full_output";
-    const filePath = `${dir}/${timestamp}.txt`;
+    const filename = contentAddressedPtySnapshot
+      ? `pty-${createHash("sha256").update(fullOutput).digest("hex")}`
+      : timestamp;
+    const filePath = `${dir}/${filename}.txt`;
 
     await sandbox.commands.run(`mkdir -p ${dir}`, {
       timeoutMs: 5000,

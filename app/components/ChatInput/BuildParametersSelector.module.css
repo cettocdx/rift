@@ -1,0 +1,128 @@
+.trigger {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  min-width: 0;
+  max-width: 100%;
+  height: 28px;
+  padding: 0 7px;
+  border-radius: 7px;
+  color: var(--cursor-text-secondary, var(--muted-foreground));
+  font-size: var(--rift-composer-type, 12px);
+  font-weight: 500;
+  cursor: pointer;
+}
+.modelLabel {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.effortLabel {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  flex-shrink: 0;
+  color: var(--muted-foreground);
+}
+.chevron {
+  width: 12px;
+  height: 12px;
+  flex-shrink: 0;
+}
+.popover {
+  width: min(280px, calc(100vw - 16px));
+  max-height: min(520px, var(--radix-popover-content-available-height, 70dvh));
+  overflow: hidden auto;
+  overscroll-behavior: contain;
+  padding: 4px;
+  border: 1px solid var(--border-strong, var(--border));
+  border-radius: 10px;
+  background: var(--popover);
+  color: var(--popover-foreground);
+  box-shadow: 0 8px 28px -8px #0003;
+}
+.row {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  width: 100%;
+  min-height: 28px;
+  padding: 5px 7px;
+  border-radius: 6px;
+  text-align: left;
+  font-size: var(--rift-composer-type, 12px);
+  line-height: 18px;
+}
+button.row {
+  cursor: pointer;
+}
+.row > svg {
+  width: 13px;
+  height: 13px;
+  flex-shrink: 0;
+}
+.value {
+  min-width: 0;
+  margin-left: auto;
+  text-align: right;
+  overflow-wrap: anywhere;
+  color: var(--muted-foreground);
+}
+.modelName {
+  flex: 1;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.context {
+  color: var(--muted-foreground);
+}
+.back {
+  margin-bottom: 4px;
+}
+.trigger:focus-visible,
+.row:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: -2px;
+}
+button.row:hover,
+button.row:focus-visible,
+.trigger:hover,
+.trigger[data-state="open"] {
+  background: var(--muted);
+  color: var(--foreground);
+}
+@media (max-width: 767px), (pointer: coarse) {
+  .trigger {
+    height: 44px;
+  }
+  .row {
+    min-height: 44px;
+  }
+}
+
+/* Keep radio hit targets clear of WebKit's transient overlay scrollbar. */
+.popover[data-view="model"] {
+  padding-inline-end: 16px;
+}
+
+@media (max-width: 767px) {
+  .popover {
+    width: min(280px, calc(100vw - 24px));
+    border-radius: 24px;
+    padding: 8px;
+  }
+  .row {
+    font-size: 15px;
+    line-height: 20px;
+    border-radius: 14px;
+    padding: 10px 12px;
+  }
+  .mobileModel {
+    justify-content: center;
+  }
+  .mobileModel .value {
+    margin-left: 0;
+    color: var(--foreground);
+  }
+}

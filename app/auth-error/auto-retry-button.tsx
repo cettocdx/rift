@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { RefreshCw } from "lucide-react";
+import { RefreshCw, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 
 const STORAGE_KEY = "auth_retry_state";
@@ -87,7 +87,7 @@ export function AutoRetryButton({ loginUrl }: AutoRetryButtonProps) {
 
   if (cancelled) {
     return (
-      <Button asChild className="flex-1 min-w-0">
+      <Button asChild className="min-w-0 flex-1 rounded-full shadow-none">
         <a href={loginUrl}>
           <RefreshCw className="h-4 w-4" />
           Try Again
@@ -98,7 +98,7 @@ export function AutoRetryButton({ loginUrl }: AutoRetryButtonProps) {
 
   if (countdown === null) {
     return (
-      <Button className="flex-1 min-w-0" disabled>
+      <Button className="min-w-0 flex-1 rounded-full shadow-none" disabled>
         <RefreshCw className="h-4 w-4 animate-spin" />
         Retrying...
       </Button>
@@ -106,9 +106,18 @@ export function AutoRetryButton({ loginUrl }: AutoRetryButtonProps) {
   }
 
   return (
-    <Button className="flex-1 min-w-0" onClick={() => setCancelled(true)}>
-      <RefreshCw className="h-4 w-4 animate-spin" />
-      Retrying in {countdown}s...
+    <Button
+      type="button"
+      className="min-w-0 flex-1 rounded-full shadow-none"
+      aria-label="Cancel automatic retry"
+      aria-describedby="auth-retry-countdown"
+      onClick={() => setCancelled(true)}
+    >
+      <X aria-hidden="true" className="h-4 w-4" />
+      Cancel retry ({countdown}s)
+      <span id="auth-retry-countdown" className="sr-only">
+        Automatic retry in {countdown} seconds.
+      </span>
     </Button>
   );
 }

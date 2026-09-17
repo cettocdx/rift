@@ -72,6 +72,39 @@ describe("token-bucket", () => {
       expect(calculateTokenCost(10, "input")).toBe(1);
       expect(calculateTokenCost(10000, "input")).toBe(expectCost(10000, 0.5));
     });
+
+    it("uses current frontier Build pricing instead of the generic fallback", () => {
+      expect(calculateTokenCost(1_000_000, "input", "model-gpt-5.6-sol")).toBe(
+        expectCost(1_000_000, 5),
+      );
+      expect(
+        calculateTokenCost(1_000_000, "input", "model-hy4-preview"),
+      ).toBe(expectCost(1_000_000, 0.834));
+      expect(
+        calculateTokenCost(1_000_000, "output", "model-gpt-5.6-luna"),
+      ).toBe(expectCost(1_000_000, 6));
+      expect(calculateTokenCost(1_000_000, "output", "model-opus-4.8")).toBe(
+        expectCost(1_000_000, 25),
+      );
+      expect(calculateTokenCost(1_000_000, "input", "model-sonnet-5")).toBe(
+        expectCost(1_000_000, 2),
+      );
+      expect(calculateTokenCost(1_000_000, "output", "model-grok-4.5")).toBe(
+        expectCost(1_000_000, 6),
+      );
+      expect(calculateTokenCost(1_000_000, "input", "model-kimi-k3")).toBe(
+        expectCost(1_000_000, 3),
+      );
+      expect(calculateTokenCost(1_000_000, "output", "model-kimi-k3")).toBe(
+        expectCost(1_000_000, 15),
+      );
+      expect(calculateTokenCost(1_000_000, "input", "model-qwen3.7-max")).toBe(
+        expectCost(1_000_000, 1.475),
+      );
+      expect(calculateTokenCost(1_000_000, "output", "model-qwen3.7-max")).toBe(
+        expectCost(1_000_000, 4.425),
+      );
+    });
   });
 
   // ==========================================================================
@@ -83,9 +116,9 @@ describe("token-bucket", () => {
       expect(limits.monthly).toBe(0);
     });
 
-    it("should return fixed monthly credits for pro tier ($25)", () => {
+    it("should return the public 500,000-credit Pro allowance", () => {
       const limits = getBudgetLimits("pro");
-      expect(limits.monthly).toBe(250_000);
+      expect(limits.monthly).toBe(500_000);
     });
 
     it("should return fixed monthly credits for pro-plus tier ($60)", () => {
@@ -93,9 +126,9 @@ describe("token-bucket", () => {
       expect(limits.monthly).toBe(600_000);
     });
 
-    it("should return fixed monthly credits for ultra tier ($200)", () => {
+    it("should return the public 1,800,000-credit Max allowance", () => {
       const limits = getBudgetLimits("ultra");
-      expect(limits.monthly).toBe(2_000_000);
+      expect(limits.monthly).toBe(1_800_000);
     });
 
     it("should return fixed monthly credits for team tier ($40)", () => {
@@ -103,25 +136,25 @@ describe("token-bucket", () => {
       expect(limits.monthly).toBe(400_000);
     });
 
-    it("ultra should have 8x more monthly credits than pro", () => {
+    it("Max should have 3.6x more monthly credits than Pro", () => {
       const proLimits = getBudgetLimits("pro");
       const ultraLimits = getBudgetLimits("ultra");
 
-      expect(ultraLimits.monthly / proLimits.monthly).toBe(8);
+      expect(ultraLimits.monthly / proLimits.monthly).toBe(3.6);
     });
 
-    it("pro-plus should have 2.4x more monthly credits than pro", () => {
+    it("pro-plus should retain its legacy 600,000-credit allowance", () => {
       const proLimits = getBudgetLimits("pro");
       const proPlusLimits = getBudgetLimits("pro-plus");
 
-      expect(proPlusLimits.monthly / proLimits.monthly).toBe(2.4);
+      expect(proPlusLimits.monthly / proLimits.monthly).toBe(1.2);
     });
 
-    it("team should have 1.6x more monthly credits than pro", () => {
+    it("team should retain its legacy 400,000-credit seat allowance", () => {
       const proLimits = getBudgetLimits("pro");
       const teamLimits = getBudgetLimits("team");
 
-      expect(teamLimits.monthly / proLimits.monthly).toBe(1.6);
+      expect(teamLimits.monthly / proLimits.monthly).toBe(0.8);
     });
 
     it("should return 0 for unknown subscription tier", () => {
@@ -139,9 +172,9 @@ describe("token-bucket", () => {
     });
 
     it("should return subscription price in dollars for each tier", () => {
-      expect(getSubscriptionPrice("pro")).toBe(25);
+      expect(getSubscriptionPrice("pro")).toBe(50);
       expect(getSubscriptionPrice("pro-plus")).toBe(60);
-      expect(getSubscriptionPrice("ultra")).toBe(200);
+      expect(getSubscriptionPrice("ultra")).toBe(180);
       expect(getSubscriptionPrice("team")).toBe(40);
     });
 
@@ -332,6 +365,15 @@ describe("token-bucket", () => {
       );
       expect(calculateTokenCost(1_000_000, "output", "model-sonnet-4.6")).toBe(
         expectCost(1_000_000, 15.0),
+      );
+    });
+
+    it("should use Grok 4.5 pricing ($2.00/$6.00)", () => {
+      expect(calculateTokenCost(1_000_000, "input", "model-grok-4.5")).toBe(
+        expectCost(1_000_000, 2.0),
+      );
+      expect(calculateTokenCost(1_000_000, "output", "model-grok-4.5")).toBe(
+        expectCost(1_000_000, 6.0),
       );
     });
 

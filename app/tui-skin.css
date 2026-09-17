@@ -1,0 +1,150 @@
+/**
+ * TUI skin — RIFT_UI_SKIN=tui
+ *
+ * Turns the Build surface into a terminal scrollback instead of a chat page.
+ * Scoped entirely under html[data-ui-skin="tui"] and loaded only when the env
+ * flag is set, so the default UI keeps its own shape and every component
+ * contract (and its tests) stays untouched. Remove the flag to revert.
+ *
+ * The identity of a terminal agent is structural, not decorative: one
+ * typeface, flat scrollback, a composer welded to the bottom edge, and chrome
+ * reduced to a single line top and bottom. Markers and colour alone do not
+ * make a card look like a prompt.
+ */
+
+html[data-ui-skin="tui"],
+html[data-ui-skin="tui"] body {
+  font-family: var(--font-mono);
+}
+
+/* One typeface. The exceptions are icons, which are drawn glyphs. */
+html[data-ui-skin="tui"] :not(svg):not(svg *) {
+  font-family: var(--font-mono) !important;
+  letter-spacing: 0 !important;
+}
+
+/* --- Transcript: scrollback, not bubbles ------------------------------- */
+
+/* Assistant turns lose the prose chrome and sit flush with the gutter. */
+html[data-ui-skin="tui"]
+  [data-testid="assistant-message"]
+  [data-testid="message-content"] {
+  max-width: none;
+  font-size: 12.5px;
+  line-height: 1.55;
+}
+
+html[data-ui-skin="tui"] [data-testid="assistant-message"] :is(h1, h2, h3, h4) {
+  margin-top: 1.1em;
+  margin-bottom: 0.35em;
+  font-size: 12.5px;
+  font-weight: 500;
+  /* Headings read as section markers, the way a CLI colours its own output. */
+  color: var(--signal-bright, var(--primary));
+}
+
+html[data-ui-skin="tui"] [data-testid="assistant-message"] :is(ul, ol) {
+  padding-left: 1.1em;
+}
+
+html[data-ui-skin="tui"] [data-testid="assistant-message"] li::marker {
+  color: var(--muted-foreground);
+}
+
+/* The prompt row keeps its band but squares off — a terminal echo line. */
+html[data-ui-skin="tui"]
+  [data-testid="user-message"]
+  [data-testid="message-content"] {
+  border-radius: 0;
+  border-left: 2px solid var(--border);
+  background: color-mix(in srgb, var(--foreground) 5%, transparent);
+  font-size: 12.5px;
+}
+
+/* --- Composer: welded to the bottom edge -------------------------------- */
+
+html[data-ui-skin="tui"] [data-ui="composer-shell"] {
+  max-width: none;
+  border-right: 0;
+  border-bottom: 0;
+  border-left: 0;
+  border-radius: 0 !important;
+  background: color-mix(in srgb, var(--foreground) 2.5%, var(--background));
+  box-shadow: none;
+}
+
+html[data-ui-skin="tui"] [data-ui="composer-textarea"] textarea {
+  font-size: 12.5px;
+}
+
+/* Controls read as status text, not as buttons on a card. */
+html[data-ui-skin="tui"] [data-ui="composer-toolbar"] {
+  font-size: 11px;
+}
+
+html[data-ui-skin="tui"] [data-ui="composer-toolbar"] button {
+  border-radius: 2px;
+}
+
+/* --- Chrome: one line, top and bottom ----------------------------------- */
+
+html[data-ui-skin="tui"] [data-ui="tui-chrome"] {
+  display: flex;
+  min-height: 22px;
+  align-items: center;
+  gap: 8px;
+  padding: 0 12px;
+  font-size: 11px;
+  color: var(--muted-foreground);
+}
+
+html[data-ui-skin="tui"] [data-ui="tui-chrome"][data-edge="top"] {
+  border-bottom: 1px solid var(--border);
+}
+
+html[data-ui-skin="tui"] [data-ui="tui-chrome"][data-edge="bottom"] {
+  border-top: 1px solid var(--border);
+}
+
+/* --- Density ------------------------------------------------------------ */
+
+/* A terminal does not centre a hero in an empty pane. */
+html[data-ui-skin="tui"] [data-ui="composer-region"][data-centered="true"] {
+  justify-content: flex-end;
+}
+
+html[data-ui-skin="tui"] [data-ui="composer-column"] {
+  max-width: none !important;
+}
+
+/* --- Layout: the prompt lives at the bottom edge ------------------------ */
+
+/*
+ * The default shell centres an empty composer as a hero with a 12vh cushion.
+ * A terminal has no hero: the prompt sits on the bottom edge and the pane
+ * above it is scrollback. These ancestors carry no hook of their own, so they
+ * are reached through the composer they contain.
+ */
+html[data-ui-skin="tui"] div:has(> div > div > [data-ui="composer-region"]),
+html[data-ui-skin="tui"] div:has(> div > [data-ui="composer-region"]) {
+  justify-content: flex-end !important;
+  align-items: stretch !important;
+  padding-bottom: 0 !important;
+  padding-top: 0 !important;
+  max-width: none !important;
+}
+
+html[data-ui-skin="tui"] [data-ui="composer-region"] {
+  padding-left: 0;
+  padding-right: 0;
+}
+
+/* Square the frame the shell rounds, inner surfaces included. */
+html[data-ui-skin="tui"]
+  :is(
+    [data-ui="composer-shell"],
+    [data-ui="composer-frame"],
+    [data-ui="composer-textarea"]
+  ) {
+  border-radius: 0 !important;
+}

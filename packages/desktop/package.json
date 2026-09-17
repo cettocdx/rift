@@ -7,8 +7,10 @@
     "dev": "tauri dev -c src-tauri/tauri.dev.conf.json",
     "dev:prod": "tauri dev",
     "build": "tauri build",
-    "build:dev": "APP_URL=http://localhost:3000 tauri build --debug",
-    "build:prod": "APP_URL=https://rift.security tauri build",
+    "build:dev": "APP_URL=http://localhost:3010 tauri build --debug",
+    "build:prod": "APP_URL=https://riftsys.app/login tauri build",
+    "icons": "node scripts/generate-icons.mjs",
+    "icons:check": "node scripts/generate-icons.mjs --check",
     "tauri": "tauri"
   },
   "dependencies": {
@@ -18,8 +20,7 @@
     "@tauri-apps/plugin-opener": "^2.5.4",
     "@tauri-apps/plugin-os": "^2.3.2",
     "@tauri-apps/plugin-process": "^2.3.1",
-    "@tauri-apps/plugin-shell": "^2.3.5",
-    "@tauri-apps/plugin-updater": "^2.10.1"
+    "@tauri-apps/plugin-shell": "^2.3.5"
   },
   "devDependencies": {
     "@tauri-apps/cli": "^2.11.2",

@@ -24,10 +24,10 @@ export function LandingHeaderRift2() {
         <button
           type="button"
           onClick={() => window.scrollTo({ top: 0, behavior: "smooth" })}
-          className="rounded-md focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+          className="rounded-md focus-visible:outline-none"
           aria-label="RIFT home"
         >
-          <RiftWordmark height={14} className="text-foreground" />
+          <RiftWordmark height={21} className="text-foreground" />
         </button>
 
         <nav className="hidden items-center gap-1 rounded-full border border-border/50 bg-background/40 px-1 py-1 backdrop-blur-md md:flex">

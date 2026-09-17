@@ -9,28 +9,11 @@ import {
 import { validateServiceKey, copyChatSummary } from "./lib/utils";
 import { fileCountAggregate } from "./fileAggregate";
 import { convexLogger } from "./lib/logger";
-
-/**
- * Extract text content from message parts for search and display
- */
-const extractTextFromParts = (parts: any[]): string => {
-  return parts
-    .filter((part) => part.type === "text")
-    .map((part) => part.text || "")
-    .join(" ")
-    .trim();
-};
-
-const extractFileIdsFromParts = (parts: any[]): Id<"files">[] =>
-  parts
-    .filter(
-      (part) =>
-        part &&
-        typeof part === "object" &&
-        part.type === "file" &&
-        typeof part.fileId === "string",
-    )
-    .map((part) => part.fileId as Id<"files">);
+import { getOwnedProject } from "./lib/projectOwnership";
+import {
+  extractTextFromParts,
+  extractFileIdsFromParts,
+} from "./lib/messageParts";
 
 const getOwnedFileIdSet = async (
   ctx: { db: GenericDatabaseReader<DataModel> },
@@ -306,6 +289,7 @@ export const saveMessage = mutation({
     id: v.string(),
     chatId: v.string(),
     userId: v.string(),
+    expectedTriggerRunId: v.optional(v.string()),
     role: v.union(
       v.literal("user"),
       v.literal("assistant"),
@@ -325,6 +309,27 @@ export const saveMessage = mutation({
   returns: v.null(),
   handler: async (ctx, args) => {
     validateServiceKey(args.serviceKey);
+    if (args.expectedTriggerRunId !== undefined) {
+      const chats = await ctx.db
+        .query("chats")
+        .withIndex("by_chat_id", (q) => q.eq("id", args.chatId))
+        .take(2);
+      const chat = chats[0];
+      if (
+        !args.expectedTriggerRunId ||
+        chats.length !== 1 ||
+        chat.user_id !== args.userId ||
+        chat.active_trigger_run_id !== args.expectedTriggerRunId
+      ) {
+        // Before attachment/message work and outside the generic save-error
+        // wrapper: callers must distinguish a stale run from successful save.
+        throw new ConvexError({
+          code: "AGENT_RUN_LOST",
+          message:
+            "This run no longer owns the chat. The message was not saved.",
+        });
+      }
+    }
     let failureStage = "start";
 
     try {
@@ -358,18 +363,21 @@ export const saveMessage = mutation({
         return files as Doc<"files">[];
       };
       const explicitFileIds = new Set(args.fileIds ?? []);
+      const referencedFileIds = extractFileIdsFromParts(args.parts);
       const partOnlyFileIds = Array.from(
         new Set(
-          extractFileIdsFromParts(args.parts).filter(
-            (fileId) => !explicitFileIds.has(fileId),
-          ),
+          referencedFileIds.filter((fileId) => !explicitFileIds.has(fileId)),
         ),
       );
       if (partOnlyFileIds.length > 0) {
         failureStage = "verify_file_part_ownership";
         await ensureOwnedFiles(partOnlyFileIds);
       }
-      const fileIdsForSave = args.fileIds;
+      const mergedFileIds = Array.from(
+        new Set([...(args.fileIds ?? []), ...referencedFileIds]),
+      );
+      const fileIdsForSave =
+        mergedFileIds.length > 0 ? mergedFileIds : undefined;
       const partsForSave = args.parts;
 
       failureStage = "find_existing_message";
@@ -622,6 +630,8 @@ export const getMessagesByChatId = query({
         ),
         generation_time_ms: v.optional(v.number()),
         generation_started_at: v.optional(v.number()),
+        stop_reason: v.optional(v.string()),
+        finish_reason: v.optional(v.string()),
         mode: v.optional(v.union(v.literal("agent"), v.literal("ask"))),
         fileDetails: v.optional(
           v.array(
@@ -739,6 +749,8 @@ export const getMessagesByChatId = query({
           mode: message.mode,
           generation_started_at: message.generation_started_at,
           generation_time_ms: message.generation_time_ms,
+          stop_reason: message.stop_reason,
+          finish_reason: message.finish_reason,
           fileDetails,
         });
       }
@@ -797,6 +809,7 @@ export const saveAssistantMessage = mutation({
     generationStartedAt: v.optional(v.number()),
     generationTimeMs: v.optional(v.number()),
     finishReason: v.optional(v.string()),
+    stopReason: v.optional(v.literal("user")),
     usage: v.optional(v.any()),
   },
   returns: v.null(),
@@ -807,13 +820,83 @@ export const saveAssistantMessage = mutation({
       throw new Error("Unauthorized: User not authenticated");
     }
 
+    const userId = user.subject.split("|")[0];
+    const referencedFileIds = extractFileIdsFromParts(args.parts);
+
     try {
+      if (referencedFileIds.length > 0) {
+        const ownedFileIds = await getOwnedFileIdSet(
+          ctx,
+          referencedFileIds,
+          userId,
+        );
+        if (ownedFileIds.size !== referencedFileIds.length) {
+          throw new ConvexError({
+            code: "FILE_UNAUTHORIZED",
+            message: "One or more generated files are unavailable.",
+          });
+        }
+      }
+
       // Deduplicate by message id to avoid duplicates when stop is clicked multiple times
       const existing = await ctx.db
         .query("messages")
         .withIndex("by_message_id", (q) => q.eq("id", args.id))
         .first();
       if (existing) {
+        if (existing.user_id !== userId || existing.chat_id !== args.chatId) {
+          throw new ConvexError({
+            code: "MESSAGE_UNAUTHORIZED",
+            message: "You don't have permission to update this message",
+          });
+        }
+
+        const mergedFileIds =
+          referencedFileIds.length > 0
+            ? Array.from(
+                new Set([...(existing.file_ids ?? []), ...referencedFileIds]),
+              )
+            : undefined;
+
+        // Persisting a stopped turn used to be write-once: if any row already
+        // existed for this id, the client's captured partial output and its
+        // stop marker were dropped, so the evidence the user watched stream in
+        // vanished on reload. Update the row when this save is a user-stop and
+        // the existing row was NOT completed by the server -- an incomplete
+        // row carries less than the client's view. A server-completed row
+        // (finish_reason set) is authoritative and still wins, so a stop that
+        // races a finish cannot clobber the finished message with a partial.
+        const isStopSave = args.stopReason === "user";
+        const existingIsComplete =
+          existing.finish_reason !== undefined &&
+          existing.finish_reason !== null;
+        if (isStopSave && !existingIsComplete) {
+          await ctx.db.patch(existing._id, {
+            parts: args.parts,
+            content: extractTextFromParts(args.parts) || undefined,
+            ...(mergedFileIds ? { file_ids: mergedFileIds } : {}),
+            stop_reason: existing.stop_reason ?? args.stopReason,
+            generation_started_at:
+              existing.generation_started_at ?? args.generationStartedAt,
+            generation_time_ms:
+              existing.generation_time_ms ?? args.generationTimeMs,
+            update_time: Date.now(),
+          });
+          for (const fileId of referencedFileIds) {
+            await ctx.db.patch(fileId, { is_attached: true });
+          }
+          return null;
+        }
+
+        if (mergedFileIds) {
+          await ctx.db.patch(existing._id, {
+            file_ids: mergedFileIds,
+            update_time: Date.now(),
+          });
+          for (const fileId of referencedFileIds) {
+            await ctx.db.patch(fileId, { is_attached: true });
+          }
+        }
         return null;
       }
 
@@ -822,7 +905,7 @@ export const saveAssistantMessage = mutation({
         internal.messages.verifyChatOwnership,
         {
           chatId: args.chatId,
-          userId: user.subject.split("|")[0],
+          userId,
         },
       );
 
@@ -836,18 +919,24 @@ export const saveAssistantMessage = mutation({
       await ctx.db.insert("messages", {
         id: args.id,
         chat_id: args.chatId,
-        user_id: user.subject.split("|")[0],
+        user_id: userId,
         role: args.role,
         parts: args.parts,
         content: content || undefined,
+        file_ids: referencedFileIds.length > 0 ? referencedFileIds : undefined,
         update_time: Date.now(),
         model: args.model,
         mode: args.mode,
         generation_started_at: args.generationStartedAt,
         generation_time_ms: args.generationTimeMs,
         finish_reason: args.finishReason,
+        stop_reason: args.stopReason,
         usage: args.usage,
       });
+
+      for (const fileId of referencedFileIds) {
+        await ctx.db.patch(fileId, { is_attached: true });
+      }
 
       return null;
     } catch (error) {
@@ -1501,13 +1590,22 @@ export const branchChat = mutation({
 
       // Create new chat with same title as original
       const newChatId = crypto.randomUUID();
+      const userId = user.subject.split("|")[0];
+      const inheritedProject = originalChat.project_id
+        ? await getOwnedProject(ctx.db, originalChat.project_id, userId)
+        : null;
+      const inheritedPurpose = inheritedProject?.type ?? originalChat.purpose;
 
       const newChatDocId = await ctx.db.insert("chats", {
         id: newChatId,
         title: originalChat.title,
-        user_id: user.subject.split("|")[0],
+        user_id: userId,
         branched_from_chat_id: message.chat_id,
         update_time: Date.now(),
+        ...(inheritedProject ? { project_id: inheritedProject._id } : {}),
+        ...(inheritedPurpose && inheritedPurpose !== "security"
+          ? { purpose: inheritedPurpose }
+          : {}),
       });
 
       // Copy messages to new chat, tracking old→new ID mapping for summary remapping
@@ -1518,7 +1616,7 @@ export const branchChat = mutation({
         await ctx.db.insert("messages", {
           id: newMessageId,
           chat_id: newChatId,
-          user_id: user.subject.split("|")[0],
+          user_id: userId,
           role: msg.role,
           parts: msg.parts,
           content: msg.content,

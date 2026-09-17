@@ -100,7 +100,7 @@ export const FileHandler = memo(function FileHandler({
     if (!input?.path) return null;
     const toolCallId = part.toolCallId;
 
-    // Write/Append during streaming — show content as it streams in
+    // Show write and append content while it streams in.
     if (part.state === "input-streaming" || part.state === "input-available") {
       if (action === "view") {
         return {
@@ -124,7 +124,7 @@ export const FileHandler = memo(function FileHandler({
       };
     }
 
-    // Output available — build content from result
+    // Build sidebar content from the available result.
     if (part.state === "output-available" || part.state === "output-error") {
       const output = part.output;
       const isError =

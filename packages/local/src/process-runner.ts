@@ -111,6 +111,9 @@ export class ProcessRunner {
     command: string,
     opts: ProcessRunOptions = {},
   ): ProcessRunResult {
+    if (this.activeProcesses.has(sessionId)) {
+      throw new Error(`Terminal session ${sessionId} is already running.`);
+    }
     const cwd = opts.cwd ?? process.cwd();
     const cols = opts.cols ?? 120;
     const rows = opts.rows ?? 40;
@@ -201,6 +204,10 @@ export class ProcessRunner {
     for (const sessionId of this.activeProcesses.keys()) {
       this.stop(sessionId);
     }
+  }
+
+  hasRunningProcesses(): boolean {
+    return this.activeProcesses.size > 0;
   }
 
   isRunning(sessionId: string): boolean {

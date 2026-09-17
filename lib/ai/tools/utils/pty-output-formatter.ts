@@ -7,7 +7,7 @@
  * don't have `@xterm/headless` (test / jsdom).
  */
 
-import { DEFAULT_PTY_COLS } from "./pty-session-manager";
+import { DEFAULT_PTY_COLS, DEFAULT_PTY_ROWS } from "./pty-constants";
 
 // The headless parser needs to see the SAME column count as the runtime PTY
 // so ANSI line-wrapping/cursor math lines up. Rows + scrollback are
@@ -27,6 +27,7 @@ let TerminalCtor:
       buffer: {
         active: {
           length: number;
+          baseY: number;
           getLine: (
             i: number,
           ) =>
@@ -68,11 +69,14 @@ function fallbackClean(text: string): string {
     .replace(/[\x00-\x08\x0B\x0C\x0E-\x1F]/g, ""); // Other control chars
 }
 
-export async function cleanPtyForUI(text: string): Promise<string> {
+async function renderPty(
+  text: string,
+  screen?: { cols: number; rows: number },
+): Promise<string | undefined> {
   if (TerminalCtor) {
     const term = new TerminalCtor({
-      cols: DEFAULT_PTY_COLS,
-      rows: PARSER_ROWS,
+      cols: screen?.cols ?? DEFAULT_PTY_COLS,
+      rows: screen?.rows ?? PARSER_ROWS,
       scrollback: PARSER_SCROLLBACK,
       allowProposedApi: true,
     });
@@ -85,11 +89,11 @@ export async function cleanPtyForUI(text: string): Promise<string> {
       const buf = term.buffer.active;
       const lines: string[] = [];
       let lastNonEmpty = -1;
-      for (let i = 0; i < buf.length; i++) {
+      for (let i = screen ? buf.baseY : 0; i < buf.length; i++) {
         const line = buf.getLine(i);
         const str = line ? line.translateToString(true) : "";
         lines.push(str);
-        if (str.trim()) lastNonEmpty = i;
+        if (str.trim()) lastNonEmpty = lines.length - 1;
       }
       return lines.slice(0, lastNonEmpty + 1).join("\n");
     } catch (err) {
@@ -101,7 +105,13 @@ export async function cleanPtyForUI(text: string): Promise<string> {
       term.dispose();
     }
   }
-  return fallbackClean(text);
+  // An ANSI-stripped tail cannot represent cursor-addressed TUIs faithfully.
+  // Keep the full result when the screen parser is unavailable.
+  return screen ? undefined : fallbackClean(text);
+}
+
+export async function cleanPtyForUI(text: string): Promise<string> {
+  return (await renderPty(text))!;
 }
 
 /** Return last N lines of a PTY snapshot as raw bytes (for streaming context). */
@@ -130,10 +140,16 @@ export async function getSessionSnapshot(
 /** Returns both raw and cleaned snapshots for persistence. */
 export async function getSessionSnapshots(
   mgr: SnapshotSource,
-  session: { sessionId: string; chatId: string },
-): Promise<{ raw: string; cleaned: string }> {
+  session: { sessionId: string; chatId: string; cols?: number; rows?: number },
+): Promise<{ raw: string; cleaned: string; screen?: string }> {
   const bytes = mgr.snapshot(session);
   const raw = new TextDecoder().decode(bytes);
-  const cleaned = await cleanPtyForUI(raw);
-  return { raw, cleaned };
+  const [cleaned, screen] = await Promise.all([
+    cleanPtyForUI(raw),
+    renderPty(raw, {
+      cols: session.cols ?? DEFAULT_PTY_COLS,
+      rows: session.rows ?? DEFAULT_PTY_ROWS,
+    }),
+  ]);
+  return { raw, cleaned, screen };
 }

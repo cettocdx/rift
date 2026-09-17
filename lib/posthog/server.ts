@@ -1,14 +1,63 @@
+import { isPostHogClientFlushing } from "./client-flush";
+import { recordTelemetryLoss } from "./delivery-stats";
+import {
+  getTelemetryContext,
+  getScopedTelemetryContext,
+  type TelemetryContext,
+} from "./context";
 import PostHogClient from "@/app/posthog";
 import { emitPostHogLog, flushPostHogLogs } from "@/lib/posthog/logs";
 import type { PostHog } from "posthog-node";
 
-let cachedClient: PostHog | null | undefined;
+const clients = new WeakMap<TelemetryContext, PostHog | null>();
+// Keep pending SDK clients reachable until flush, but bound destinations just
+// like the OTLP exporter. Keys/configuration are never serialized into events.
+const pendingClients = new Map<PostHog, number>();
+const CLIENT_ORIGIN_LIMIT = 32;
+let captureRevision = 0;
+
+function admitPendingClient(): boolean {
+  if (pendingClients.size < CLIENT_ORIGIN_LIMIT) return true;
+  for (const client of pendingClients.keys()) {
+    if (isPostHogClientFlushing(client)) continue;
+    pendingClients.delete(client);
+    recordTelemetryLoss("retiredAnalyticsClients");
+    return true;
+  }
+  recordTelemetryLoss("rejectedAnalyticsEvents");
+  return false;
+}
 
 function getClient(): PostHog | null {
-  if (cachedClient === undefined) {
-    cachedClient = PostHogClient();
+  const context = getTelemetryContext();
+  if (!context.analyticsKey) return null;
+  if (!clients.has(context)) {
+    if (!admitPendingClient()) return null;
+    clients.set(context, PostHogClient(context));
   }
-  return cachedClient;
+  const client = clients.get(context);
+  if (!client) return null;
+  if (!pendingClients.has(client) && !admitPendingClient()) return null;
+  pendingClients.set(client, captureRevision++);
+  return client;
+}
+
+async function flushClients(): Promise<void> {
+  const scoped = getScopedTelemetryContext();
+  const scopedClient = scoped ? clients.get(scoped) : undefined;
+  const entries = scoped
+    ? scopedClient && pendingClients.has(scopedClient)
+      ? [[scopedClient, pendingClients.get(scopedClient)!] as const]
+      : []
+    : [...pendingClients.entries()];
+  await Promise.allSettled(
+    entries.map(async ([client, revision]) => {
+      await client.flush();
+      // Captures arriving during a flush still need a later flush.
+      if (pendingClients.get(client) === revision)
+        pendingClients.delete(client);
+    }),
+  );
 }
 
 type LogFields = Record<string, unknown> & {
@@ -28,16 +77,10 @@ function distinctIdFor(userId: unknown): string {
 }
 
 function getEnvironment(): string {
-  return (
-    process.env.VERCEL_ENV ??
-    process.env.NODE_ENV ??
-    process.env.ENVIRONMENT ??
-    "unknown"
-  );
+  return getTelemetryContext().environment;
 }
-
 function getServiceName(): string {
-  return process.env.POSTHOG_LOG_SERVICE_NAME ?? "rift-web";
+  return getTelemetryContext().serviceName;
 }
 
 function truncate(value: string, maxLength = TELEMETRY_STRING_MAX_LENGTH) {
@@ -231,6 +274,6 @@ export const phLogger = {
   },
 
   async flush(): Promise<void> {
-    await Promise.allSettled([getClient()?.flush(), flushPostHogLogs()]);
+    await Promise.allSettled([flushClients(), flushPostHogLogs()]);
   },
 };

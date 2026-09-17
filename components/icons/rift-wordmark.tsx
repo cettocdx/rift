@@ -1,174 +1,69 @@
 import type { FC } from "react";
-
-/** Pixel RIFT wordmark — matches public/brand/rift-x-header.svg */
-
-const LETTER_W = 5;
-const GAP = 2;
-const ROWS = 7;
-
-const GLYPHS: Record<string, Array<[number, number]>> = {
-  R: [
-    [0, 0],
-    [1, 0],
-    [2, 0],
-    [3, 0],
-    [0, 1],
-    [4, 1],
-    [0, 2],
-    [4, 2],
-    [0, 3],
-    [1, 3],
-    [2, 3],
-    [3, 3],
-    [0, 4],
-    [2, 4],
-    [0, 5],
-    [3, 5],
-    [0, 6],
-    [4, 6],
-  ],
-  I: [
-    [0, 0],
-    [1, 0],
-    [2, 0],
-    [3, 0],
-    [4, 0],
-    [2, 1],
-    [2, 2],
-    [2, 3],
-    [2, 4],
-    [2, 5],
-    [0, 6],
-    [1, 6],
-    [2, 6],
-    [3, 6],
-    [4, 6],
-  ],
-  F: [
-    [0, 0],
-    [1, 0],
-    [2, 0],
-    [3, 0],
-    [4, 0],
-    [0, 1],
-    [0, 2],
-    [0, 3],
-    [1, 3],
-    [2, 3],
-    [3, 3],
-    [0, 4],
-    [0, 5],
-    [0, 6],
-  ],
-  T: [
-    [0, 0],
-    [1, 0],
-    [2, 0],
-    [3, 0],
-    [4, 0],
-    [2, 1],
-    [2, 2],
-    [2, 3],
-    [2, 4],
-    [2, 5],
-    [2, 6],
-  ],
-};
-
-const WORD_COLS = "RIFT".length * LETTER_W + ("RIFT".length - 1) * GAP;
-
-function buildRects(word: string) {
-  const letters = word.toUpperCase().split("");
-  let originX = 0;
-  const rects: Array<[number, number]> = [];
-
-  for (const ch of letters) {
-    const glyph = GLYPHS[ch];
-    if (glyph) {
-      for (const [c, r] of glyph) {
-        rects.push([originX + c, r]);
-      }
-    }
-    originX += LETTER_W + GAP;
-  }
-
-  return rects;
-}
+import {
+  RIFT_WORDMARK_PATHS,
+  RIFT_WORDMARK_TRANSFORM,
+  RIFT_WORDMARK_VIEWBOX,
+} from "@/lib/brand/logo";
 
 export interface RiftWordmarkProps {
-  /** Pixel height of the RIFT letters (excludes tagline). */
+  /** Height of the supplied vector canvas, including its clear space. */
   height?: number;
   className?: string;
   fill?: string;
+  decorative?: boolean;
   showTagline?: boolean;
   tagline?: string;
   taglineClassName?: string;
   title?: string;
 }
 
+/** Approved outlined lettering; no font installation or replacement is needed. */
 export const RiftWordmark: FC<RiftWordmarkProps> = ({
-  height = 14,
+  height = 24,
   className,
-  // Theme-aware by default: inherits the surrounding text color so the
-  // wordmark stays visible in both dark and light mode. Pass an explicit
-  // `fill` only when a fixed color is required (e.g. on a dark-only surface).
   fill = "currentColor",
+  decorative = false,
   showTagline = false,
   tagline = "autonomous offensive intelligence",
   taglineClassName,
   title = "RIFT",
 }) => {
-  const cell = height / ROWS;
-  const width = WORD_COLS * cell;
-  const rects = buildRects("RIFT");
-
-  if (!showTagline) {
-    return (
-      <svg
-        width={width}
-        height={height}
-        viewBox={`0 0 ${WORD_COLS} ${ROWS}`}
-        shapeRendering="crispEdges"
-        className={className}
-        role="img"
-        aria-label={title}
-      >
-        {rects.map(([x, y], i) => (
-          <rect key={i} x={x} y={y} width={1} height={1} fill={fill} />
-        ))}
-      </svg>
-    );
-  }
-
-  const taglineSize = Math.max(8, Math.round(height * 0.55));
-  const taglineGap = Math.max(4, Math.round(height * 0.35));
-
-  return (
-    <div
-      className={`inline-flex flex-col items-center ${className ?? ""}`}
-      role="img"
-      aria-label={title}
+  const word = (
+    <svg
+      width={(height * 287) / 152}
+      height={height}
+      viewBox={RIFT_WORDMARK_VIEWBOX}
+      fill={fill}
+      fillRule="evenodd"
+      focusable="false"
+      className={showTagline ? undefined : className}
+      role={decorative || showTagline ? undefined : "img"}
+      aria-label={decorative || showTagline ? undefined : title}
+      aria-hidden={decorative || showTagline || undefined}
     >
-      <svg
-        width={width}
-        height={height}
-        viewBox={`0 0 ${WORD_COLS} ${ROWS}`}
-        shapeRendering="crispEdges"
-        aria-hidden
-      >
-        {rects.map(([x, y], i) => (
-          <rect key={i} x={x} y={y} width={1} height={1} fill={fill} />
+      <g transform={RIFT_WORDMARK_TRANSFORM}>
+        {RIFT_WORDMARK_PATHS.map((d) => (
+          <path key={d} d={d} />
         ))}
-      </svg>
+      </g>
+    </svg>
+  );
+  return showTagline ? (
+    <span
+      className={`inline-flex flex-col items-center ${className ?? ""}`}
+      role={decorative ? undefined : "img"}
+      aria-label={decorative ? undefined : title}
+      aria-hidden={decorative || undefined}
+    >
+      {word}
       <span
-        className={
-          taglineClassName ??
-          "font-mono lowercase tracking-normal text-[#858585]"
-        }
-        style={{ fontSize: taglineSize, marginTop: taglineGap }}
+        className={taglineClassName ?? "text-muted-foreground"}
+        style={{ fontSize: Math.max(8, height * 0.4), marginTop: 4 }}
       >
         {tagline}
       </span>
-    </div>
+    </span>
+  ) : (
+    word
   );
 };

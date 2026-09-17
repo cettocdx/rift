@@ -1,6 +1,7 @@
 import { query, mutation } from "./_generated/server";
 import { v } from "convex/values";
 import { convexLogger } from "./lib/logger";
+import { getOwnedProject } from "./lib/projectOwnership";
 
 /**
  * Share a chat by creating a public share link.
@@ -329,13 +330,26 @@ export const forkSharedChat = mutation({
 
     // Create new chat owned by the current user
     const newChatId = crypto.randomUUID();
+    const userId = identity.subject.split("|")[0];
+    const isSameUserFork = chat.user_id === userId;
+    const inheritedProject =
+      isSameUserFork && chat.project_id
+        ? await getOwnedProject(ctx.db, chat.project_id, userId)
+        : null;
+    const inheritedPurpose = isSameUserFork
+      ? (inheritedProject?.type ?? chat.purpose)
+      : undefined;
 
     await ctx.db.insert("chats", {
       id: newChatId,
       title: chat.title,
-      user_id: identity.subject.split("|")[0],
+      user_id: userId,
       branched_from_chat_id: chat.id,
       update_time: Date.now(),
+      ...(inheritedProject ? { project_id: inheritedProject._id } : {}),
+      ...(inheritedPurpose && inheritedPurpose !== "security"
+        ? { purpose: inheritedPurpose }
+        : {}),
     });
 
     // Copy messages to new chat
@@ -350,7 +364,7 @@ export const forkSharedChat = mutation({
       await ctx.db.insert("messages", {
         id: newMessageId,
         chat_id: newChatId,
-        user_id: identity.subject.split("|")[0],
+        user_id: userId,
         role: msg.role,
         parts: sanitizedParts,
         content: msg.content,

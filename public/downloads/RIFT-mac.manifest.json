@@ -1,0 +1,19 @@
+{
+  "schemaVersion": 1,
+  "productName": "RIFT",
+  "identifier": "app.riftsys.desktop",
+  "version": "0.1.0",
+  "architecture": "arm64",
+  "launchUrl": "https://riftsys.app/login",
+  "archive": "RIFT-mac.dmg",
+  "archiveSha256": "cf57fe4c55eaf5da4136b89a57f8f370a9a850806498c544e6b4cabe25c5e9eb",
+  "executableSha256": "c0e03dc51f8665aec6ee57b0803b965a14f3ed6407cacc1fc07dbf20396e31d6",
+  "signing": "ad-hoc",
+  "notarized": false,
+  "sourceRevision": "5a9e22ea2f02c63f1da8ec371a89ffb4a0bfd4c6",
+  "sourceDirty": true,
+  "buildInputsSha256": "2f391fe0235242da07aeab0bc40c20a05b0625e6cc8523a2735d8f45b5edd73c",
+  "generatedLaunchHtmlSha256": "71bec53dea4b116e6bb4c85bf7596f7ef0c3e92901c1f56f12d4f3343546c5c9",
+  "tauriConfigSha256": "3bc7793c3a3882987e844be9d3605e785b18d9a98209cbe19bea43d30225bb36",
+  "iconSha256": "8c593422c06ca411da734f2607da99a4ce76380273e893fde03ef525a9d57201"
+}

@@ -1,0 +1,56 @@
+name: RIFT CLI release candidates
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  package:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-14, macos-15-intel, ubuntu-24.04]
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        working-directory: packages/console
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.3.14
+      - run: npm ci --workspaces=false
+      - run: npm test
+      - run: bun test test/opentui.test.ts
+      - run: npm run build:release
+      - run: node scripts/smoke-release.mjs
+      - uses: actions/upload-artifact@v4
+        with:
+          name: rift-${{ runner.os }}-${{ runner.arch }}
+          path: packages/console/release/*.tar.gz
+          if-no-files-found: error
+  local-runner:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.33.2
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22.23.1
+          cache: pnpm
+      - run: npm install --global npm@11.12.1
+      - run: pnpm install --filter rift-cli... --frozen-lockfile --ignore-scripts --no-optional
+      - run: node --test scripts/__tests__/local-cli-distribution.test.cjs
+      - run: node scripts/package-local-cli.cjs --check
+      - run: node scripts/smoke-local-cli.cjs
+      - uses: actions/upload-artifact@v4
+        with:
+          name: rift-local-runner
+          path: |
+            public/downloads/rift-cli.tgz
+            public/downloads/rift-cli.manifest.json
+          if-no-files-found: error

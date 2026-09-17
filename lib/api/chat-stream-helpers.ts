@@ -13,13 +13,19 @@ import type {
   SystemModelMessage,
 } from "ai";
 import { NoSuchModelError } from "ai";
-import type {
-  ChatMode,
-  ExtraUsageConfig,
-  SandboxPreference,
-  SubscriptionTier,
-  Todo,
-  UserCustomization,
+import { getMaxInputTokensForSubscription } from "@/lib/token-limits";
+import {
+  BUILD_MODELS,
+  resolveBuildReasoningEffort,
+  type BuildModelReasoningDefinition,
+  type ReasoningEffort,
+  type ChatMode,
+  type ChatPurpose,
+  type ExtraUsageConfig,
+  type SandboxPreference,
+  type SubscriptionTier,
+  type Todo,
+  type UserCustomization,
 } from "@/types";
 import {
   isAnthropicModel,
@@ -347,6 +353,7 @@ export async function runSummarizationStep(options: {
   tools?: ToolSet;
   providerOptions?: Record<string, Record<string, unknown>>;
   modelMessages?: ModelMessage[];
+  context?: import("@/lib/token-limits").ContextLimitOptions;
 }): Promise<SummarizationStepResult> {
   const { needsSummarization, summarizedMessages, summarizationUsage } =
     await checkAndSummarizeIfNeeded(
@@ -366,6 +373,7 @@ export async function runSummarizationStep(options: {
       options.tools,
       options.providerOptions,
       options.modelMessages,
+      options.context,
     );
 
   if (!needsSummarization) {
@@ -410,20 +418,25 @@ export class SummarizationTracker {
     stepNumber: number,
     usage: SummarizationUsage | undefined,
     usageTracker: UsageTracker,
+    modelName?: string,
   ): void {
     this.hasSummarized = true;
     this.atStep = stepNumber;
     this.parts.push(createSummarizationCompletedPart());
 
     if (usage) {
-      usageTracker.inputTokens += usage.inputTokens;
-      usageTracker.outputTokens += usage.outputTokens;
-      usageTracker.summarizationOutputTokens += usage.outputTokens;
-      usageTracker.cacheReadTokens += usage.cacheReadTokens || 0;
-      usageTracker.cacheWriteTokens += usage.cacheWriteTokens || 0;
-      if (usage.cost) {
-        usageTracker.providerCost += usage.cost;
-      }
+      usageTracker.accumulateSummary(
+        {
+          inputTokens: usage.inputTokens,
+          outputTokens: usage.outputTokens,
+          inputTokenDetails: {
+            cacheReadTokens: usage.cacheReadTokens,
+            cacheWriteTokens: usage.cacheWriteTokens,
+          },
+          raw: { cost: usage.cost },
+        },
+        modelName,
+      );
     }
   }
 
@@ -453,9 +466,8 @@ export class SummarizationTracker {
  * model's rate (response.modelId reflects what actually ran).
  *
  * Claude chats are repaired for Anthropic-compatible message shapes before
- * this fallback can fire. Claude agent calls use the cheaper Kimi fallback
- * while the run is text-only, then switch to multimodal-capable fallbacks once
- * image tool results enter the context.
+ * this fallback can fire. Anthropic routes use the proven Sol route first,
+ * followed by Grok fallbacks that can continue the same tool loop.
  *
  * Keys and values are registry names (see lib/ai/providers.ts) — the actual
  * OpenRouter slugs are resolved at request-build time so this stays in sync
@@ -468,23 +480,75 @@ const MODEL_FALLBACK_CHAIN: Partial<Record<ModelName, readonly ModelName[]>> = {
   "ask-model": ["fallback-grok-4.3"],
   "agent-model": ["fallback-grok-4.3"],
   "model-gemini-3-flash": ["fallback-grok-4.3"],
-  "model-kimi-k2.6": ["fallback-grok-4.3"],
+  "model-kimi-k3": ["model-gpt-5.6-sol", "model-grok-4.6"],
+  "model-qwen3.8-max": ["model-gpt-5.6-sol", "model-grok-4.6"],
+  "model-grok-4.6": ["fallback-grok-4.3"],
+  "model-gpt-5.5": [
+    "model-gemini-3.8-flash",
+    "model-grok-4.6",
+    "fallback-grok-4.3",
+  ],
+  "model-gpt-5.6-luna": ["model-grok-4.6", "fallback-grok-4.3"],
+  "model-gpt-5.6-sol": [
+    "model-gemini-3.8-flash",
+    "model-gpt-6-astra",
+    "model-grok-4.6",
+    "fallback-grok-4.3",
+  ],
+  "model-gpt-5.6-sol-pro": [
+    "model-gpt-5.6-sol",
+    "model-gemini-3.8-flash",
+    "model-grok-4.6",
+    "fallback-grok-4.3",
+  ],
+  "model-gpt-6-astra": ["model-gpt-5.6-sol", "model-grok-4.6"],
+  "model-gemini-3.8-flash": ["model-gpt-5.6-sol", "model-grok-4.6"],
+  "model-glm-5.3": ["model-gpt-5.6-sol", "model-grok-4.6"],
+  "model-hy4-preview": ["model-glm-5.3", "model-grok-4.6", "fallback-grok-4.3"],
 };
 
 const ANTHROPIC_FALLBACK_CHAIN_BY_MODE: Record<ChatMode, readonly ModelName[]> =
   {
-    agent: ["model-kimi-k2.6", "fallback-grok-4.3"],
-    ask: ["model-gemini-3-flash"],
+    agent: ["model-gpt-5.6-sol", "model-grok-4.6", "fallback-grok-4.3"],
+    ask: ["model-gpt-5.6-sol", "model-grok-4.6"],
   };
 
 const ANTHROPIC_MULTIMODAL_AGENT_FALLBACK_CHAIN = [
-  "fallback-gemini-3.5-flash",
+  "model-gpt-5.6-sol",
+  "model-grok-4.6",
   "fallback-grok-4.3",
 ] as const satisfies readonly ModelName[];
 
 type FallbackOptions = {
+  /** Estimated full input for this step; smaller-window fallbacks are omitted. */
+  inputTokens?: number;
+  subscription?: SubscriptionTier;
+  hasPaidContext?: boolean;
   hasMultimodalToolResults?: boolean;
+  /** Server-validated workspace or custom-agent reasoning strength. */
+  reasoningEffort?: ReasoningEffort;
 };
+
+function fallbackSupportsReasoningEffort(
+  modelName: ModelName,
+  effort: ReasoningEffort,
+): boolean {
+  // Toggle-only endpoints send `{ reasoning: { enabled } }`, which every
+  // reasoning-capable fallback in these chains can honor without an effort.
+  if (effort === "off" || effort === "on") return true;
+
+  const buildModel = BUILD_MODELS.find(
+    (model) => model.providerKey === modelName,
+  );
+  if (buildModel) {
+    return (
+      buildModel.reasoning.supportedEfforts as readonly ReasoningEffort[]
+    ).includes(effort);
+  }
+
+  // Hidden legacy fallbacks do not advertise the newer xhigh/max contract.
+  return effort !== "xhigh" && effort !== "max";
+}
 
 const getFallbackKeys = (
   modelName?: string,
@@ -492,19 +556,42 @@ const getFallbackKeys = (
   options: FallbackOptions = {},
 ): readonly ModelName[] | undefined => {
   if (!modelName) return undefined;
-  if (modelName === "model-opus-4.6" || modelName === "model-sonnet-4.6") {
+  let fallbackKeys: readonly ModelName[] | undefined;
+  if (isAnthropicModel(modelName)) {
     if (mode === "agent" && options.hasMultimodalToolResults) {
-      return ANTHROPIC_MULTIMODAL_AGENT_FALLBACK_CHAIN;
+      fallbackKeys = ANTHROPIC_MULTIMODAL_AGENT_FALLBACK_CHAIN;
+    } else {
+      fallbackKeys = ANTHROPIC_FALLBACK_CHAIN_BY_MODE[mode ?? "agent"];
     }
-    return ANTHROPIC_FALLBACK_CHAIN_BY_MODE[mode ?? "agent"];
+  } else {
+    fallbackKeys = MODEL_FALLBACK_CHAIN[modelName as ModelName];
   }
-  return MODEL_FALLBACK_CHAIN[modelName as ModelName];
+
+  const requestedEffort = options.reasoningEffort;
+  return requestedEffort
+    ? fallbackKeys?.filter((fallback) =>
+        fallbackSupportsReasoningEffort(fallback, requestedEffort),
+      )
+    : fallbackKeys;
 };
 
 export function getRetryFallbackModel(
   modelName: ModelName,
   mode: ChatMode,
+  reasoningEffort?: ReasoningEffort,
 ): ModelName {
+  if (reasoningEffort === "off" || reasoningEffort === "on") {
+    return (
+      getFallbackKeys(modelName, mode, { reasoningEffort })?.[0] ??
+      "fallback-grok-4.3"
+    );
+  }
+  if (reasoningEffort === "xhigh" || reasoningEffort === "max") {
+    return (
+      getFallbackKeys(modelName, mode, { reasoningEffort })?.[0] ??
+      "model-gpt-5.6-sol"
+    );
+  }
   if (isDeepSeekModel(modelName)) {
     return mode === "agent" ? "fallback-agent-model" : "fallback-ask-model";
   }
@@ -538,11 +625,24 @@ export function getFallbackSlugs(
   options: FallbackOptions = {},
 ): string[] {
   const fallbackKeys = getFallbackKeys(modelName, mode, options);
-  return (
+  const fallbackSlugs =
     fallbackKeys
       ?.map((key) => resolveSlug(key))
-      .filter((s): s is string => typeof s === "string" && s.length > 0) ?? []
-  );
+      .filter((s): s is string => typeof s === "string" && s.length > 0)
+      .filter(
+        (model) =>
+          !options.inputTokens ||
+          options.inputTokens <=
+            getMaxInputTokensForSubscription(options.subscription ?? "pro", {
+              model,
+              hasPaidContext: options.hasPaidContext,
+            }),
+      ) ?? [];
+
+  // OpenRouter accepts at most three entries in the `models` fallback array.
+  // Preserve the registry's priority order and keep logging/provider options
+  // on the same bounded chain.
+  return fallbackSlugs.slice(0, 3);
 }
 
 /**
@@ -557,34 +657,71 @@ export function buildProviderOptions(
 ) {
   const modelId = modelName ? resolveSlug(modelName) : undefined;
   const isDeepSeekV4 = modelId?.startsWith("deepseek/deepseek-v4") ?? false;
-  const fallbackSlugs = getFallbackSlugs(modelName, mode, options);
+  const currentBuildModel = BUILD_MODELS.find(
+    (model) =>
+      model.providerKey === modelName || model.providerModel === modelId,
+  );
+  const currentBuildReasoning = currentBuildModel?.reasoning as
+    | BuildModelReasoningDefinition
+    | undefined;
+  // These endpoints require their reasoning path to stay enabled even when the
+  // surrounding request is a non-agent turn.
+  const reasoningMandatory = currentBuildReasoning?.mandatory === true;
+  // This is the last server-owned boundary before provider transport. Clamp
+  // stale/imported profile values again so every caller, including delegated
+  // agents, respects the runtime model's advertised effort matrix.
+  const configuredReasoningEffort = currentBuildModel
+    ? resolveBuildReasoningEffort(currentBuildModel.id, options.reasoningEffort)
+    : (options.reasoningEffort ?? currentBuildReasoning?.defaultEffort);
+  const boundedReasoningTokens =
+    configuredReasoningEffort === "low"
+      ? 1_024
+      : configuredReasoningEffort === "medium" || !configuredReasoningEffort
+        ? 2_048
+        : configuredReasoningEffort === "high"
+          ? 4_096
+          : configuredReasoningEffort === "xhigh"
+            ? 8_192
+            : 16_384;
+  const fallbackSlugs = getFallbackSlugs(modelName, mode, {
+    ...options,
+    reasoningEffort: configuredReasoningEffort,
+  });
+  const reasoningEnabled =
+    configuredReasoningEffort !== "off" &&
+    (isReasoningModel || reasoningMandatory);
   return {
     openrouter: {
-      ...(isReasoningModel
+      ...(reasoningEnabled
         ? {
             reasoning: {
               enabled: true,
-              // Bound the thinking budget. Without a cap, OpenRouter lets the
-              // model run an open-ended think-then-answer pass on EVERY turn —
-              // even a one-word greeting — adding 1-3s of TTFT. DeepSeek-V4
-              // takes a qualitative effort level; everyone else (Anthropic
-              // Opus/Sonnet) takes a token budget. 2048 is plenty for the
-              // step-level planning these agent turns actually need.
-              // Only reached when reasoning is enabled (agent mode — ASK runs
-              // reasoning-disabled). DeepSeek-V4 backs the free agent path;
-              // `xhigh` ran an open-ended max-effort think pass before the first
-              // token (1-4s of TTFT) — the opposite of the latency intent above.
-              ...(isDeepSeekV4 ? { effort: "low" } : { max_tokens: 2048 }),
+              // Current frontier endpoints use OpenRouter's qualitative
+              // reasoning effort. Older endpoints keep the established
+              // bounded token budget for backward compatibility.
+              ...(currentBuildModel
+                ? currentBuildReasoning?.control === "toggle"
+                  ? {}
+                  : {
+                      effort:
+                        configuredReasoningEffort ??
+                        currentBuildReasoning?.defaultEffort ??
+                        "medium",
+                    }
+                : isDeepSeekV4
+                  ? { effort: configuredReasoningEffort ?? "low" }
+                  : { max_tokens: boundedReasoningTokens }),
             },
           }
         : { reasoning: { enabled: false } }),
-      // NOTE: do NOT add provider:{sort:'latency'} here. For Anthropic models
-      // it let OpenRouter route to Google Vertex / first-party Anthropic, both
-      // of which enforce Anthropic's real-time cyber content-filter and EMPTY
-      // OUT offensive-security output (finish_reason:'content-filter' after a
-      // full agent run). OpenRouter's default routing happened to land on a
-      // non-filtering upstream; latency-sort broke that. The few hundred ms
-      // saved is not worth silently nuking the core capability.
+      // Interactive OpenAI Build requests prioritize time to first token among
+      // eligible upstreams. Preserve the selected model, effort and fallbacks;
+      // other model families retain their existing routing policy.
+      ...(mode === "agent" &&
+      currentBuildModel &&
+      modelId?.startsWith("openai/")
+        ? { provider: { sort: "latency" as const } }
+        : {}),
       ...(userId && { user: userId }),
       ...(fallbackSlugs.length > 0 && { models: fallbackSlugs }),
     },
@@ -906,19 +1043,7 @@ export async function applyPrepareStepReminders(
   return messages;
 }
 
-/**
- * Free-tier agent mode is restricted to the local sandbox + auto model.
- * Throws ChatSDKError("forbidden:chat") if either gate fails.
- */
-export function assertFreeAgentGates(_args: {
-  mode: ChatMode;
-  subscription: SubscriptionTier;
-  sandboxPreference: SandboxPreference | undefined;
-  rawSelectedModel: string | undefined;
-}): void {
-  // Subscription tiers were removed: every signed-in user can run cloud (E2B)
-  // Agent mode with any model, so there are no free-tier agent gates anymore.
-}
+export { assertFreeAgentGates } from "./free-agent-gates";
 
 /**
  * Build the extra-usage config for paid users with `extra_usage_enabled`.
@@ -931,6 +1056,10 @@ export async function buildExtraUsageConfig(args: {
   subscription: SubscriptionTier;
   userCustomization: UserCustomization | null | undefined;
   organizationId?: string;
+  /** Same-request, server-loaded snapshot for this user; never client input.
+   * Final balance reservation remains authoritative in checkRateLimit.
+   */
+  requestBalance?: Awaited<ReturnType<typeof getExtraUsageBalance>>;
 }): Promise<ExtraUsageConfig | undefined> {
   const { userId, subscription, userCustomization, organizationId } = args;
 
@@ -938,7 +1067,10 @@ export async function buildExtraUsageConfig(args: {
   // the prepaid token balance. No opt-in gate — holding a balance is consent to
   // spend it. (Auto-reload still requires its own explicit toggle.)
   if (subscription === "free") {
-    const balanceInfo = await getExtraUsageBalance(userId);
+    const balanceInfo =
+      args.requestBalance !== undefined
+        ? args.requestBalance
+        : await getExtraUsageBalance(userId);
     if (!balanceInfo) return undefined;
     if (balanceInfo.balanceDollars > 0 || balanceInfo.autoReloadEnabled) {
       return {
@@ -974,16 +1106,34 @@ export async function buildExtraUsageConfig(args: {
     return undefined;
   }
 
-  if (!(userCustomization?.extra_usage_enabled ?? false)) return undefined;
-
-  const balanceInfo = await getExtraUsageBalance(userId);
+  const balanceInfo =
+    args.requestBalance !== undefined
+      ? args.requestBalance
+      : await getExtraUsageBalance(userId);
 
   if (!balanceInfo) {
-    console.warn(
-      `[chat-handler] getExtraUsageBalance returned null for user ${userId}, using optimistic extra usage config`,
-    );
-    return { enabled: true, hasBalance: true, autoReloadEnabled: false };
+    // Couldn't read the balance: stay optimistic only if the user explicitly
+    // enabled extra usage; otherwise treat as no extra-usage this request.
+    if (userCustomization?.extra_usage_enabled) {
+      console.warn(
+        `[chat-handler] getExtraUsageBalance returned null for user ${userId}, using optimistic extra usage config`,
+      );
+      return { enabled: true, hasBalance: true, autoReloadEnabled: false };
+    }
+    return undefined;
   }
+
+  // Token-only model: a positive balance (or auto-reload) IS the opt-in. Buying
+  // tokens does not flip the legacy extra_usage_enabled toggle, so gate on
+  // actual spendability — otherwise a user with tokens can't spend them.
+  // Owning tokens overrides the toggle (you bought them, you can spend them).
+  // Auto-reload alone does NOT override an explicit-off toggle, so we never
+  // charge a card for a user who disabled extra usage.
+  const canSpend =
+    (userCustomization?.extra_usage_enabled ?? false) ||
+    balanceInfo.balanceDollars > 0;
+
+  if (!canSpend) return undefined;
 
   if (balanceInfo.balanceDollars > 0 || balanceInfo.autoReloadEnabled) {
     return {
@@ -1005,6 +1155,7 @@ export async function buildExtraUsageConfig(args: {
  */
 export async function estimatePreflightInputTokens(args: {
   mode: ChatMode;
+  purpose?: ChatPurpose;
   subscription: SubscriptionTier;
   userId: string;
   selectedModel: ModelName;
@@ -1014,6 +1165,7 @@ export async function estimatePreflightInputTokens(args: {
 }): Promise<number> {
   const {
     mode,
+    purpose,
     subscription,
     userId,
     selectedModel,
@@ -1032,6 +1184,7 @@ export async function estimatePreflightInputTokens(args: {
     userCustomization,
     temporary,
     null,
+    purpose,
   );
   const systemTokens = countTokens(estimatedSystemPrompt);
   const toolSchemaOverhead = isAgentMode(mode) ? 1500 : 500;

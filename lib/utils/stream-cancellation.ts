@@ -1,3 +1,5 @@
+import { createScopedCancellationSubscriber } from "./http-execution-cancellation";
+import type { HackHttpExecutionBinding } from "@/lib/hack/http-execution";
 import {
   getCancellationStatus,
   getTempCancellationStatus,
@@ -13,6 +15,7 @@ import { phLogger } from "@/lib/posthog/server";
 type RedisClient = ReturnType<typeof createClient>;
 
 type PollOptions = {
+  execution?: HackHttpExecutionBinding;
   chatId: string;
   isTemporary: boolean;
   abortController: AbortController;
@@ -20,19 +23,56 @@ type PollOptions = {
   pollIntervalMs?: number;
 };
 
-type ApiEndpoint = "/api/chat" | "/api/chat/[id]/stream";
+type ApiEndpoint = "/api/chat" | "/api/hack-chat" | "/api/chat/[id]/stream";
 
 type PreemptiveTimeoutOptions = {
   chatId: string;
   endpoint: ApiEndpoint;
   abortController: AbortController;
   safetyBuffer?: number;
+  /**
+   * Explicit wall-clock budget measured from `startTime`. Routes with a
+   * shorter application lifecycle than their Vercel function ceiling use
+   * this instead of deriving the delay from `safetyBuffer`.
+   */
+  maxStreamTimeMs?: number;
+  /** Request start, so preflight time is included in the route budget. */
+  startTime?: number;
 };
 
 type CancellationSubscriberResult = {
   stop: () => Promise<void>;
   isUsingPubSub: boolean;
+  /** What the Redis cancellation message said, if one arrived. */
   shouldSkipSave: () => boolean;
+  /**
+   * Whether this cancellation intends to DISCARD the partial output
+   * (regenerate / edit / retry) rather than keep it (a plain Stop).
+   *
+   * The pub/sub answer is authoritative when a message arrived, but a dropped
+   * message used to leave the producer guessing -- and it guessed "discard",
+   * which threw away output the user had watched stream in. The intent is now
+   * also recorded on the chat row, so this falls back to reading it.
+   */
+  resolveSkipSave: () => Promise<boolean>;
+};
+
+/**
+ * Reads the durable discard intent recorded by the cancel mutation. Treated as
+ * "keep" on any failure: keeping an extra partial message is recoverable, and
+ * losing the user's output is not.
+ */
+const readDurableSkipSave = async (
+  chatId: string,
+  isTemporary: boolean,
+): Promise<boolean> => {
+  if (isTemporary) return false;
+  try {
+    const status = await getCancellationStatus({ chatId });
+    return status?.cancel_skip_save === true;
+  } catch {
+    return false;
+  }
 };
 
 /**
@@ -103,7 +143,10 @@ export const createCancellationPoller = ({
       abortController.signal.removeEventListener("abort", onAbort);
     },
     isUsingPubSub: false,
+    // The polling path never sees a cancellation message at all, so the durable
+    // flag is the only source of the intent here.
     shouldSkipSave: () => false,
+    resolveSkipSave: () => readDurableSkipSave(chatId, isTemporary),
   };
 };
 
@@ -116,12 +159,20 @@ export const createCancellationPoller = ({
  * - Graceful degradation to polling when Redis is unavailable
  */
 export const createCancellationSubscriber = async ({
+  execution,
   chatId,
   isTemporary,
   abortController,
   onStop,
   pollIntervalMs = 1000,
 }: PollOptions): Promise<CancellationSubscriberResult> => {
+  if (execution)
+    return createScopedCancellationSubscriber({
+      binding: execution,
+      abortController,
+      onStop,
+      pollIntervalMs,
+    });
   let subscriber: RedisClient | null = null;
   let stopped = false;
   let onStopCalled = false;
@@ -189,6 +240,8 @@ export const createCancellationSubscriber = async ({
         },
         isUsingPubSub: true,
         shouldSkipSave: () => skipSave,
+        resolveSkipSave: async () =>
+          skipSave || (await readDurableSkipSave(chatId, isTemporary)),
       };
     }
   } catch (error) {
@@ -215,16 +268,23 @@ export const createPreemptiveTimeout = ({
   endpoint,
   abortController,
   safetyBuffer = 30,
+  maxStreamTimeMs: explicitMaxStreamTimeMs,
+  startTime = Date.now(),
 }: PreemptiveTimeoutOptions) => {
   // Use endpoint-specific max duration based on Vercel function limits
-  const maxDuration = endpoint === "/api/chat" ? 420 : 800;
-  const maxStreamTime = (maxDuration - safetyBuffer) * 1000;
-  const startTime = Date.now();
+  const maxDuration = endpoint === "/api/chat/[id]/stream" ? 800 : 420;
+  const maxStreamTime =
+    explicitMaxStreamTimeMs ?? (maxDuration - safetyBuffer) * 1000;
+  const elapsedBeforeScheduling = Math.max(0, Date.now() - startTime);
+  const remainingTime = Math.max(0, maxStreamTime - elapsedBeforeScheduling);
 
   let isPreemptive = false;
   let triggerTime: number | null = null;
 
   const timeoutId = setTimeout(() => {
+    // Cleanup may still be pending after Stop or a budget abort. The timer
+    // must not relabel that earlier cancellation as a recoverable timeout.
+    if (abortController.signal.aborted) return;
     triggerTime = Date.now();
     isPreemptive = true;
 
@@ -238,8 +298,10 @@ export const createPreemptiveTimeout = ({
       triggerTime: new Date(triggerTime).toISOString(),
     });
 
-    abortController.abort();
-  }, maxStreamTime);
+    abortController.abort(
+      new DOMException("Request lifecycle budget exceeded", "TimeoutError"),
+    );
+  }, remainingTime);
 
   return {
     timeoutId,

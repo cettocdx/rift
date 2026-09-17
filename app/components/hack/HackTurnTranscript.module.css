@@ -1,0 +1,181 @@
+.transcript {
+  min-width: 0;
+  max-width: 100%;
+  color: #dedede;
+  font: 400 13px/1.65
+    var(--font-cursor-ui, -apple-system, BlinkMacSystemFont, sans-serif);
+  white-space: normal;
+}
+.transcript .workTrigger,
+.transcript .toolTrigger {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  min-width: 0;
+  min-height: 34px;
+  padding: 5px 0;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  color: #aaa;
+  font: 400 12px/1.5
+    var(--font-cursor-ui, -apple-system, BlinkMacSystemFont, sans-serif);
+  text-align: left;
+  cursor: pointer;
+}
+.workTrigger > svg,
+.toolTrigger > svg {
+  flex-shrink: 0;
+}
+.workTrigger > svg:last-child,
+.toolTrigger > svg:last-child {
+  margin-left: auto;
+  transition: transform 140ms;
+}
+.workTrigger[aria-expanded="true"] > svg:last-child,
+.toolTrigger[aria-expanded="true"] > svg:last-child {
+  transform: rotate(90deg);
+}
+.transcript .workTrigger:hover,
+.transcript .toolTrigger:hover {
+  color: #eee;
+}
+.transcript button:focus-visible,
+.transcript summary:focus-visible,
+.transcript pre:focus-visible {
+  outline: 1px solid #999;
+  outline-offset: 3px;
+  box-shadow: none;
+}
+.work {
+  margin: 4px 0 18px;
+  border-bottom: 1px solid #242424;
+}
+.count {
+  color: #858585;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.current {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: #b8cbbd;
+  margin-left: 10px;
+}
+.workDetails {
+  padding: 8px 0 16px 20px;
+  border-left: 1px solid #262626;
+  margin: 3px 0 12px 6px;
+}
+.tool {
+  min-width: 0;
+  margin: 4px 0;
+}
+.toolTrigger > span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.tool[data-status="failed"] .toolTrigger,
+.error {
+  color: #d99c96;
+}
+.evidence {
+  border: 1px solid #292929;
+  border-radius: 7px;
+  overflow: hidden;
+  margin: 5px 0 14px;
+  background: #080808;
+}
+.command {
+  padding: 9px 12px;
+  border-bottom: 1px solid #242424;
+  overflow: auto;
+}
+.command code {
+  font: 11px/1.6 var(--mono, monospace);
+  color: #bfc6c1;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.transcript .evidence pre {
+  margin: 0;
+  padding: 12px;
+  max-height: 240px;
+  overflow: auto;
+  border: 0;
+  background: #050505;
+  color: #bcbcbc;
+  font: 12px/1.65 var(--mono, monospace);
+  white-space: pre;
+  overflow-anchor: none;
+}
+.evidence p {
+  margin: 8px 12px;
+  font-size: 12px;
+}
+.reason {
+  margin: 8px 0;
+  color: #929292;
+  font-size: 12px;
+}
+.reason summary {
+  cursor: pointer;
+  padding: 4px 0;
+}
+.reason > div {
+  max-height: 180px;
+  overflow: auto;
+  padding: 8px 10px;
+}
+.update {
+  margin: 10px 0;
+  color: #b4b4b4;
+  max-width: 78ch;
+}
+.response {
+  margin-top: 18px;
+}
+.responseHeading {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  color: #b9cbbd;
+  font-size: 12px;
+  font-weight: 500;
+}
+.transcript .copy {
+  padding-top: 10px;
+  color: #e4e4e4;
+  font-size: 14px;
+  line-height: 1.75;
+  overflow-wrap: anywhere;
+}
+.copy pre {
+  max-height: 320px;
+  overflow: auto;
+}
+.incomplete {
+  margin: 14px 0;
+  color: #b1a69b;
+  font-size: 12px;
+}
+@media (max-width: 600px) {
+  .workDetails {
+    padding-left: 12px;
+  }
+  .current {
+    display: none;
+  }
+  .transcript .copy {
+    font-size: 13px;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .transcript * {
+    transition: none !important;
+  }
+}

@@ -6,8 +6,9 @@ Native desktop application for RIFT built with [Tauri](https://tauri.app/).
 
 The desktop app wraps the RIFT web application in a native shell, providing:
 
-- **Native window** with system integration
-- **Auto-updates** via Tauri's updater plugin
+- **Native window** with system integration and macOS vibrancy
+- **Local PTY and command bridge** for desktop terminal workflows
+- **Deep-link authentication** back into the existing main window
 - **Cross-platform** builds for macOS, Windows, and Linux
 
 ## Prerequisites
@@ -16,7 +17,7 @@ The desktop app wraps the RIFT web application in a native shell, providing:
 
 - **Node.js** 20+
 - **pnpm** 9+
-- **Rust** 1.70+ ([install](https://rustup.rs/))
+- **Rust** 1.78+ ([install](https://rustup.rs/))
 
 ### Platform-specific
 
@@ -52,7 +53,8 @@ pnpm install
 pnpm dev
 ```
 
-This opens the desktop app pointing to `https://rift.co`.
+This opens the desktop app against the local web server at
+`http://localhost:3010`.
 
 ### Run with local web server
 
@@ -68,27 +70,18 @@ pnpm dev --config src-tauri/tauri.dev.conf.json
 
 ## Building
 
-### Development build
+### Production release build
 
 ```bash
-pnpm build
+pnpm build:prod
 ```
 
 Outputs to `src-tauri/target/release/bundle/`.
 
-### Production build with signing
-
-Set environment variables:
+From the repository root, the equivalent command is:
 
 ```bash
-export TAURI_SIGNING_PRIVATE_KEY="your-private-key"
-export TAURI_SIGNING_PRIVATE_KEY_PASSWORD="your-password"
-```
-
-Then build:
-
-```bash
-pnpm build
+pnpm desktop:build
 ```
 
 ## Architecture
@@ -98,12 +91,15 @@ pnpm build
 │                    Tauri Desktop App                        │
 ├─────────────────────────────────────────────────────────────┤
 │  Rust Backend (src-tauri/)     │  WebView                   │
-│  └─ main.rs/lib.rs             │  └─ Loads rift.co      │
-│     └─ Plugin registration     │     (uses web auth flow)   │
+│  └─ main.rs/lib.rs             │  └─ Loads riftsys.app      │
+│     ├─ PTY + command bridge    │     (uses web auth flow)   │
+│     └─ Deep-link auth          │                            │
 └─────────────────────────────────────────────────────────────┘
 ```
 
-The app is a thin native wrapper around the web application. Authentication and all features are handled by the web app.
+The web application owns the product UI and authentication. The native Rust
+layer retains the local PTY, command execution, file access, and deep-link
+bridges required by desktop-only workflows.
 
 ## CI/CD
 
@@ -133,43 +129,32 @@ Go to Actions → "Build Desktop App" → Run workflow
 
 ### macOS
 
-1. Get an Apple Developer ID certificate
-2. Export as `.p12` file
+Local and certificate-free CI builds use Tauri's `-` pseudo-identity so the
+entire `.app` bundle receives a valid ad-hoc signature. This prevents malformed
+bundle signatures, but macOS can still require users to explicitly allow the
+app in Privacy & Security.
+
+Public downloads must be signed and notarized with a Developer ID Application
+certificate. To enable that release path:
+
+1. Get an Apple Developer ID Application certificate.
+2. Export it as a `.p12` file.
 3. Set in CI:
    - `APPLE_CERTIFICATE` (base64-encoded .p12)
    - `APPLE_CERTIFICATE_PASSWORD`
    - `APPLE_SIGNING_IDENTITY`
+   - `APPLE_ID`
+   - `APPLE_PASSWORD` (app-specific password)
+   - `APPLE_TEAM_ID`
+
+The macOS CI job verifies every generated app with
+`codesign --verify --deep --strict` before uploading it.
 
 ### Windows
 
 1. Get an EV code signing certificate
 2. Set in CI:
    - Certificate details (varies by provider)
-
-### Auto-update signing
-
-Generate a key pair:
-
-```bash
-pnpm tauri signer generate -w ~/.tauri/rift.key
-```
-
-Set in CI:
-
-- `TAURI_SIGNING_PRIVATE_KEY`
-- `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`
-
-Update `tauri.conf.json` with your public key:
-
-```json
-{
-  "plugins": {
-    "updater": {
-      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6..."
-    }
-  }
-}
-```
 
 ## Troubleshooting
 

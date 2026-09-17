@@ -2,28 +2,28 @@ import { Page, expect } from "@playwright/test";
 import { BasePage } from "./BasePage";
 import { SidebarComponent } from "./SidebarComponent";
 import { UserMenuComponent } from "./UserMenuComponent";
-import { SettingsDialog, SettingsTab } from "./SettingsDialog";
+import { SettingsPage, SettingsSection } from "./SettingsPage";
 
 export class HomePage extends BasePage {
   readonly sidebar: SidebarComponent;
   readonly userMenu: UserMenuComponent;
-  readonly settingsDialog: SettingsDialog;
+  readonly settings: SettingsPage;
 
   constructor(page: Page) {
     super(page);
     this.sidebar = new SidebarComponent(page);
     this.userMenu = new UserMenuComponent(page);
-    this.settingsDialog = new SettingsDialog(page);
+    this.settings = new SettingsPage(page);
   }
 
-  async openSettingsDialog(): Promise<void> {
+  async openSettings(): Promise<void> {
     await this.userMenu.openSettings();
-    await this.settingsDialog.expectVisible();
+    await this.settings.expectVisible();
   }
 
-  async navigateToSettingsTab(tab: SettingsTab): Promise<void> {
-    await this.openSettingsDialog();
-    await this.settingsDialog.navigateToTab(tab);
+  async navigateToSettingsSection(section: SettingsSection): Promise<void> {
+    await this.openSettings();
+    await this.settings.goToSection(section);
   }
 
   async verifySessionPersistence(): Promise<void> {

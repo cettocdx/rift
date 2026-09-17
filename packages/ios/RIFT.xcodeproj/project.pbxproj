@@ -1,0 +1,641 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {
+	};
+	objectVersion = 77;
+	objects = {
+
+/* Begin PBXBuildFile section */
+		0544E0DA70AA6119C536B99A /* ReasoningIndicator.swift in Sources */ = {isa = PBXBuildFile; fileRef = 29B9A226743AC9FFB86CCE5B /* ReasoningIndicator.swift */; };
+		068CCEABD0C9E0AEDD0D129E /* RIFTApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0D76E2A009BFD0A7D4443ED7 /* RIFTApp.swift */; };
+		07ECACC1125AC7E520E07182 /* ModelPickerLayoutTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1B96512D91083F496AE8EB7E /* ModelPickerLayoutTests.swift */; };
+		0B48C1E964CAB4142584C2F2 /* AgentActivityTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 75DA6EEFBA023CA236288D2F /* AgentActivityTests.swift */; };
+		0DCA4E5F44E02A0BCAB08601 /* NativeHackHeader.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0AD1F1369FC15ADE8005E1B5 /* NativeHackHeader.swift */; };
+		158F800887D93D5CD3BA6419 /* WorkspaceView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5F15DB416A8B8274AFB93C63 /* WorkspaceView.swift */; };
+		2275E18107E65633A7E218E6 /* NativeModelPicker.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3252974CF4C828F2E5684443 /* NativeModelPicker.swift */; };
+		26204C7AC60A533FB09F480A /* NavigationRaceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B054F6ECCCC660C5EC883EDF /* NavigationRaceTests.swift */; };
+		2BF8FC92C052420934739CE3 /* NativeAssessmentReport.swift in Sources */ = {isa = PBXBuildFile; fileRef = E47FF947B99587ACE200035E /* NativeAssessmentReport.swift */; };
+		2EAA96D0DE775DA5634A812D /* SessionPersistenceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 536FEBFAA3CBD5B988A6C513 /* SessionPersistenceTests.swift */; };
+		30D4D683CB2DAC7227716F44 /* AssessmentFinding.swift in Sources */ = {isa = PBXBuildFile; fileRef = 219B298361E45CC6D0A8B027 /* AssessmentFinding.swift */; };
+		3469AB193B87DCF74889E4E3 /* NativeActivityHistoryTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9039A86D02AEFC8D22EBA09B /* NativeActivityHistoryTests.swift */; };
+		5C3F735686E7DE279E216C33 /* HackTaskCatalog.swift in Sources */ = {isa = PBXBuildFile; fileRef = F0B71BD512ABDC1A5A654A91 /* HackTaskCatalog.swift */; };
+		5FE8E53A377085667A744D28 /* RIFTService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8B124C2F3AB4F226A03A164F /* RIFTService.swift */; };
+		60E622B97A4EB100C68DAD3A /* AgentActivity.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3EC0870FE06285DC18D4E43F /* AgentActivity.swift */; };
+		62C1207220648DDEAC63B424 /* NativeQuestions.swift in Sources */ = {isa = PBXBuildFile; fileRef = E21B4E58CA2950BD74EDB566 /* NativeQuestions.swift */; };
+		6BED31940549EB7C9A3CC8D7 /* NativeArtifactView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7BCC919A4D116F4692FD03D8 /* NativeArtifactView.swift */; };
+		822A1A3CA1B8062370395576 /* StreamTextReducerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 143235993486D44A08206CD4 /* StreamTextReducerTests.swift */; };
+		888103024742D384347B5673 /* AssessmentFindingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 07A66C061CAB2AF737EBC0A4 /* AssessmentFindingTests.swift */; };
+		8B7559A1D99F90AAC16FD8EF /* WorkingLabel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 57B2EE66D09BD031D4FB1D49 /* WorkingLabel.swift */; };
+		949FD381C7FEFDC9E3657415 /* NativeFileResultTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 84CA8CDC0816E52E18C3F05A /* NativeFileResultTests.swift */; };
+		97315A520BFE4E8B20853092 /* WorkbenchNavigationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C3E67DA1AD7EDB426E32DDA7 /* WorkbenchNavigationTests.swift */; };
+		A08BB845DF0E3E7CB35B4A70 /* NavigationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4DDC5A2A0EBC85A3FFE289F1 /* NavigationTests.swift */; };
+		A3C33C3E0831F633C5F6961D /* ConversationHistoryTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = CEFBB621C099B38EEA2F8B34 /* ConversationHistoryTests.swift */; };
+		A7B6AAD64B08DFF69290F3E9 /* Providers.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = F871AFF7DA1DA7BEEC04DA04 /* Providers.xcassets */; };
+		B8791979A345FA54F13DE738 /* NativeFileResult.swift in Sources */ = {isa = PBXBuildFile; fileRef = BD371DEDE4C277B7E45B2CA1 /* NativeFileResult.swift */; };
+		BC97B423C0DE85A1572E8E1E /* RIFTStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1C091ABD555294A83CA0B6E0 /* RIFTStore.swift */; };
+		D2B7D27B4DF70588E9AAC963 /* NativeAttachment.swift in Sources */ = {isa = PBXBuildFile; fileRef = 343A2E24401670E768ED9CE8 /* NativeAttachment.swift */; };
+		D5ADB759C5A5E66B20B47765 /* NativeWorkspacePanel.swift in Sources */ = {isa = PBXBuildFile; fileRef = D10AD52CF217108119A5C1CB /* NativeWorkspacePanel.swift */; };
+		D796B9B82A4B8ACF4BF829DC /* NativeSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F718C25D3EC856106129208E /* NativeSettingsView.swift */; };
+		D7F5FC32268BE53F4F62FCF2 /* ModelCatalogTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8A036E624AD2B5EC1678CFB3 /* ModelCatalogTests.swift */; };
+		D8A969347B0E907315DDE720 /* LiveMobileTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9BF03A944DBEABE69C95597B /* LiveMobileTests.swift */; };
+		DA1599004344AC7CA13AB394 /* NativeQuestionParserTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6A9B3A6075B64C406025771A /* NativeQuestionParserTests.swift */; };
+		DE2A8EA8C59CD807E002A593 /* RIFTIcon.icon in Resources */ = {isa = PBXBuildFile; fileRef = 35FC8EF5B531FD2280E1DDDC /* RIFTIcon.icon */; };
+		EB045E338F433E70391A2FE5 /* NativeActivityHistory.swift in Sources */ = {isa = PBXBuildFile; fileRef = B3FA2A1220F04AEBEED954CB /* NativeActivityHistory.swift */; };
+/* End PBXBuildFile section */
+
+/* Begin PBXContainerItemProxy section */
+		12DD98E0FD57DAAF0065CD2C /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 0230E3A8718E88AD65FEB170 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = F4DCACE9AB2F81E60E51C58F;
+			remoteInfo = RIFT;
+		};
+		2D20DD39690A0DDDB0FEA5BA /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 0230E3A8718E88AD65FEB170 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = F4DCACE9AB2F81E60E51C58F;
+			remoteInfo = RIFT;
+		};
+/* End PBXContainerItemProxy section */
+
+/* Begin PBXFileReference section */
+		07A66C061CAB2AF737EBC0A4 /* AssessmentFindingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AssessmentFindingTests.swift; sourceTree = "<group>"; };
+		0AD1F1369FC15ADE8005E1B5 /* NativeHackHeader.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeHackHeader.swift; sourceTree = "<group>"; };
+		0D76E2A009BFD0A7D4443ED7 /* RIFTApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RIFTApp.swift; sourceTree = "<group>"; };
+		143235993486D44A08206CD4 /* StreamTextReducerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StreamTextReducerTests.swift; sourceTree = "<group>"; };
+		1B96512D91083F496AE8EB7E /* ModelPickerLayoutTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ModelPickerLayoutTests.swift; sourceTree = "<group>"; };
+		1C091ABD555294A83CA0B6E0 /* RIFTStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RIFTStore.swift; sourceTree = "<group>"; };
+		219B298361E45CC6D0A8B027 /* AssessmentFinding.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AssessmentFinding.swift; sourceTree = "<group>"; };
+		29B9A226743AC9FFB86CCE5B /* ReasoningIndicator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReasoningIndicator.swift; sourceTree = "<group>"; };
+		3252974CF4C828F2E5684443 /* NativeModelPicker.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeModelPicker.swift; sourceTree = "<group>"; };
+		343A2E24401670E768ED9CE8 /* NativeAttachment.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeAttachment.swift; sourceTree = "<group>"; };
+		35FC8EF5B531FD2280E1DDDC /* RIFTIcon.icon */ = {isa = PBXFileReference; lastKnownFileType = wrapper.icon; path = RIFTIcon.icon; sourceTree = "<group>"; };
+		3EC0870FE06285DC18D4E43F /* AgentActivity.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentActivity.swift; sourceTree = "<group>"; };
+		4DDC5A2A0EBC85A3FFE289F1 /* NavigationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NavigationTests.swift; sourceTree = "<group>"; };
+		536FEBFAA3CBD5B988A6C513 /* SessionPersistenceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionPersistenceTests.swift; sourceTree = "<group>"; };
+		57B2EE66D09BD031D4FB1D49 /* WorkingLabel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkingLabel.swift; sourceTree = "<group>"; };
+		5EE326CFE4B08D53F9B58A98 /* RIFT.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = RIFT.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		5F15DB416A8B8274AFB93C63 /* WorkspaceView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceView.swift; sourceTree = "<group>"; };
+		6A9B3A6075B64C406025771A /* NativeQuestionParserTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeQuestionParserTests.swift; sourceTree = "<group>"; };
+		754C45F518CAAB7EDDDFA2C8 /* RIFTTests.xctest */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.cfbundle; path = RIFTTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		75DA6EEFBA023CA236288D2F /* AgentActivityTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentActivityTests.swift; sourceTree = "<group>"; };
+		7BCC919A4D116F4692FD03D8 /* NativeArtifactView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeArtifactView.swift; sourceTree = "<group>"; };
+		84CA8CDC0816E52E18C3F05A /* NativeFileResultTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeFileResultTests.swift; sourceTree = "<group>"; };
+		8A036E624AD2B5EC1678CFB3 /* ModelCatalogTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ModelCatalogTests.swift; sourceTree = "<group>"; };
+		8B124C2F3AB4F226A03A164F /* RIFTService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RIFTService.swift; sourceTree = "<group>"; };
+		9039A86D02AEFC8D22EBA09B /* NativeActivityHistoryTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeActivityHistoryTests.swift; sourceTree = "<group>"; };
+		9BF03A944DBEABE69C95597B /* LiveMobileTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LiveMobileTests.swift; sourceTree = "<group>"; };
+		B054F6ECCCC660C5EC883EDF /* NavigationRaceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NavigationRaceTests.swift; sourceTree = "<group>"; };
+		B3FA2A1220F04AEBEED954CB /* NativeActivityHistory.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeActivityHistory.swift; sourceTree = "<group>"; };
+		BD371DEDE4C277B7E45B2CA1 /* NativeFileResult.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeFileResult.swift; sourceTree = "<group>"; };
+		C3E67DA1AD7EDB426E32DDA7 /* WorkbenchNavigationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkbenchNavigationTests.swift; sourceTree = "<group>"; };
+		CEFBB621C099B38EEA2F8B34 /* ConversationHistoryTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConversationHistoryTests.swift; sourceTree = "<group>"; };
+		D10AD52CF217108119A5C1CB /* NativeWorkspacePanel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeWorkspacePanel.swift; sourceTree = "<group>"; };
+		E21B4E58CA2950BD74EDB566 /* NativeQuestions.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeQuestions.swift; sourceTree = "<group>"; };
+		E47FF947B99587ACE200035E /* NativeAssessmentReport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeAssessmentReport.swift; sourceTree = "<group>"; };
+		F0B71BD512ABDC1A5A654A91 /* HackTaskCatalog.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HackTaskCatalog.swift; sourceTree = "<group>"; };
+		F718C25D3EC856106129208E /* NativeSettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeSettingsView.swift; sourceTree = "<group>"; };
+		F871AFF7DA1DA7BEEC04DA04 /* Providers.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Providers.xcassets; sourceTree = "<group>"; };
+		F9A2B0A84911A2EA256C487A /* RIFTUITests.xctest */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.cfbundle; path = RIFTUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+/* End PBXFileReference section */
+
+/* Begin PBXGroup section */
+		0EEEC3FC6A004D52069729C7 /* Resources */ = {
+			isa = PBXGroup;
+			children = (
+				F871AFF7DA1DA7BEEC04DA04 /* Providers.xcassets */,
+				35FC8EF5B531FD2280E1DDDC /* RIFTIcon.icon */,
+			);
+			path = Resources;
+			sourceTree = "<group>";
+		};
+		10D4F6AEB239946232E9BC83 /* Sources */ = {
+			isa = PBXGroup;
+			children = (
+				3EC0870FE06285DC18D4E43F /* AgentActivity.swift */,
+				219B298361E45CC6D0A8B027 /* AssessmentFinding.swift */,
+				F0B71BD512ABDC1A5A654A91 /* HackTaskCatalog.swift */,
+				B3FA2A1220F04AEBEED954CB /* NativeActivityHistory.swift */,
+				7BCC919A4D116F4692FD03D8 /* NativeArtifactView.swift */,
+				E47FF947B99587ACE200035E /* NativeAssessmentReport.swift */,
+				343A2E24401670E768ED9CE8 /* NativeAttachment.swift */,
+				BD371DEDE4C277B7E45B2CA1 /* NativeFileResult.swift */,
+				0AD1F1369FC15ADE8005E1B5 /* NativeHackHeader.swift */,
+				3252974CF4C828F2E5684443 /* NativeModelPicker.swift */,
+				E21B4E58CA2950BD74EDB566 /* NativeQuestions.swift */,
+				F718C25D3EC856106129208E /* NativeSettingsView.swift */,
+				D10AD52CF217108119A5C1CB /* NativeWorkspacePanel.swift */,
+				29B9A226743AC9FFB86CCE5B /* ReasoningIndicator.swift */,
+				0D76E2A009BFD0A7D4443ED7 /* RIFTApp.swift */,
+				8B124C2F3AB4F226A03A164F /* RIFTService.swift */,
+				1C091ABD555294A83CA0B6E0 /* RIFTStore.swift */,
+				57B2EE66D09BD031D4FB1D49 /* WorkingLabel.swift */,
+				5F15DB416A8B8274AFB93C63 /* WorkspaceView.swift */,
+			);
+			path = Sources;
+			sourceTree = "<group>";
+		};
+		3EF3F8EC8E6FEBBD6FC27AA4 = {
+			isa = PBXGroup;
+			children = (
+				0EEEC3FC6A004D52069729C7 /* Resources */,
+				10D4F6AEB239946232E9BC83 /* Sources */,
+				485A07ADAEE312BE5768D375 /* Tests */,
+				C2CE840E900F6E5A7379F0B2 /* UITests */,
+				8EFDD55ECA425F76EB8F9E03 /* Products */,
+			);
+			sourceTree = "<group>";
+		};
+		485A07ADAEE312BE5768D375 /* Tests */ = {
+			isa = PBXGroup;
+			children = (
+				75DA6EEFBA023CA236288D2F /* AgentActivityTests.swift */,
+				07A66C061CAB2AF737EBC0A4 /* AssessmentFindingTests.swift */,
+				CEFBB621C099B38EEA2F8B34 /* ConversationHistoryTests.swift */,
+				8A036E624AD2B5EC1678CFB3 /* ModelCatalogTests.swift */,
+				1B96512D91083F496AE8EB7E /* ModelPickerLayoutTests.swift */,
+				9039A86D02AEFC8D22EBA09B /* NativeActivityHistoryTests.swift */,
+				84CA8CDC0816E52E18C3F05A /* NativeFileResultTests.swift */,
+				6A9B3A6075B64C406025771A /* NativeQuestionParserTests.swift */,
+				B054F6ECCCC660C5EC883EDF /* NavigationRaceTests.swift */,
+				536FEBFAA3CBD5B988A6C513 /* SessionPersistenceTests.swift */,
+				143235993486D44A08206CD4 /* StreamTextReducerTests.swift */,
+			);
+			path = Tests;
+			sourceTree = "<group>";
+		};
+		8EFDD55ECA425F76EB8F9E03 /* Products */ = {
+			isa = PBXGroup;
+			children = (
+				5EE326CFE4B08D53F9B58A98 /* RIFT.app */,
+				754C45F518CAAB7EDDDFA2C8 /* RIFTTests.xctest */,
+				F9A2B0A84911A2EA256C487A /* RIFTUITests.xctest */,
+			);
+			name = Products;
+			sourceTree = "<group>";
+		};
+		C2CE840E900F6E5A7379F0B2 /* UITests */ = {
+			isa = PBXGroup;
+			children = (
+				9BF03A944DBEABE69C95597B /* LiveMobileTests.swift */,
+				4DDC5A2A0EBC85A3FFE289F1 /* NavigationTests.swift */,
+				C3E67DA1AD7EDB426E32DDA7 /* WorkbenchNavigationTests.swift */,
+			);
+			path = UITests;
+			sourceTree = "<group>";
+		};
+/* End PBXGroup section */
+
+/* Begin PBXNativeTarget section */
+		71FC95C4D5DF9F1D85D900C1 /* RIFTUITests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = BECFA385C2979DBC58732C08 /* Build configuration list for PBXNativeTarget "RIFTUITests" */;
+			buildPhases = (
+				8539BF3EE34A1FBE48073593 /* Sources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				70798F028F8814DA158A7E89 /* PBXTargetDependency */,
+			);
+			name = RIFTUITests;
+			packageProductDependencies = (
+			);
+			productName = RIFTUITests;
+			productReference = F9A2B0A84911A2EA256C487A /* RIFTUITests.xctest */;
+			productType = "com.apple.product-type.bundle.ui-testing";
+		};
+		9966117E1DDEE0C1C339D422 /* RIFTTests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = C0AAABB69BA82A68B86F2696 /* Build configuration list for PBXNativeTarget "RIFTTests" */;
+			buildPhases = (
+				0C42EFBA679818DF908AECA9 /* Sources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				365CFA489DDC6B96547D2B8A /* PBXTargetDependency */,
+			);
+			name = RIFTTests;
+			packageProductDependencies = (
+			);
+			productName = RIFTTests;
+			productReference = 754C45F518CAAB7EDDDFA2C8 /* RIFTTests.xctest */;
+			productType = "com.apple.product-type.bundle.unit-test";
+		};
+		F4DCACE9AB2F81E60E51C58F /* RIFT */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 226B431872FEC1374AE12927 /* Build configuration list for PBXNativeTarget "RIFT" */;
+			buildPhases = (
+				8FFB4AB3523212862C8C5599 /* Sources */,
+				44E05C02D734359A05BC5845 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = RIFT;
+			packageProductDependencies = (
+			);
+			productName = RIFT;
+			productReference = 5EE326CFE4B08D53F9B58A98 /* RIFT.app */;
+			productType = "com.apple.product-type.application";
+		};
+/* End PBXNativeTarget section */
+
+/* Begin PBXProject section */
+		0230E3A8718E88AD65FEB170 /* Project object */ = {
+			isa = PBXProject;
+			attributes = {
+				BuildIndependentTargetsInParallel = YES;
+				LastUpgradeCheck = 1430;
+				TargetAttributes = {
+					71FC95C4D5DF9F1D85D900C1 = {
+						ProvisioningStyle = Automatic;
+						TestTargetID = F4DCACE9AB2F81E60E51C58F;
+					};
+					9966117E1DDEE0C1C339D422 = {
+						ProvisioningStyle = Automatic;
+					};
+					F4DCACE9AB2F81E60E51C58F = {
+						ProvisioningStyle = Automatic;
+					};
+				};
+			};
+			buildConfigurationList = C2E86DEE01861B7A350B6FBF /* Build configuration list for PBXProject "RIFT" */;
+			developmentRegion = en;
+			hasScannedForEncodings = 0;
+			knownRegions = (
+				Base,
+				en,
+			);
+			mainGroup = 3EF3F8EC8E6FEBBD6FC27AA4;
+			minimizedProjectReferenceProxies = 1;
+			preferredProjectObjectVersion = 77;
+			productRefGroup = 8EFDD55ECA425F76EB8F9E03 /* Products */;
+			projectDirPath = "";
+			projectRoot = "";
+			targets = (
+				F4DCACE9AB2F81E60E51C58F /* RIFT */,
+				9966117E1DDEE0C1C339D422 /* RIFTTests */,
+				71FC95C4D5DF9F1D85D900C1 /* RIFTUITests */,
+			);
+		};
+/* End PBXProject section */
+
+/* Begin PBXResourcesBuildPhase section */
+		44E05C02D734359A05BC5845 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				A7B6AAD64B08DFF69290F3E9 /* Providers.xcassets in Resources */,
+				DE2A8EA8C59CD807E002A593 /* RIFTIcon.icon in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXResourcesBuildPhase section */
+
+/* Begin PBXSourcesBuildPhase section */
+		0C42EFBA679818DF908AECA9 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				0B48C1E964CAB4142584C2F2 /* AgentActivityTests.swift in Sources */,
+				888103024742D384347B5673 /* AssessmentFindingTests.swift in Sources */,
+				A3C33C3E0831F633C5F6961D /* ConversationHistoryTests.swift in Sources */,
+				D7F5FC32268BE53F4F62FCF2 /* ModelCatalogTests.swift in Sources */,
+				07ECACC1125AC7E520E07182 /* ModelPickerLayoutTests.swift in Sources */,
+				3469AB193B87DCF74889E4E3 /* NativeActivityHistoryTests.swift in Sources */,
+				949FD381C7FEFDC9E3657415 /* NativeFileResultTests.swift in Sources */,
+				DA1599004344AC7CA13AB394 /* NativeQuestionParserTests.swift in Sources */,
+				26204C7AC60A533FB09F480A /* NavigationRaceTests.swift in Sources */,
+				2EAA96D0DE775DA5634A812D /* SessionPersistenceTests.swift in Sources */,
+				822A1A3CA1B8062370395576 /* StreamTextReducerTests.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		8539BF3EE34A1FBE48073593 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				D8A969347B0E907315DDE720 /* LiveMobileTests.swift in Sources */,
+				A08BB845DF0E3E7CB35B4A70 /* NavigationTests.swift in Sources */,
+				97315A520BFE4E8B20853092 /* WorkbenchNavigationTests.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		8FFB4AB3523212862C8C5599 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				60E622B97A4EB100C68DAD3A /* AgentActivity.swift in Sources */,
+				30D4D683CB2DAC7227716F44 /* AssessmentFinding.swift in Sources */,
+				5C3F735686E7DE279E216C33 /* HackTaskCatalog.swift in Sources */,
+				EB045E338F433E70391A2FE5 /* NativeActivityHistory.swift in Sources */,
+				6BED31940549EB7C9A3CC8D7 /* NativeArtifactView.swift in Sources */,
+				2BF8FC92C052420934739CE3 /* NativeAssessmentReport.swift in Sources */,
+				D2B7D27B4DF70588E9AAC963 /* NativeAttachment.swift in Sources */,
+				B8791979A345FA54F13DE738 /* NativeFileResult.swift in Sources */,
+				0DCA4E5F44E02A0BCAB08601 /* NativeHackHeader.swift in Sources */,
+				2275E18107E65633A7E218E6 /* NativeModelPicker.swift in Sources */,
+				62C1207220648DDEAC63B424 /* NativeQuestions.swift in Sources */,
+				D796B9B82A4B8ACF4BF829DC /* NativeSettingsView.swift in Sources */,
+				D5ADB759C5A5E66B20B47765 /* NativeWorkspacePanel.swift in Sources */,
+				068CCEABD0C9E0AEDD0D129E /* RIFTApp.swift in Sources */,
+				5FE8E53A377085667A744D28 /* RIFTService.swift in Sources */,
+				BC97B423C0DE85A1572E8E1E /* RIFTStore.swift in Sources */,
+				0544E0DA70AA6119C536B99A /* ReasoningIndicator.swift in Sources */,
+				8B7559A1D99F90AAC16FD8EF /* WorkingLabel.swift in Sources */,
+				158F800887D93D5CD3BA6419 /* WorkspaceView.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXSourcesBuildPhase section */
+
+/* Begin PBXTargetDependency section */
+		365CFA489DDC6B96547D2B8A /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = F4DCACE9AB2F81E60E51C58F /* RIFT */;
+			targetProxy = 2D20DD39690A0DDDB0FEA5BA /* PBXContainerItemProxy */;
+		};
+		70798F028F8814DA158A7E89 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = F4DCACE9AB2F81E60E51C58F /* RIFT */;
+			targetProxy = 12DD98E0FD57DAAF0065CD2C /* PBXContainerItemProxy */;
+		};
+/* End PBXTargetDependency section */
+
+/* Begin XCBuildConfiguration section */
+		06B7E50355BCA46E5CC2CE36 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = RIFTIcon;
+				CODE_SIGN_IDENTITY = "iPhone Developer";
+				CURRENT_PROJECT_VERSION = 6;
+				INFOPLIST_FILE = Info.plist;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				MARKETING_VERSION = 0.1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = app.riftsys.ios;
+				SDKROOT = iphoneos;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Release;
+		};
+		06DBCD263305BCC574ACE84F /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++14";
+				CLANG_CXX_LIBRARY = "libc++";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				CODE_SIGN_STYLE = Automatic;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+				ENABLE_NS_ASSERTIONS = NO;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu11;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				GENERATE_INFOPLIST_FILE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 18.0;
+				MTL_ENABLE_DEBUG_INFO = NO;
+				MTL_FAST_MATH = YES;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				RIFT_SERVER_URL = "https://riftsys.app";
+				SDKROOT = iphoneos;
+				SWIFT_COMPILATION_MODE = wholemodule;
+				SWIFT_OPTIMIZATION_LEVEL = "-O";
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Release;
+		};
+		1251247AC6705FBF32334CA1 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@loader_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = app.riftsys.RIFTTests;
+				SDKROOT = iphoneos;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/RIFT.app/RIFT";
+			};
+			name = Debug;
+		};
+		42FD72A60ABBE0A98FEA0210 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@loader_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = app.riftsys.RIFTTests;
+				SDKROOT = iphoneos;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/RIFT.app/RIFT";
+			};
+			name = Release;
+		};
+		9511A0FC7147D2B2A6FBEFCA /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@loader_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = app.riftsys.RIFTUITests;
+				SDKROOT = iphoneos;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_TARGET_NAME = RIFT;
+			};
+			name = Debug;
+		};
+		A79BE39530E7A9C2072680E4 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++14";
+				CLANG_CXX_LIBRARY = "libc++";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				CODE_SIGN_STYLE = Automatic;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = dwarf;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_TESTABILITY = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu11;
+				GCC_DYNAMIC_NO_PIC = NO;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_OPTIMIZATION_LEVEL = 0;
+				GCC_PREPROCESSOR_DEFINITIONS = (
+					"$(inherited)",
+					"DEBUG=1",
+				);
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				GENERATE_INFOPLIST_FILE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 18.0;
+				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
+				MTL_FAST_MATH = YES;
+				ONLY_ACTIVE_ARCH = YES;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				RIFT_SERVER_URL = "http://localhost:3046";
+				SDKROOT = iphoneos;
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = DEBUG;
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Debug;
+		};
+		DE5D927BF6332110EC6E89AF /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = RIFTIcon;
+				CODE_SIGN_IDENTITY = "iPhone Developer";
+				CURRENT_PROJECT_VERSION = 6;
+				INFOPLIST_FILE = Info.plist;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				MARKETING_VERSION = 0.1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = app.riftsys.ios;
+				SDKROOT = iphoneos;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Debug;
+		};
+		E8F97E7C66A626B5EC62A238 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@loader_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = app.riftsys.RIFTUITests;
+				SDKROOT = iphoneos;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_TARGET_NAME = RIFT;
+			};
+			name = Release;
+		};
+/* End XCBuildConfiguration section */
+
+/* Begin XCConfigurationList section */
+		226B431872FEC1374AE12927 /* Build configuration list for PBXNativeTarget "RIFT" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				DE5D927BF6332110EC6E89AF /* Debug */,
+				06B7E50355BCA46E5CC2CE36 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+		BECFA385C2979DBC58732C08 /* Build configuration list for PBXNativeTarget "RIFTUITests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				9511A0FC7147D2B2A6FBEFCA /* Debug */,
+				E8F97E7C66A626B5EC62A238 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+		C0AAABB69BA82A68B86F2696 /* Build configuration list for PBXNativeTarget "RIFTTests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				1251247AC6705FBF32334CA1 /* Debug */,
+				42FD72A60ABBE0A98FEA0210 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+		C2E86DEE01861B7A350B6FBF /* Build configuration list for PBXProject "RIFT" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				A79BE39530E7A9C2072680E4 /* Debug */,
+				06DBCD263305BCC574ACE84F /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+/* End XCConfigurationList section */
+	};
+	rootObject = 0230E3A8718E88AD65FEB170 /* Project object */;
+}

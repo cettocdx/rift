@@ -1,0 +1,1466 @@
+/* Rift workspace system. Geometry belongs here; user-selected palettes stay
+   in appearance/presets. Marketing and the dedicated terminal keep their own UI. */
+html :is(.pro-shell, body[data-rift-shell-pro]) {
+  --rift-type-body: var(--rift-ui-font-size, 13px);
+  --rift-type-nav: calc(var(--rift-type-body) - 0.5px);
+  --rift-type-label: calc(var(--rift-type-body) - 1px);
+  --rift-type-caption: calc(var(--rift-type-body) - 2px);
+  --rift-type-title: calc(var(--rift-type-body) + 5px);
+  --rift-sidebar-row-height: 30px;
+  --rift-control-radius: 8px;
+  --rift-composer-radius: 12px;
+  --rift-action: #006cde;
+  --rift-highlight: rgb(255 255 255 / 0.8);
+  --rift-control-shadow:
+    0 1px 2px rgb(24 30 45 / 0.08), inset 0 1px 0 var(--rift-highlight);
+  --rift-panel-shadow:
+    0 3px 12px rgb(24 30 45 / 0.035), inset 0 1px 0 var(--rift-highlight);
+}
+html.dark :is(.pro-shell, body[data-rift-shell-pro]) {
+  --rift-action: #0a84ff;
+  --rift-highlight: rgb(255 255 255 / 0.07);
+  --rift-control-shadow:
+    0 1px 2px rgb(0 0 0 / 0.22), inset 0 1px 0 var(--rift-highlight);
+  --rift-panel-shadow:
+    0 4px 18px rgb(0 0 0 / 0.14), inset 0 1px 0 var(--rift-highlight);
+}
+html[data-rift-appearance="ready"] :is(.pro-shell, body[data-rift-shell-pro]) {
+  /* Text roles come from the shared appearance tokens in globals.css.
+     Do not dilute them again here: this also affects portalled menus. */
+  --sidebar-accent: color-mix(in srgb, var(--foreground) 6%, var(--background));
+  --pro-selection: var(--sidebar-accent);
+  --pro-sidebar-bg: var(--sidebar);
+  --pro-main-bg: var(--background);
+  --pro-terminal-bg: var(--background);
+  --popover: color-mix(in srgb, var(--background) 98%, var(--foreground));
+  --border-strong: color-mix(in srgb, var(--border) 92%, var(--foreground));
+  --pro-border-strong: var(--border-strong);
+  /* Focus must stay neutral, including menus portalled to body. The action
+     accent is deliberately independent from the keyboard/field indicator. */
+  --ring: color-mix(in srgb, var(--foreground) 48%, var(--background));
+  --sidebar-ring: var(--ring);
+  --fill-input-chat: var(--background);
+}
+html[data-rift-contrast="high"] :is(.pro-shell, body[data-rift-shell-pro]) {
+  --cursor-text-secondary: var(--foreground);
+  --cursor-text-tertiary: var(--foreground);
+  --muted-foreground: var(--foreground);
+  --border-strong: color-mix(in srgb, var(--foreground) 65%, var(--background));
+}
+.pro-shell
+  :where(button, a, input, textarea, select, [tabindex]):focus-visible {
+  outline: 1px solid var(--ring);
+  outline-offset: 1px;
+}
+.pro-shell .rift-native-window-drag-strip [data-ui="strip-rail-head"] {
+  gap: 3px;
+  padding-right: 8px;
+}
+.pro-shell .rift-native-window-drag-strip button {
+  width: 28px;
+  height: 28px;
+  border-radius: 7px;
+}
+.pro-shell[data-settings-active] [data-ui="strip-rail-head"] button {
+  display: none;
+}
+.pro-shell .pro-sidebar {
+  border-color: var(--border);
+}
+.pro-shell [data-slot="sidebar-header"] {
+  padding-inline: 12px;
+}
+.pro-shell [data-pro-sidebar-header] nav {
+  margin-bottom: 6px;
+}
+.pro-shell
+  [data-rift-sidebar-panel]
+  [data-testid^="chat-item-"][role="button"] {
+  min-height: 32px;
+  border-radius: 8px;
+}
+.pro-shell .pro-sidebar-footer {
+  height: 64px;
+  border-top-color: transparent;
+  padding: 10px 12px 14px;
+}
+.pro-shell .pro-sidebar-footer > .relative > button:last-of-type {
+  height: 34px;
+}
+
+/* The empty state leaves space for thought, then gathers the controls into
+   one writing surface. The atmosphere is confined below the work. */
+.pro-shell [data-rift-empty-stage] {
+  isolation: isolate;
+}
+.pro-shell [data-rift-empty-content] {
+  max-width: 740px;
+}
+.pro-shell [data-rift-empty-content]:has([data-studio-discovery]) {
+  max-width: 1080px;
+}
+.pro-shell .pro-empty-hero {
+  padding: 0 14px 28px;
+}
+.pro-shell .rift-welcome-title {
+  font-family: var(--font-cursor-ui);
+  font-size: var(--rift-type-title);
+  line-height: 1.35;
+  font-weight: 500;
+  letter-spacing: -0.012em;
+  text-wrap: balance;
+}
+.pro-shell [data-ui="composer-column"] {
+  max-width: 760px;
+}
+.pro-shell
+  [data-ui="composer-region"][data-centered="true"]
+  [data-ui="composer-column"] {
+  max-width: 640px;
+}
+/* Composer focus stays neutral even when the app accent is blue. */
+.rift-composer {
+  --rift-composer-focus-border: light-dark(#c8c8c8, #494949);
+}
+.rift-composer:focus-within {
+  border-color: var(--rift-composer-focus-border);
+}
+.pro-shell .pro-main [data-ui="composer-shell"] {
+  position: relative;
+  z-index: 1;
+  min-height: 106px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--rift-composer-radius);
+  background: var(--fill-input-chat);
+  box-shadow: var(--rift-panel-shadow);
+  transition:
+    border-color 160ms ease,
+    box-shadow 160ms ease;
+}
+.pro-shell .pro-main [data-ui="composer-shell"]:focus-within {
+  border-color: var(--rift-composer-focus-border);
+  box-shadow:
+    0 2px 12px rgb(0 0 0 / 0.045),
+    var(--rift-panel-shadow);
+}
+.pro-shell .pro-main [data-ui="composer-region"] textarea {
+  padding: 16px 16px 10px;
+  min-height: 62px;
+  font-size: var(--rift-type-body);
+  line-height: 20px;
+  background: transparent;
+  outline: none;
+}
+.pro-shell .pro-main [data-ui="composer-region"] textarea::placeholder {
+  color: var(--muted-foreground);
+}
+/* Dock resizing can narrow the composer without narrowing the app window. */
+[data-ui="composer-toolbar"] {
+  container: rift-composer-toolbar / inline-size;
+}
+@container rift-composer-toolbar (max-width: 560px) {
+  [data-ui="approval-mode-label"] {
+    display: none;
+  }
+}
+.pro-shell [data-ui="composer-toolbar"] {
+  gap: 6px;
+  padding: 4px 12px 12px;
+}
+.pro-shell [data-ui="composer-model-controls"] {
+  gap: 2px;
+}
+.pro-shell [data-ui="composer-toolbar"] button {
+  min-height: 30px;
+  font-size: var(--rift-type-caption);
+  font-weight: 400;
+  border-radius: var(--rift-control-radius);
+}
+.pro-shell [data-ui="composer-toolbar"] > div:first-child button {
+  width: 32px;
+  height: 32px;
+  border: 1px solid var(--border);
+  background: linear-gradient(var(--background), var(--muted));
+  box-shadow: var(--rift-control-shadow);
+}
+.pro-shell [data-ui="composer-toolbar"] [aria-label="Chat mode"] {
+  border: 0;
+  background: transparent;
+  box-shadow: none;
+  height: 32px;
+}
+.pro-shell [data-ui="composer-toolbar"] [data-testid="send-button"],
+.pro-shell [data-ui="composer-toolbar"] [aria-label="Stop generation"] {
+  width: 32px;
+  height: 32px;
+  min-width: 32px;
+  border: 1px solid color-mix(in srgb, var(--rift-action) 80%, #fff);
+  color: #fff;
+  background: var(--rift-action);
+  box-shadow: var(--rift-control-shadow);
+}
+.pro-shell [data-ui="composer-toolbar"] [data-testid="send-button"]:disabled {
+  color: var(--muted-foreground);
+  background: var(--muted);
+  border-color: var(--border);
+  box-shadow: none;
+}
+.pro-shell .rift-composer-context {
+  margin: 0 0 7px;
+  padding: 0 2px;
+  border-radius: 0;
+  background: transparent;
+}
+.pro-shell .rift-composer-context button {
+  min-height: 28px;
+}
+.pro-shell .rift-composer-context svg {
+  width: 14px;
+  height: 14px;
+}
+
+/* A categorized directory: identity and usefulness on the left, state or
+   connection on the right. Installed providers occur only once. */
+.pro-shell [data-codex-page] > div {
+  max-width: 960px;
+  padding-top: 42px;
+}
+.rift-plugins-page [role="tablist"] {
+  border: 0;
+  box-shadow: none;
+  background: var(--muted);
+}
+.rift-plugins-page [role="tab"][aria-selected="true"] {
+  background: var(--background);
+  box-shadow: var(--rift-control-shadow);
+}
+.rift-plugins-page [aria-label="Plugin categories"] button {
+  border-radius: 7px;
+  font-weight: 400;
+}
+.rift-plugins-page .rift-plugins-banner {
+  position: relative;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 28px;
+  overflow: hidden;
+  min-height: 142px;
+  padding: 28px 30px;
+  margin-bottom: 26px;
+  border: 1px solid color-mix(in srgb, var(--rift-action) 8%, var(--border));
+  border-radius: 20px;
+  color: var(--foreground);
+  background:
+    radial-gradient(
+      ellipse at 75% 0%,
+      rgb(255 255 255 / 0.95),
+      transparent 42%
+    ),
+    linear-gradient(110deg, #e8f3ff, #d8e9ff 62%, #e2f6ff);
+}
+.dark .rift-plugins-page .rift-plugins-banner {
+  background:
+    radial-gradient(ellipse at 75% 0%, #32465c, transparent 55%),
+    linear-gradient(110deg, #202d3b, #253343 62%, #263a40);
+}
+.rift-plugins-banner p {
+  max-width: 360px;
+  font-size: var(--rift-type-label);
+  line-height: 1.65;
+}
+.rift-plugins-banner .rift-plugins-banner-title {
+  margin-bottom: 6px;
+  font-size: 21px;
+  font-weight: 500;
+  letter-spacing: -0.012em;
+}
+.rift-plugins-banner-icons {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: end;
+  gap: 12px;
+  max-width: 150px;
+}
+.rift-plugins-banner-icons > * {
+  padding: 8px;
+  width: 54px;
+  height: 54px;
+  border-radius: 16px;
+  background: rgb(255 255 255 / 0.55);
+  box-shadow:
+    0 2px 6px rgb(44 96 140 / 0.06),
+    inset 0 1px rgb(255 255 255 / 0.9);
+}
+.rift-plugin-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  column-gap: 32px;
+  row-gap: 4px;
+}
+.rift-plugin-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+  min-height: 74px;
+  padding: 10px 0;
+  text-align: left;
+}
+.rift-plugin-identity {
+  display: flex;
+  align-items: center;
+  flex: 1;
+  gap: 12px;
+  min-width: 0;
+  padding: 4px;
+  margin-left: -4px;
+  border-radius: 10px;
+  text-align: left;
+}
+.rift-plugin-identity:hover {
+  background: var(--accent);
+}
+.rift-plugin-name {
+  display: block;
+  font-size: var(--rift-type-body);
+  font-weight: 500;
+  line-height: 21px;
+}
+.rift-plugin-description {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  color: var(--muted-foreground);
+  font-size: var(--rift-type-label);
+  line-height: 17px;
+  margin-top: 2px;
+}
+.rift-plugin-row .rift-plugin-action {
+  flex-shrink: 0;
+  height: 30px;
+  min-height: 30px;
+  min-width: 74px;
+  gap: 5px;
+  padding-inline: 10px;
+  font-size: var(--rift-type-label);
+  font-weight: 400;
+  border-radius: 8px;
+  border-color: var(--border-strong);
+  background: var(--background);
+  box-shadow: var(--rift-control-shadow);
+}
+.rift-plugin-state {
+  display: inline-flex;
+  align-items: center;
+  padding: 5px 9px;
+  border-radius: 8px;
+  background: var(--muted);
+  white-space: nowrap;
+}
+.rift-plugin-state > * {
+  border: 0;
+  padding: 0;
+  background: transparent;
+  color: var(--muted-foreground);
+}
+
+.pro-shell [data-rift-settings-shell] > aside {
+  background: var(--sidebar);
+}
+.pro-shell [data-rift-settings-shell] nav a {
+  height: var(--rift-sidebar-row-height);
+  font-size: 13px;
+  gap: 8px;
+}
+.pro-shell [data-rift-settings-shell] nav a > svg {
+  stroke-width: 1.5;
+}
+.pro-shell [data-rift-settings-shell] h1 {
+  font-size: var(--rift-type-title);
+  font-weight: 500;
+  letter-spacing: -0.012em;
+}
+.pro-shell .rift-settings-content > header {
+  margin-bottom: 28px;
+}
+.pro-shell [data-rift-appearance-settings] label {
+  min-height: 54px;
+}
+.pro-shell [data-rift-appearance-settings] label > span > span:first-child {
+  font-size: var(--rift-type-body);
+}
+.pro-shell [data-rift-appearance-settings] label > span > span:last-child {
+  font-size: var(--rift-type-caption);
+}
+.pro-shell [data-rift-appearance-settings] [aria-label="Base appearance"] {
+  gap: 6px;
+  padding: 5px;
+  border-radius: 12px;
+}
+.pro-shell
+  [data-rift-appearance-settings]
+  [aria-label="Base appearance"]
+  button {
+  min-height: 40px;
+  font-size: var(--rift-type-label);
+  border-radius: 8px;
+}
+.rift-usage-meter {
+  padding: 16px;
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  background: var(--muted);
+  box-shadow: inset 0 1px 0 var(--rift-highlight);
+}
+.rift-usage-segments {
+  display: flex;
+  gap: 4px;
+  margin: 16px 0 12px;
+}
+.rift-usage-segments > span {
+  height: 22px;
+  min-width: 2px;
+  flex: 1;
+  border-radius: 4px;
+  background: color-mix(in srgb, var(--foreground) 16%, transparent);
+}
+.rift-usage-segments > [data-filled="true"] {
+  background: var(--rift-action, #0a84ff);
+}
+.rift-usage-segments > [data-filled="true"][data-warning="true"] {
+  background: var(--warning);
+}
+
+@media (max-width: 1099px) {
+  .rift-plugin-grid {
+    grid-template-columns: 1fr;
+  }
+  .rift-plugins-banner-icons {
+    display: none;
+  }
+}
+@media (max-width: 767px) {
+  .pro-shell [data-codex-page] > div {
+    padding-top: 22px;
+  }
+  .pro-shell .rift-welcome-title {
+    font-size: var(--rift-type-title);
+  }
+  /* Phone composer layout is defined in mobile-chat.css. */
+  .pro-shell [data-ui="model-selector-trigger"] {
+    min-width: 0;
+    flex: 1 1 auto;
+    justify-content: flex-start;
+  }
+  .pro-shell [data-ui="model-selector-label"] {
+    display: inline;
+  }
+  .pro-shell .rift-composer-context {
+    margin-top: 5px;
+    padding-top: 4px;
+    background: transparent;
+  }
+  .rift-plugins-page .rift-plugins-banner {
+    min-height: 130px;
+    padding: 22px;
+    border-radius: 16px;
+  }
+  .rift-plugins-page .rift-plugins-banner-title {
+    font-size: 20px;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .pro-shell [data-ui="composer-shell"],
+  .pro-shell button {
+    transition: none;
+  }
+}
+
+/* Shared composer controls. */
+.pro-shell [data-ui="composer-model-controls"] {
+  padding-inline: 4px;
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--muted) 55%, transparent);
+}
+.pro-shell [data-ui="composer-toolbar"] [data-ui="chat-mode-trigger"] {
+  border: 1px solid var(--border);
+  background: linear-gradient(var(--background), var(--muted));
+  box-shadow: var(--rift-control-shadow);
+}
+html[data-rift-appearance="ready"] :is(.pro-shell, body[data-rift-shell-pro]) {
+  --input: var(--border-strong);
+}
+.pro-shell [data-rift-appearance-settings] label > span:first-child,
+.pro-shell [data-rift-appearance-settings] label select {
+  font-size: var(--rift-type-label);
+}
+.pro-shell [data-rift-appearance-settings] input[type="range"] {
+  accent-color: var(--rift-action);
+}
+.pro-shell [data-rift-empty-content].rift-studio-start {
+  max-width: 1040px;
+}
+.pro-shell .rift-studio-start > .w-full:has([data-ui="composer-region"]) {
+  max-width: 640px;
+}
+.pro-shell .rift-studio-start {
+  padding-top: 18px;
+}
+.pro-shell .rift-studio-discovery {
+  width: 100%;
+  margin-top: 36px;
+  padding-top: 0;
+  border-top: 0;
+}
+.pro-shell .rift-studio-start .pro-empty-hero {
+  padding-bottom: 24px;
+}
+.pro-shell [data-rift-empty-stage]:has(.rift-studio-start)::before {
+  display: none;
+}
+@media (max-width: 767px) {
+  .rift-plugin-identity {
+    min-height: 44px;
+  }
+  .pro-shell .rift-studio-discovery {
+    margin-top: 20px;
+  }
+}
+
+html.rift-vibrancy .pro-shell {
+  --rift-window-left-inset: 78px;
+}
+
+/* Radix renders menus outside the shell; keep the same control language there. */
+body[data-rift-shell-pro]
+  :is(
+    [data-slot="dropdown-menu-content"],
+    [data-slot="dropdown-menu-sub-content"],
+    [data-slot="popover-content"]
+  ):not([data-ui="reasoning-effort-popover"]) {
+  border-radius: 10px;
+  border-color: var(--border-strong);
+  box-shadow:
+    0 8px 28px rgb(0 0 0 / 0.12),
+    inset 0 1px 0 var(--rift-highlight);
+}
+/* The command palette owns its search focus treatment. Honor its explicit
+   opt-out without removing keyboard outlines from other portal controls. */
+body[data-rift-shell-pro]
+  :is(
+    [data-slot="dialog-content"],
+    [data-slot="dropdown-menu-content"],
+    [data-slot="popover-content"]
+  ):not([data-ui="reasoning-effort-popover"])
+  :where(button, input, textarea, a, select):focus-visible:not(
+    [cmdk-input][class~="focus-visible:outline-none"]
+  ) {
+  outline: 1px solid var(--ring);
+  outline-offset: 1px;
+}
+body[data-rift-shell-pro]
+  .rift-plugin-detail
+  button:not([data-slot="dialog-close"]) {
+  border-radius: var(--rift-control-radius);
+  box-shadow: var(--rift-control-shadow);
+}
+@media (max-width: 767px) and (pointer: coarse) {
+  body[data-rift-shell-pro] .rift-plugin-detail button {
+    min-height: 44px;
+    min-width: 44px;
+  }
+}
+
+/* Compact desktop rhythm. Width changes layout; pointer type changes hit areas. */
+.pro-shell {
+  font-size: var(--rift-type-body);
+  font-optical-sizing: auto;
+  font-synthesis: none;
+  -webkit-font-smoothing: antialiased;
+  --rift-highlight: rgb(255 255 255 / 0.88);
+}
+.pro-shell [data-rift-sidebar-panel] {
+  --sidebar-foreground: var(--foreground);
+  /* Measured from Cursor's live ui-sidebar, not its legacy agent-sidebar CSS.
+     See docs/design/2026-09-07-sidebar-reference-metrics.md. */
+  --rift-type-nav: var(--rift-type-body);
+  --rift-type-label: calc(var(--rift-type-body) - 1px);
+  --rift-type-caption: var(--rift-type-nav);
+  --rift-sidebar-font-weight: 418;
+  font-family: var(--font-cursor-ui);
+  font-size: var(--rift-type-nav);
+  font-weight: var(--rift-sidebar-font-weight);
+  line-height: 18px;
+  letter-spacing: -0.08px;
+}
+.pro-shell [data-slot="sidebar-header"] {
+  padding: 0 8px;
+}
+.pro-shell [data-pro-sidebar-header] nav {
+  margin-bottom: 1px;
+}
+.pro-shell [data-rift-sidebar-panel] .rift-sidebar-row {
+  height: var(--rift-sidebar-row-height);
+  font-size: var(--rift-type-nav);
+  font-weight: var(--rift-sidebar-font-weight);
+  line-height: 18px;
+  letter-spacing: -0.08px;
+  gap: 8px;
+  padding-inline: 6px;
+}
+.pro-shell [data-rift-sidebar-panel] .rift-sidebar-row button {
+  font: inherit;
+  letter-spacing: inherit;
+}
+.pro-shell [data-pro-sidebar-projects] {
+  padding: 4px 8px 8px;
+  border: 0;
+}
+.pro-shell [data-pro-sidebar-projects] > div:first-child {
+  height: 32px;
+  padding-inline: 6px;
+}
+.pro-shell [data-pro-sidebar-projects] > div:first-child > button:first-child,
+.pro-shell .pro-sidebar-history > div > button,
+.pro-shell [data-rift-sidebar-panel] .rift-sidebar-section-label {
+  font-size: var(--rift-type-label);
+  font-weight: var(--rift-sidebar-font-weight);
+  line-height: 16px;
+  letter-spacing: 0;
+  color: var(--cursor-text-tertiary);
+}
+.pro-shell .pro-sidebar-history {
+  padding: 0 8px;
+}
+.pro-shell [data-pro-sidebar-projects] .pro-sidebar-history {
+  padding: 8px 0 0;
+}
+.pro-shell .pro-sidebar-history > div > button {
+  height: 32px;
+  padding-inline: 6px;
+  margin-bottom: 0;
+}
+.pro-shell [data-testid="sidebar-show-all-recent"] {
+  height: var(--rift-sidebar-row-height);
+  padding-left: 30px;
+  font-weight: var(--rift-sidebar-font-weight);
+  line-height: 18px;
+  letter-spacing: -0.08px;
+}
+.pro-shell
+  [data-rift-sidebar-panel]
+  [data-testid^="chat-item-"][role="button"] {
+  height: var(--rift-sidebar-row-height);
+  min-height: var(--rift-sidebar-row-height);
+  padding-inline: 6px;
+  font-size: var(--rift-type-nav);
+  line-height: 18px;
+  letter-spacing: -0.08px;
+  border-radius: 6px;
+}
+.pro-shell [data-testid^="chat-item-"][role="button"] > div:first-child {
+  margin-right: 26px;
+}
+.rift-chat-time {
+  flex-shrink: 0;
+  color: var(--muted-foreground);
+  font-size: var(--rift-type-caption);
+  font-variant-numeric: tabular-nums;
+  line-height: 18px;
+  letter-spacing: -0.08px;
+}
+[data-testid^="chat-item-"][role="button"]:is(:hover, :focus-within)
+  .rift-chat-time {
+  opacity: 0;
+}
+@media (min-width: 768px) {
+  [data-testid^="chat-item-"][role="button"][data-active="true"]
+    .rift-chat-time {
+    opacity: 0;
+  }
+}
+.pro-shell .pro-sidebar-footer {
+  height: auto;
+  overflow: visible;
+  padding: 8px 8px 12px;
+  border: 0;
+}
+.pro-shell .pro-sidebar-footer > .relative {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  height: auto;
+  gap: 4px;
+}
+.pro-shell .pro-sidebar-footer > .relative > button:first-of-type {
+  width: 100%;
+  min-width: 0;
+  height: 38px;
+  margin: 0 0 2px;
+  padding: 5px 7px;
+  justify-content: flex-start;
+  gap: 10px;
+  border-radius: 11px;
+  border: 1px solid var(--border);
+  background: linear-gradient(
+    105deg,
+    color-mix(in srgb, var(--rift-action) 7%, var(--background)),
+    var(--background) 65%
+  );
+}
+.pro-shell
+  .pro-sidebar-footer
+  > .relative
+  > button:first-of-type
+  > :not(:first-child) {
+  display: block;
+}
+.pro-shell
+  .pro-sidebar-footer
+  > .relative
+  > button:first-of-type
+  > span:first-child {
+  width: 24px;
+  height: 24px;
+  border: 0;
+  background: color-mix(in srgb, var(--rift-action) 10%, var(--background));
+  color: var(--rift-action);
+}
+.pro-shell
+  .pro-sidebar-footer
+  > .relative
+  > button:first-of-type
+  > span:first-child
+  svg {
+  color: inherit;
+}
+.pro-shell
+  .pro-sidebar-footer
+  > .relative
+  > button:first-of-type
+  > span:nth-child(2)
+  > span:first-child {
+  font-size: var(--rift-type-nav);
+  font-weight: var(--rift-sidebar-font-weight);
+  line-height: 18px;
+}
+.pro-shell
+  .pro-sidebar-footer
+  > .relative
+  > button:first-of-type
+  > span:nth-child(2)
+  > span:last-child {
+  display: none;
+}
+.pro-shell .pro-sidebar-footer > .relative > button:last-of-type {
+  flex: none;
+  width: 100%;
+  height: 36px;
+  padding: 4px 6px;
+  border-radius: 9px;
+}
+.pro-shell .pro-sidebar-footer [data-slot="avatar"] {
+  width: 26px;
+  height: 26px;
+  border-radius: 8px;
+}
+.pro-shell .pro-sidebar-footer [data-testid="sidebar-user-display-name"] {
+  font-size: var(--rift-type-nav);
+  font-weight: var(--rift-sidebar-font-weight);
+  line-height: 18px;
+}
+.pro-shell .pro-sidebar-footer [data-testid="sidebar-membership-tier"] {
+  font-size: var(--rift-type-label);
+  font-weight: var(--rift-sidebar-font-weight);
+  line-height: 16px;
+}
+.rift-sidebar-settings {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: var(--rift-sidebar-row-height);
+  padding-inline: 6px;
+  border-radius: 6px;
+  font-size: var(--rift-type-nav);
+  line-height: 18px;
+  letter-spacing: -0.08px;
+  color: var(--sidebar-foreground);
+}
+.rift-sidebar-settings svg {
+  width: 14px;
+  height: 14px;
+  stroke-width: 1.5;
+}
+.rift-sidebar-settings:hover {
+  background: var(--sidebar-accent);
+}
+.rift-sidebar-shortcut {
+  margin-left: auto;
+  color: var(--muted-foreground);
+  font-size: var(--rift-type-caption);
+}
+.pro-shell [data-rift-empty-stage] > div:first-child {
+  padding-bottom: 0;
+  padding-top: 5vh;
+  padding-inline: 40px;
+}
+.pro-shell .pro-empty-hero {
+  padding-bottom: 26px;
+}
+.pro-shell [data-ui="composer-toolbar"] button {
+  font-size: var(--rift-type-label);
+}
+.pro-shell [data-ui="composer-toolbar"] [data-ui="chat-mode-trigger"] {
+  border: 0;
+  background: transparent;
+  box-shadow: none;
+  padding-inline: 8px;
+}
+.pro-shell [data-ui="composer-model-controls"] {
+  background: transparent;
+  padding: 0;
+  gap: 3px;
+  border-radius: 8px;
+}
+.pro-shell [data-ui="composer-model-controls"] button {
+  background: transparent;
+}
+.pro-shell [data-ui="model-selector-trigger"] {
+  gap: 7px;
+  color: var(--foreground);
+}
+.rift-model-mark {
+  display: inline-flex;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  color: #000;
+}
+.dark .rift-model-mark {
+  color: #fff;
+}
+/* Kimi's color artwork has a white K and blue dot on its black app tile. */
+.rift-model-mark[data-brand="Kimi"] {
+  padding: 2px;
+  margin: -2px;
+  border-radius: 4px;
+  background: #000;
+}
+[data-ui="model-selector-menu"] .rift-model-mark {
+  margin-top: 1px;
+}
+.pro-shell [data-ui="reasoning-effort-trigger"] [data-ui="effort-meter"] {
+  display: none;
+}
+.pro-shell [data-ui="reasoning-effort-trigger"] > span:last-child {
+  display: inline;
+}
+.pro-shell [data-ui="composer-region"] textarea {
+  letter-spacing: 0;
+}
+.pro-shell .rift-composer-context {
+  padding-inline: 2px;
+  padding-bottom: 0;
+  background: transparent;
+}
+.pro-shell .rift-composer-context button {
+  font-size: var(--rift-type-label);
+}
+.pro-shell [data-ui="composer-toolbar"] [data-testid="send-button"] {
+  background: linear-gradient(#42434e, #22222b);
+  color: white;
+  border-color: #292932;
+}
+.pro-shell [data-ui="composer-toolbar"] [data-testid="send-button"]:disabled {
+  background: linear-gradient(#464650, #2b2b34);
+  color: #d8d8e1;
+  border-color: #3b3b45;
+  opacity: 0.75;
+  box-shadow: 0 1px 2px rgb(28 28 40 / 12%);
+}
+.dark
+  .pro-shell
+  [data-ui="composer-toolbar"]
+  [data-testid="send-button"]:enabled {
+  background: linear-gradient(#218bff, #0874e4);
+  border-color: #449bff;
+}
+/* Only the legacy home surface disappears after the first message. Files
+   explicitly opened in the workbench remain available in active chats. */
+.pro-shell:not(:has([data-rift-empty-stage]))
+  :is(.rift-home-files, .rift-files-reopen):not([data-ui="workbench-dock"] *) {
+  display: none;
+}
+.pro-shell [data-ui="workbench-dock"] .rift-home-files {
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+  border-left: 0;
+}
+.rift-home-files {
+  position: relative;
+  z-index: 26;
+  display: flex;
+  flex-direction: column;
+  width: clamp(280px, 23vw, 340px);
+  flex-shrink: 0;
+  min-width: 0;
+  border-left: 1px solid var(--border);
+  background: var(--background);
+  color: var(--foreground);
+}
+.rift-files-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: var(--rift-window-titlebar-height, 45px);
+  flex-shrink: 0;
+  padding: 0 12px;
+}
+.rift-home-files button {
+  transition: background-color 120ms;
+  border-radius: 7px;
+}
+.rift-home-files button:hover {
+  background: var(--muted);
+}
+.rift-home-files svg {
+  width: 14px;
+  height: 14px;
+  stroke-width: 1.5;
+  flex-shrink: 0;
+}
+.rift-files-header button {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  height: 28px;
+  padding-inline: 4px;
+  font-size: var(--rift-type-label);
+  color: var(--muted-foreground);
+}
+.rift-files-header button:last-child {
+  margin-left: auto;
+}
+.rift-files-tab {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  min-width: 0;
+  max-width: 148px;
+  overflow: hidden;
+  white-space: nowrap;
+  padding: 3px 6px;
+  border-radius: 6px;
+  background: var(--muted);
+  font-size: var(--rift-type-label);
+}
+.rift-files-search {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  height: 30px;
+  flex-shrink: 0;
+  margin: 0 12px 12px;
+  padding-inline: 8px;
+  border: 1px solid var(--border-strong);
+  border-radius: 7px;
+  color: var(--muted-foreground);
+}
+.rift-files-search input {
+  min-width: 0;
+  width: 100%;
+  background: transparent;
+  outline: none;
+  font-size: var(--rift-type-label);
+}
+.rift-files-search:focus-within {
+  outline: 1px solid var(--ring);
+  outline-offset: 1px;
+}
+.rift-files-content {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: 0 10px 16px;
+}
+.rift-file-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  height: 30px;
+  padding: 0 8px;
+  text-align: left;
+  font-size: var(--rift-type-nav);
+  color: color-mix(in srgb, var(--foreground) 90%, var(--background));
+}
+.rift-file-row span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.rift-file-row .rift-file-chevron {
+  width: 12px;
+  margin-inline: 2px;
+  color: var(--muted-foreground);
+}
+.rift-file-row .rift-file-code {
+  color: #4594d3;
+}
+.rift-files-breadcrumb {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  margin: 0 12px 8px;
+  font-size: var(--rift-type-caption);
+  color: var(--muted-foreground);
+}
+.rift-files-breadcrumb span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.rift-files-breadcrumb button {
+  padding: 4px;
+}
+.rift-home-files footer {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+  padding: 10px 16px;
+  font-size: var(--rift-type-caption);
+  color: var(--muted-foreground);
+  border-top: 1px solid var(--border);
+}
+.rift-home-files footer button {
+  margin-left: auto;
+  padding: 4px;
+}
+.rift-files-empty {
+  padding: 40px 18px;
+  display: flex;
+  align-items: center;
+  flex-direction: column;
+  gap: 10px;
+  text-align: center;
+  font-size: var(--rift-type-label);
+  color: var(--muted-foreground);
+}
+.rift-files-empty > svg {
+  width: 28px;
+  height: 28px;
+  opacity: 0.6;
+}
+.rift-files-empty p {
+  color: var(--foreground);
+}
+.rift-files-empty button {
+  border: 1px solid var(--border);
+  padding: 6px 12px;
+}
+.rift-files-loading {
+  padding: 12px;
+  display: grid;
+  gap: 22px;
+}
+.rift-files-loading span {
+  height: 12px;
+  width: 60%;
+  background: var(--muted);
+  border-radius: 5px;
+  animation: pulse 1.5s ease-in-out infinite;
+}
+.rift-file-preview-heading {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 7px;
+  padding: 12px 5px;
+  font-size: var(--rift-type-caption);
+}
+.rift-file-preview-heading button {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  border: 1px solid var(--border);
+  padding: 5px 7px;
+}
+.rift-file-preview {
+  overflow: auto;
+  font: 11px/1.8 var(--font-cursor-mono);
+  padding: 8px;
+  white-space: pre;
+}
+@media (max-width: 1179px) {
+  .rift-home-files,
+  .rift-files-reopen {
+    display: none;
+  }
+}
+@media (max-width: 767px) {
+  .pro-shell [data-pro-sidebar-header] {
+    padding: 4px 14px 0;
+  }
+  .pro-shell [data-testid^="chat-item-"][role="button"] > div:first-child {
+    margin-right: 8px;
+  }
+  .pro-shell .rift-chat-time {
+    margin-right: 44px;
+  }
+  .pro-shell [data-rift-empty-stage] > div:first-child {
+    padding-inline: 20px;
+    padding-top: 0;
+  }
+  .pro-shell .rift-welcome-title {
+    font-size: var(--rift-type-title);
+  }
+  .pro-shell .rift-composer-context button {
+    font-size: var(--rift-type-label);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .rift-files-loading span {
+    animation: none;
+  }
+}
+
+/* A narrow desktop pane still uses desktop controls. Phones retain touch targets. */
+@media (max-width: 767px) and (pointer: fine) {
+  .pro-shell [data-mobile-navigation-drawer] {
+    width: min(88vw, 272px);
+  }
+  .pro-shell [data-ui="composer-toolbar"] button {
+    height: 32px;
+    min-height: 32px;
+    min-width: 32px;
+  }
+  .pro-shell .rift-composer-context button {
+    height: 28px;
+    min-height: 28px;
+  }
+}
+@media (max-width: 767px) and (pointer: coarse) {
+  html .pro-shell {
+    --rift-sidebar-row-height: 44px;
+  }
+  .pro-shell [data-mobile-navigation-drawer] :is(a, button),
+  .pro-shell [data-ui="composer-toolbar"] button,
+  .pro-shell .rift-composer-context button,
+  .pro-shell .rift-sidebar-settings,
+  .rift-plugin-row .rift-plugin-action {
+    min-height: 44px;
+  }
+  .pro-shell [data-ui="composer-toolbar"] button,
+  .pro-shell .rift-composer-context button,
+  .rift-plugin-row button {
+    min-width: 44px;
+    min-height: 44px;
+  }
+  .pro-shell [data-ui="composer-toolbar"] > div:first-child button,
+  .pro-shell [data-ui="composer-toolbar"] [data-testid="send-button"],
+  .pro-shell [data-ui="composer-toolbar"] [aria-label="Stop generation"] {
+    width: 44px;
+    height: 44px;
+  }
+}
+
+/* Cursor's live macOS normal-weight token resolves to 418. */
+.pro-shell .rift-sidebar-settings,
+.pro-shell
+  [data-rift-sidebar-panel]
+  [data-testid^="chat-item-"][role="button"] {
+  font-weight: var(--rift-sidebar-font-weight);
+}
+.pro-shell .rift-sidebar-settings > svg {
+  width: 16px;
+  height: 16px;
+}
+.pro-shell [data-rift-sidebar-panel] [data-workspace-icon] {
+  flex-shrink: 0;
+  stroke: none;
+}
+.pro-shell .rift-sidebar-shortcut,
+.pro-shell .rift-chat-time {
+  font-weight: var(--rift-sidebar-font-weight);
+}
+
+/* Quiet navigation, with a single clear selected state in either theme. */
+.pro-shell [data-rift-sidebar-panel] {
+  --rift-sidebar-idle: var(--cursor-text-secondary);
+  --rift-sidebar-selected: var(--foreground);
+}
+.pro-shell
+  [data-rift-sidebar-panel]
+  :is(
+    .rift-sidebar-row,
+    .rift-sidebar-settings,
+    [data-testid^="chat-item-"][role="button"]
+  ) {
+  color: var(--rift-sidebar-idle);
+  font-weight: var(--rift-sidebar-font-weight);
+}
+.pro-shell
+  [data-rift-sidebar-panel]
+  :is(
+    .rift-sidebar-row[aria-current="page"],
+    [data-testid^="chat-item-"][data-active="true"][role="button"]
+  ) {
+  color: var(--rift-sidebar-selected);
+}
+.pro-shell [data-rift-sidebar-panel] .rift-sidebar-row > svg {
+  color: currentColor;
+}
+.pro-shell [data-rift-sidebar-panel] [data-workspace-icon] path {
+  stroke: currentColor;
+  stroke-width: 3;
+  stroke-linejoin: round;
+}
+.pro-shell [data-rift-sidebar-panel] .rift-sidebar-shortcut {
+  display: none;
+}
+.rift-conversation-outline {
+  position: absolute;
+  z-index: 10;
+  inset-inline-start: 6px;
+  top: 50%;
+  transform: translateY(-50%);
+  max-height: 64%;
+  width: 24px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  overflow-y: auto;
+  scrollbar-width: none;
+}
+.rift-conversation-outline button {
+  flex-shrink: 0;
+  width: 24px;
+  height: 14px;
+  display: grid;
+  place-items: center;
+  border-radius: 4px;
+}
+.rift-conversation-outline button span {
+  width: 6px;
+  height: 2px;
+  border-radius: 2px;
+  background: var(--foreground);
+  opacity: 0.2;
+  transition:
+    width 160ms ease,
+    opacity 160ms ease;
+}
+.rift-conversation-outline
+  button:is(:hover, :focus-visible, [aria-current="location"])
+  span {
+  width: 12px;
+  opacity: 0.7;
+}
+.rift-conversation-preview {
+  max-width: 300px;
+  background: var(--popover);
+  color: var(--popover-foreground);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 12px;
+  box-shadow: 0 6px 24px #0002;
+}
+@media (max-width: 900px) {
+  .rift-conversation-outline {
+    display: none;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .rift-conversation-outline button span {
+    transition: none;
+  }
+}
+
+.pro-shell .rift-studio-start > .w-full:has([data-ui="composer-region"]) {
+  max-width: 760px;
+}
+.pro-shell .rift-studio-start .pro-empty-hero {
+  padding: 8px 0 24px;
+}
+/* One optical grid for every provider and every connection state. */
+.rift-plugin-row {
+  min-height: 68px;
+  padding: 8px 0;
+}
+.rift-plugin-grid {
+  column-gap: 36px;
+  row-gap: 2px;
+}
+.rift-plugin-logo {
+  background: #fff !important;
+  border-color: #e8e8e8;
+  border-radius: 9px;
+}
+.rift-plugin-description {
+  -webkit-line-clamp: 1;
+  line-height: 18px;
+  font-size: 12px;
+}
+.rift-plugin-name {
+  font-size: 13px;
+  line-height: 19px;
+  font-weight: 500;
+}
+.rift-plugin-banner-connections {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 10px;
+}
+.rift-plugin-banner-pill {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  border: 1px solid #ffffffa6;
+  border-radius: 99px;
+  padding: 5px 14px 5px 5px;
+  background: #ffffff50;
+  color: #24334b;
+  box-shadow: inset 0 1px 1px #fff8;
+  font-size: 12px;
+  white-space: nowrap;
+}
+.rift-plugins-page .rift-plugins-banner {
+  min-height: 178px;
+  border-radius: 16px;
+  margin-bottom: 24px;
+}
+.dark .rift-plugin-banner-pill {
+  color: #e9eef7;
+  background: #ffffff0c;
+  border-color: #ffffff20;
+}
+@media (max-width: 700px) {
+  .rift-plugin-banner-connections {
+    display: none;
+  }
+  .rift-plugins-page .rift-plugins-banner {
+    min-height: 138px;
+  }
+  .rift-plugin-grid {
+    grid-template-columns: 1fr;
+  }
+}
+/* AppKit owns the traffic lights. Its unified toolbar centres them at 26px;
+   all application chrome shares that row. Browser chrome stays compact. */
+:root {
+  --rift-window-titlebar-height: 45px;
+}
+html.rift-vibrancy {
+  --rift-window-titlebar-height: 52px;
+}
+@media (min-width: 768px) {
+  .pro-shell[data-pro-workbench] .rift-native-window-drag-strip,
+  html.rift-vibrancy .rift-native-window-drag-strip {
+    height: var(--rift-window-titlebar-height);
+  }
+  .pro-shell[data-pro-workbench] .pro-main,
+  .pro-shell[data-pro-workbench] .rift-desktop-sidebar-header,
+  .pro-shell[data-pro-workbench] [data-rift-native-titlebar="sidebar-rail"] {
+    padding-top: var(--rift-window-titlebar-height);
+  }
+}
+
+/* The dock tabs share the window's titlebar row; the chat keeps its inset. */
+@media (min-width: 768px) {
+  .pro-shell > .rift-native-window-drag-strip {
+    right: var(--rift-workbench-titlebar-inset, 0px);
+  }
+  .pro-shell[data-pro-workbench]
+    .pro-main:has(
+      [data-rift-dock-placement="right"][data-rift-dock-visible="true"]
+    ) {
+    padding-top: 0;
+  }
+  [data-rift-dock-placement="right"][data-rift-dock-visible="true"]
+    > [data-rift-conversation-column] {
+    padding-top: var(--rift-window-titlebar-height, 45px);
+  }
+  .pro-shell:has(
+      [data-rift-dock-placement="right"][data-rift-dock-visible="true"][data-rift-dock-maximized="true"]
+    )
+    .rift-native-window-drag-strip
+    :is(
+      .rift-history-navigation,
+      [data-ui="window-title-slot"],
+      [data-ui="window-actions-slot"]
+    ) {
+    display: none;
+  }
+}
+
+/* Questions and a growing draft share the finite chat viewport. When their
+   controls cannot fit together, the surface provides bounded vertical scroll. */
+.pro-shell [data-rift-chat-surface] > [data-ui="question-dock"] {
+  display: flex;
+  flex-direction: column;
+  flex-shrink: 1;
+  min-height: 0;
+}
+.pro-shell [data-ui="question-dock"] > div {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+.pro-shell [data-rift-chat-surface] > [data-ui="composer-region"] {
+  flex-shrink: 0;
+}
+@media (max-width: 767px) {
+  .pro-shell
+    [data-rift-chat-surface]:has(
+      [data-ui="question-dock"] button[aria-expanded]
+    ) {
+    overflow-y: auto;
+    overscroll-behavior-y: contain;
+  }
+  .pro-shell
+    [data-rift-chat-surface]
+    > [data-ui="question-dock"]:has(button[aria-expanded="true"]) {
+    /* Header, answer actions and at least one touch-sized answer viewport. */
+    min-height: 180px;
+  }
+  .pro-shell
+    [data-rift-chat-surface]
+    > [data-ui="question-dock"]:has(button[aria-expanded="false"]) {
+    flex-shrink: 0;
+  }
+  /* Limit the editable area, never the goal or wrapping touch controls. */
+  .pro-shell [data-rift-chat-surface] [data-ui="composer-shell"] {
+    max-height: none;
+  }
+  .pro-shell [data-rift-chat-surface] [data-ui="composer-textarea"] {
+    max-height: clamp(
+      62px,
+      calc(var(--rift-chat-viewport-height, 100dvh) * 0.2),
+      140px
+    );
+    min-height: 62px;
+  }
+}
+
+/* A software keyboard can shrink only the visual viewport. Fixed positioning
+   uses its reported offset without scrolling the document or chat history. */
+.rift-chat-viewport[data-rift-visible-viewport] {
+  position: fixed;
+  inset-inline: 0;
+  top: var(--rift-chat-viewport-offset);
+  height: var(--rift-chat-viewport-height);
+}
+
+@media (max-width: 767px) and (pointer: coarse) {
+  /* Keep the transcript readable while typing. The titlebar's task switch
+     remains available; the overview and duplicate shortcuts return on blur. */
+  .fui[data-rift-visible-viewport]:has(.prompt textarea:focus)
+    :is(.overview-panel, .mobile-ops) {
+    display: none;
+  }
+}

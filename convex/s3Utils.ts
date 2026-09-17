@@ -24,6 +24,20 @@ function getRequiredEnvVar(name: string): string {
 }
 
 /**
+ * Whether S3 is fully configured via env. When false, uploads fall back to
+ * Convex's built-in file storage (no external setup needed) — see
+ * s3Actions.generateS3UploadUrlAction.
+ */
+export function isS3Configured(): boolean {
+  return Boolean(
+    process.env.AWS_S3_ACCESS_KEY_ID &&
+    process.env.AWS_S3_SECRET_ACCESS_KEY &&
+    process.env.AWS_S3_REGION &&
+    process.env.AWS_S3_BUCKET_NAME,
+  );
+}
+
+/**
  * Get S3 client with credentials from environment variables
  */
 export function getS3Client(): S3Client {

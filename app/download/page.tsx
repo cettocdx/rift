@@ -4,18 +4,18 @@ import { DownloadPageContent } from "./DownloadPageContent";
 export const metadata: Metadata = {
   title: "Download | RIFT",
   description:
-    "Download RIFT for macOS, Windows, Linux, iOS, and Android. AI-powered penetration testing at your fingertips.",
+    "Download the RIFT direct desktop build for macOS on Apple Silicon. The Windows release is in progress. On mobile, install RIFT from your browser.",
   openGraph: {
     title: "Download RIFT",
     description:
-      "Download RIFT for macOS, Windows, Linux, iOS, and Android. AI-powered penetration testing at your fingertips.",
+      "Download the RIFT direct desktop build for macOS on Apple Silicon. The Windows release is in progress. On mobile, install RIFT from your browser.",
     type: "website",
   },
   twitter: {
     card: "summary",
     title: "Download RIFT",
     description:
-      "Download RIFT for macOS, Windows, Linux, iOS, and Android. AI-powered penetration testing at your fingertips.",
+      "Download the RIFT direct desktop build for macOS on Apple Silicon. The Windows release is in progress. On mobile, install RIFT from your browser.",
   },
 };
 

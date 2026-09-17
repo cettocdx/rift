@@ -1,10 +1,12 @@
 import { tool } from "ai";
 import { z } from "zod";
+import { posix } from "node:path";
 import type { ToolContext } from "@/types";
+import { looseIntArray, coerceIntArray, coerceEnum } from "./utils/loose-args";
 import { truncateOutput } from "@/lib/token-utils";
 import { supportsMultimodalToolResults } from "@/lib/ai/providers";
 import { buildSandboxCommandOptions } from "./utils/sandbox-command-options";
-import { isCentrifugoSandbox } from "./utils/sandbox-types";
+import { isCentrifugoSandbox, isE2BSandbox } from "./utils/sandbox-types";
 import { uploadSandboxFileToConvex } from "./utils/sandbox-file-uploader";
 import type { Id } from "@/convex/_generated/dataModel";
 import { logger } from "@/lib/logger";
@@ -19,6 +21,8 @@ const FILE_ACTIONS_WITH_VIEW = [
   "edit",
 ] as const;
 const FILE_ACTIONS_TEXT_ONLY = ["read", "write", "append", "edit"] as const;
+const FILE_ACTIONS_READ_ONLY_WITH_VIEW = ["view", "read"] as const;
+const FILE_ACTIONS_READ_ONLY_TEXT = ["read"] as const;
 type FileAction = (typeof FILE_ACTIONS_WITH_VIEW)[number];
 
 const MULTIMODAL_UPGRADE_MESSAGE =
@@ -382,85 +386,63 @@ const editSchema = z.object({
 
 export const createFile = (context: ToolContext) => {
   const { sandboxManager, modelName, getCurrentModelName } = context;
+  const isBuildPlan = context.mode === "ask" && context.purpose === "app";
+  const readOnlyProfile =
+    isBuildPlan || context.activeAgentProfile?.permissionPreset === "read-only";
   const canViewMultimodalFiles = () =>
     supportsMultimodalToolResults(getCurrentModelName?.() ?? modelName);
-  const supportsViewInSchema = canViewMultimodalFiles();
-  const actionSchema = (
-    supportsViewInSchema
-      ? z.enum(FILE_ACTIONS_WITH_VIEW)
-      : z.enum(FILE_ACTIONS_TEXT_ONLY)
+  // Plan reads text only: image view may publish a preview attachment.
+  const supportsViewInSchema = !isBuildPlan && canViewMultimodalFiles();
+  const allowedFileActions: readonly FileAction[] = readOnlyProfile
+    ? supportsViewInSchema
+      ? FILE_ACTIONS_READ_ONLY_WITH_VIEW
+      : FILE_ACTIONS_READ_ONLY_TEXT
+    : supportsViewInSchema
+      ? FILE_ACTIONS_WITH_VIEW
+      : FILE_ACTIONS_TEXT_ONLY;
+  const actionSchema = z.enum(
+    allowedFileActions as [FileAction, ...FileAction[]],
   ) as z.ZodType<FileAction>;
-  const supportedActionsDescription = [
-    supportsViewInSchema
-      ? "- view: View raster image files through multimodal understanding."
-      : null,
-    "- read: Read file content as text (Markdown, code, logs).",
-    "- write: Overwrite the full content of a text file.",
-    "- append: Append content to a text file.",
-    "- edit: Make targeted edits to a text file.",
-  ]
-    .filter(Boolean)
-    .join("\n");
-  const instructions = [
-    "Prioritize using this tool instead of the shell tool for file content operations to avoid escaping errors.",
-    "For file copying, moving, and deletion, use the shell tool.",
-    ...(supportsViewInSchema
-      ? [
-          "Use 'view' only for raster image files such as PNG, JPEG, GIF, and WebP.",
-          "Do not use 'view' for PDFs. Use 'read' for extractable text, or use the shell tool to convert PDF pages to images first if visual inspection is required.",
-          "Use 'read' for text-based or line-oriented formats.",
-        ]
-      : [
-          "Use 'read' for text-based or line-oriented formats.",
-          "This model cannot view sandbox images directly; ask the user to select RIFT Pro or RIFT Max for multimodal image viewing.",
-        ]),
-    "Code MUST be saved to a file using this tool before execution via the shell tool.",
-    "DO NOT write partial or truncated content; always output the full content.",
-    "'edit' can make multiple targeted replacements at once; all must succeed or none are applied.",
-    "For extensive modifications to shorter files, use 'write' to rewrite the entire file instead of 'edit'.",
-    "Under read action, the range parameter represents line number ranges (1-indexed, -1 for end of file).",
-    "If the range parameter is not specified, the entire file will be read by default.",
-    "DO NOT use the range parameter when reading a file for the first time; if the content is too long and gets truncated, the result will include range hints.",
-    "write and append actions will automatically create files if they do not exist.",
-    "When writing and appending text, ensure necessary trailing newlines are used to comply with POSIX standards.",
-    "DO NOT read files that were just written, as their content remains in context.",
-    "Choose appropriate file extensions based on file content and syntax, e.g. Markdown syntax MUST use .md extension.",
-  ];
-  const instructionsDescription = instructions
-    .map((instruction, index) => `${index + 1}. ${instruction}`)
-    .join("\n");
+  const instructionsDescription = readOnlyProfile
+    ? "Read-only: inspect existing project files before proposing changes; use list_files to discover paths. Write, append, edit and shell execution are unavailable through this tool."
+    : [
+        "Prefer this tool for file content to avoid shell escaping. Use the shell for copying, moving and deleting files. Save code here before executing it.",
+        "write replaces a complete file; append adds text; both create missing files. Never submit partial/truncated writes. Include required trailing newlines and use the appropriate extension (.md for Markdown).",
+        "edit applies multiple targeted replacements atomically: all succeed or none apply. Prefer write for extensive changes to short files.",
+        "Read the full file on first inspection; truncated results provide range hints. Do not reread newly written content already in context.",
+      ].join("\n");
+  const viewDescription = supportsViewInSchema
+    ? "view inspects raster images (PNG/JPEG/GIF/WebP), not PDFs. Read extractable PDF text or convert pages to images with the shell for visual inspection."
+    : isBuildPlan
+      ? "Plan supports text reads only."
+      : "This model cannot view sandbox images; select RIFT Pro or RIFT Max for image viewing.";
 
   return tool({
-    description: `Perform operations on files in the sandbox file system.
-This tool is the primary way to manage file content, allowing for reading, writing, appending, editing text-based files, and viewing raster image files.
-
-### Supported Actions
-
-${supportedActionsDescription}
-
-### Instructions
-
-${instructionsDescription}`,
+    description: `Read text files or operate on file content in the selected execution target.
+${instructionsDescription}
+${viewDescription}
+Use read for text and line-oriented formats. Omitting range reads the entire file.`,
     inputSchema: z.object({
-      action: actionSchema.describe("The action to perform"),
-      path: z.string().describe("The absolute path to the target file"),
-      brief: z
+      action: (readOnlyProfile
+        ? actionSchema
+        : z.union([actionSchema, z.string()])
+      ).describe("The action to perform"),
+      path: z
         .string()
         .describe(
-          "A one-sentence preamble describing the purpose of this operation",
+          "An absolute file path, or a path relative to the selected cloud project checkout",
         ),
+      brief: z.string().describe("One sentence explaining this operation."),
       text: z
         .string()
         .optional()
         .describe(
           "The content to be written or appended. Required for `write` and `append` actions.",
         ),
-      range: z
-        .array(z.number().int())
-        .length(2)
+      range: looseIntArray
         .optional()
         .describe(
-          "An array of two integers specifying the start and end of the range. For `read`, numbers are 1-indexed line numbers and -1 means read to the end of the file. Do not use range with `view`.",
+          "read only: [start, end], 1-indexed line numbers; end=-1 reads to EOF. Do not use with view.",
         ),
       edits: z
         .array(editSchema)
@@ -469,9 +451,40 @@ ${instructionsDescription}`,
           "A list of edits to be sequentially applied to the file. Required for `edit` action.",
         ),
     }),
-    execute: async ({ action, path, text, range, edits }) => {
+    execute: async ({
+      action: action_raw,
+      path,
+      text,
+      range: range_raw,
+      edits,
+    }) => {
+      // Direct calls and replayed arguments must obey the same boundary as the
+      // model schema, before opening the workspace or invoking any file method.
+      if (
+        readOnlyProfile &&
+        !allowedFileActions.includes(action_raw as FileAction)
+      ) {
+        return {
+          error: "This tool is read-only; the requested action is unavailable.",
+        };
+      }
+      // Repair possibly-stringy / enum-fuzzy args from weaker models before use.
+      const action = coerceEnum(
+        action_raw,
+        allowedFileActions,
+        allowedFileActions[0],
+      )!;
+      const rangeArr = coerceIntArray(range_raw);
+      const range = rangeArr && rangeArr.length === 2 ? rangeArr : undefined;
       try {
         const { sandbox } = await sandboxManager.getSandbox();
+        if (
+          isE2BSandbox(sandbox) &&
+          context.projectWorkingDirectory &&
+          !posix.isAbsolute(path)
+        ) {
+          path = posix.resolve(context.projectWorkingDirectory, path);
+        }
 
         switch (action) {
           case "view": {
@@ -566,8 +579,23 @@ ${instructionsDescription}`,
               user: "user" as const,
             });
 
-            if (!fileContent || fileContent.trim() === "") {
-              return { error: "File is empty." };
+            // Empty and whitespace-only files are valid reads. Do not turn
+            // placeholder files into failed tools or discard their line structure.
+            if (fileContent === "") {
+              return { content: "Text file is empty.", originalContent: "" };
+            }
+            // UTF-8 decoding can turn raster/archive bytes into enormous,
+            // meaningless model input. Keep the observation, not those bytes.
+            const sample = fileContent.slice(0, 8192);
+            const controlCount = (sample.match(/[\x00-\x08\x0e-\x1f]/g) ?? [])
+              .length;
+            if (sample.includes("\0") || controlCount > sample.length * 0.1) {
+              return {
+                kind: "binary",
+                path,
+                content:
+                  "This file is binary or is not UTF-8 text; its bytes were not included. Use the view action for raster images, or an appropriate decoder/converter for other formats.",
+              };
             }
 
             const lines = fileContent.split("\n");

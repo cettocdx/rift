@@ -17,6 +17,8 @@ export interface MessageRecord {
   mode?: ChatMode;
   generation_started_at?: number;
   generation_time_ms?: number;
+  stop_reason?: string;
+  finish_reason?: string;
   fileDetails?: Array<{
     fileId: Id<"files">;
     name: string;
@@ -70,6 +72,8 @@ export function convertToUIMessages(messages: MessageRecord[]): ChatMessage[] {
     metadata:
       message.feedback ||
       message.mode ||
+      message.stop_reason === "user" ||
+      typeof message.finish_reason === "string" ||
       typeof message.generation_started_at === "number" ||
       typeof message.generation_time_ms === "number"
         ? {
@@ -82,6 +86,12 @@ export function convertToUIMessages(messages: MessageRecord[]): ChatMessage[] {
               : {}),
             ...(typeof message.generation_time_ms === "number"
               ? { generationTimeMs: message.generation_time_ms }
+              : {}),
+            ...(message.stop_reason === "user"
+              ? { stopReason: "user" as const }
+              : {}),
+            ...(typeof message.finish_reason === "string"
+              ? { finishReason: message.finish_reason }
               : {}),
           }
         : undefined,

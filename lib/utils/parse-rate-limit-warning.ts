@@ -5,6 +5,7 @@ const WARNING_TYPES = [
   "sliding-window",
   "token-bucket",
   "extra-usage-active",
+  "run-budget",
 ] as const;
 type RawWarningType = (typeof WARNING_TYPES)[number];
 
@@ -51,6 +52,32 @@ export function parseRateLimitWarning(
   const warningType = rawData.warningType as RawWarningType | undefined;
   if (!warningType || !WARNING_TYPES.includes(warningType)) {
     return null;
+  }
+
+  // The per-run ceiling carries no reset time -- it is not a bucket -- so it
+  // is parsed before the reset-time requirement below would drop it.
+  if (warningType === "run-budget") {
+    if (!isSubscriptionTier(rawData.subscription)) return null;
+    const usedPercent = rawData.usedPercent;
+    const usedDollars = rawData.usedDollars;
+    const ceilingDollars = rawData.ceilingDollars;
+    if (
+      !isNumber(usedPercent) ||
+      !isNumber(usedDollars) ||
+      !isNumber(ceilingDollars) ||
+      ceilingDollars <= 0
+    ) {
+      return null;
+    }
+    return {
+      warningType: "run-budget",
+      usedPercent,
+      usedDollars,
+      ceilingDollars,
+      subscription: rawData.subscription,
+      midStream: true,
+      ...(rawData.cutOff === true ? { cutOff: true } : {}),
+    };
   }
 
   const resetTimeRaw = rawData.resetTime;

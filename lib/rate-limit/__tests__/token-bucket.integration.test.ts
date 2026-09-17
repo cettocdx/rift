@@ -24,6 +24,7 @@ describe("token-bucket async functions", () => {
   const mockExpireFn = jest.fn();
   const mockDeductFromBalance = jest.fn();
   const mockRefundToBalance = jest.fn();
+  const mockDeductFromTeamBalance = jest.fn();
   const originalNodeEnv = process.env.NODE_ENV;
 
   beforeEach(() => {
@@ -51,6 +52,7 @@ describe("token-bucket async functions", () => {
       success: true,
       newBalanceDollars: 10,
     });
+    mockDeductFromTeamBalance.mockResolvedValue({ success: true });
     mockCreateRedisClient.mockReturnValue({
       hincrby: mockHincrbyFn,
       hset: mockHsetFn,
@@ -99,6 +101,7 @@ describe("token-bucket async functions", () => {
       jest.doMock("../../extra-usage", () => ({
         deductFromBalance: mockDeductFromBalance,
         refundToBalance: mockRefundToBalance,
+        deductFromTeamBalance: mockDeductFromTeamBalance,
       }));
 
       // Now require the module with fresh mocks
@@ -476,7 +479,149 @@ describe("token-bucket async functions", () => {
     });
   });
 
+  describe("legacy settlement acknowledgment", () => {
+    it.each([
+      undefined,
+      { enabled: false, hasBalance: true, autoReloadEnabled: false },
+      { enabled: true, hasBalance: false, autoReloadEnabled: false },
+    ])("retains unfunded overflow as unresolved (%j)", async (config) => {
+      const { deductUsage } = getIsolatedModule();
+      mockLimitFn.mockResolvedValue({ success: true, remaining: 10 });
+      await expect(
+        deductUsage("user-123", "pro", 0, 1000, 1000, config, 0.05),
+      ).rejects.toThrow("Usage overflow has no eligible funding source");
+      expect(mockLimitFn).toHaveBeenCalledTimes(2);
+      expect(mockDeductFromBalance).not.toHaveBeenCalled();
+      expect(mockDeductFromTeamBalance).not.toHaveBeenCalled();
+    });
+
+    it.each([false, true])(
+      "rejects a declined final bucket debit (team: %s)",
+      async (team) => {
+        const { deductUsage } = getIsolatedModule();
+        mockLimitFn
+          .mockResolvedValueOnce({ success: true, remaining: 10 })
+          .mockResolvedValueOnce({ success: false, remaining: 0 });
+        await expect(
+          deductUsage(
+            "user-123",
+            team ? "team" : "pro",
+            0,
+            1000,
+            1000,
+            { enabled: true, hasBalance: true, autoReloadEnabled: false },
+            0.05,
+            undefined,
+            0,
+            team ? "org" : undefined,
+          ),
+        ).rejects.toThrow("Bucket usage adjustment was not confirmed");
+        expect(mockLimitFn).toHaveBeenCalledTimes(2);
+        expect(mockDeductFromBalance).not.toHaveBeenCalled();
+        expect(mockDeductFromTeamBalance).not.toHaveBeenCalled();
+      },
+    );
+
+    it("propagates an unknown bucket debit without retry", async () => {
+      const { deductUsage } = getIsolatedModule();
+      mockLimitFn
+        .mockResolvedValueOnce({ success: true, remaining: 10000 })
+        .mockRejectedValueOnce(new Error("lost debit acknowledgment"));
+      await expect(
+        deductUsage("user-123", "pro", 0, 1000, 1000),
+      ).rejects.toThrow("lost debit acknowledgment");
+      expect(mockLimitFn).toHaveBeenCalledTimes(2);
+    });
+
+    it("propagates an unknown true-up refund", async () => {
+      const { deductUsage } = getIsolatedModule();
+      mockHincrbyFn.mockRejectedValueOnce(
+        new Error("lost refund acknowledgment"),
+      );
+      await expect(deductUsage("user-123", "pro", 10000, 0, 0)).rejects.toThrow(
+        "lost refund acknowledgment",
+      );
+      expect(mockHincrbyFn).toHaveBeenCalledTimes(1);
+    });
+
+    it.each([false, true])(
+      "rejects unconfirmed overflow (team: %s)",
+      async (team) => {
+        const { deductUsage } = getIsolatedModule();
+        mockLimitFn.mockResolvedValue({ success: true, remaining: 0 });
+        mockDeductFromBalance.mockResolvedValue({ success: false });
+        mockDeductFromTeamBalance.mockResolvedValue({ success: false });
+        await expect(
+          deductUsage(
+            "user-123",
+            team ? "team" : "pro",
+            0,
+            1000,
+            1000,
+            { enabled: true, hasBalance: true, autoReloadEnabled: false },
+            undefined,
+            undefined,
+            0,
+            team ? "org" : undefined,
+          ),
+        ).rejects.toThrow("usage adjustment was not confirmed");
+        expect(
+          team ? mockDeductFromTeamBalance : mockDeductFromBalance,
+        ).toHaveBeenCalledTimes(1);
+      },
+    );
+  });
+
   describe("refundUsage", () => {
+    it("does not confirm a positive bucket refund when Redis is unavailable", async () => {
+      const { refundUsage } = getIsolatedModule();
+      mockCreateRedisClient.mockReturnValue(null);
+      await expect(refundUsage("user-123", "pro", 50, 0)).rejects.toThrow(
+        "Bucket refund was not confirmed",
+      );
+      expect(mockHincrbyFn).not.toHaveBeenCalled();
+    });
+
+    it("waits for the other refund leg after one leg fails", async () => {
+      const { refundUsage } = getIsolatedModule();
+      mockHincrbyFn.mockRejectedValue(new Error("Bucket acknowledgment lost"));
+      let finish!: (value: unknown) => void;
+      mockRefundToBalance.mockReturnValue(
+        new Promise((resolve) => {
+          finish = resolve;
+        }),
+      );
+      let settled = false;
+      const outcome = refundUsage("user-123", "pro", 50, 50).then(
+        () => {
+          settled = true;
+          return null;
+        },
+        (e) => {
+          settled = true;
+          return e;
+        },
+      );
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      expect(settled).toBe(false);
+      finish({ success: true });
+      expect(await outcome).toBeInstanceOf(Error);
+      expect(mockRefundToBalance).toHaveBeenCalledTimes(1);
+    });
+
+    it("rejects an unacknowledged balance refund", async () => {
+      const { refundUsage } = getIsolatedModule();
+      mockRefundToBalance.mockResolvedValue({ success: false });
+      await expect(refundUsage("user-123", "free", 0, 50)).rejects.toThrow();
+      expect(mockRefundToBalance).toHaveBeenCalledTimes(1);
+    });
+    it("rejects a failed bucket refund", async () => {
+      const { refundUsage } = getIsolatedModule();
+      mockHincrbyFn.mockRejectedValue(new Error("Lost bucket receipt"));
+      await expect(refundUsage("user-123", "pro", 50, 0)).rejects.toThrow();
+      expect(mockHincrbyFn).toHaveBeenCalledTimes(1);
+    });
+
     it("should refund bucket tokens via Redis hincrby", async () => {
       const { refundUsage } = getIsolatedModule();
 
@@ -851,6 +996,36 @@ describe("token-bucket async functions", () => {
   // deductBalanceUsage — PAYG post-stream true-up against the balance
   // ==========================================================================
   describe("deductBalanceUsage", () => {
+    it("reports an unconfirmed debit without replaying it", async () => {
+      const { deductBalanceUsage } = getIsolatedModule();
+      mockDeductFromBalance.mockResolvedValue({ success: false });
+      await expect(
+        deductBalanceUsage("user-123", 0, 1000, 5000, 0.01, "model-x"),
+      ).rejects.toThrow("Balance usage adjustment was not confirmed");
+      expect(mockDeductFromBalance).toHaveBeenCalledTimes(1);
+      expect(mockRefundToBalance).not.toHaveBeenCalled();
+    });
+
+    it("reports an unconfirmed refund without replaying it", async () => {
+      const { deductBalanceUsage } = getIsolatedModule();
+      mockRefundToBalance.mockResolvedValue({ success: false });
+      await expect(
+        deductBalanceUsage("user-123", 1000, 0, 0, 0, "model-x"),
+      ).rejects.toThrow("Balance usage adjustment was not confirmed");
+      expect(mockRefundToBalance).toHaveBeenCalledTimes(1);
+      expect(mockDeductFromBalance).not.toHaveBeenCalled();
+    });
+
+    it("preserves transport failure instead of returning successful settlement", async () => {
+      const { deductBalanceUsage } = getIsolatedModule();
+      const error = new Error("Acknowledgment lost");
+      mockDeductFromBalance.mockRejectedValue(error);
+      await expect(
+        deductBalanceUsage("user-123", 0, 1000, 5000, 0.01, "model-x"),
+      ).rejects.toBe(error);
+      expect(mockDeductFromBalance).toHaveBeenCalledTimes(1);
+    });
+
     it("charges the difference between actual cost and the pre-charged input estimate", async () => {
       const {
         deductBalanceUsage,

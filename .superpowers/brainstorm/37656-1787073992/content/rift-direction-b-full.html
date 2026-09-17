@@ -1,0 +1,279 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>RIFT Direction B</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      --bg: #0a0a0a;
+      --surface: #111214;
+      --surface-2: #17191c;
+      --line: #292c30;
+      --line-soft: rgba(255,255,255,.08);
+      --text: #f4f4f0;
+      --muted: #a6a8ab;
+      --dim: #74777b;
+      --signal: #8ccbff;
+      --ease-out: cubic-bezier(.23,1,.32,1);
+    }
+    * { box-sizing: border-box; }
+    html { background: var(--bg); }
+    body {
+      margin: 0;
+      color: var(--text);
+      background:
+        radial-gradient(circle at 73% -12rem, rgba(140,203,255,.075), transparent 32rem),
+        var(--bg);
+      font-family: Geist, "SF Pro Display", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      font-size: 16px;
+      line-height: 1.55;
+    }
+    button { font: inherit; }
+    .shell { width: min(1500px, calc(100% - 40px)); margin: 0 auto; padding: 36px 0 80px; }
+    .brief-header { display: grid; grid-template-columns: minmax(0, 1.2fr) minmax(320px, .8fr); gap: 54px; align-items: end; margin-bottom: 32px; }
+    .label { color: #8f9295; font: 500 11px/1.2 "SFMono-Regular", Consolas, monospace; letter-spacing: .12em; text-transform: uppercase; }
+    .brief-header h1 { margin: 12px 0 0; max-width: 900px; font: 520 clamp(42px, 5vw, 74px)/.98 "Space Grotesk", Geist, sans-serif; letter-spacing: -.058em; text-wrap: balance; }
+    .brief-header p { margin: 0; color: var(--muted); max-width: 52ch; }
+    .dials { display: flex; gap: 8px; margin-top: 17px; flex-wrap: wrap; }
+    .dials span { border: 1px solid var(--line); border-radius: 999px; padding: 6px 9px; color: #c2c4c5; font: 9px/1 "SFMono-Regular", Consolas, monospace; }
+    .workspace { display: grid; grid-template-columns: minmax(0, 1fr) 330px; gap: 16px; align-items: start; }
+    .site-frame { border: 1px solid var(--line); border-radius: 20px; overflow: hidden; background: var(--bg); box-shadow: 0 30px 120px rgba(0,0,0,.45); }
+    .framebar { height: 40px; display: flex; align-items: center; gap: 6px; padding: 0 13px; border-bottom: 1px solid var(--line-soft); background: #121315; }
+    .framebar i { width: 6px; height: 6px; border-radius: 50%; background: #56595c; }
+    .framebar span { margin-left: auto; color: #626569; font: 9px/1 monospace; }
+    .landing { overflow: hidden; }
+    .nav { height: 64px; padding: 0 clamp(18px, 3vw, 42px); display: flex; align-items: center; gap: 28px; border-bottom: 1px solid var(--line-soft); }
+    .brand { display: flex; align-items: center; gap: 9px; font-size: 13px; font-weight: 650; letter-spacing: -.025em; }
+    .brand-mark { position: relative; width: 22px; height: 18px; }
+    .brand-mark::before, .brand-mark::after { content: ""; position: absolute; left: 1px; width: 20px; height: 7px; border-radius: 8px 2px 8px 2px; background: var(--text); transform: skewX(-24deg); }
+    .brand-mark::before { top: 1px; }
+    .brand-mark::after { bottom: 1px; transform: skewX(-24deg) rotate(180deg); }
+    .navlinks { display: flex; gap: 23px; margin-left: 12px; color: #999ca0; font-size: 11px; }
+    .nav-actions { margin-left: auto; display: flex; gap: 8px; align-items: center; }
+    .link { color: #afb1b3; font-size: 11px; }
+    .nav-cta, .hero-cta, .final-cta button { border: 0; background: var(--text); color: var(--bg); border-radius: 999px; font-weight: 650; }
+    .nav-cta { min-height: 32px; padding: 0 13px; font-size: 10px; }
+    .landing-hero { position: relative; min-height: 580px; display: grid; grid-template-columns: .83fr 1.17fr; gap: 28px; align-items: center; padding: 64px clamp(22px, 4vw, 58px) 84px; overflow: hidden; }
+    .hero-copy { position: relative; z-index: 2; }
+    .hero-copy h2 { margin: 0; font: 520 clamp(48px, 5.6vw, 78px)/.94 "Space Grotesk", Geist, sans-serif; letter-spacing: -.065em; text-wrap: balance; }
+    .hero-copy p { max-width: 39ch; margin: 22px 0 0; color: var(--muted); font-size: clamp(15px, 1.25vw, 18px); line-height: 1.53; }
+    .hero-actions { display: flex; gap: 9px; margin-top: 27px; }
+    .hero-cta { min-height: 44px; padding: 0 18px; }
+    .hero-secondary { min-height: 44px; padding: 0 17px; border: 1px solid var(--line); border-radius: 999px; background: #121315; color: #d5d6d7; }
+    .gallery { position: relative; min-height: 390px; display: grid; grid-template-columns: 1.15fr .85fr; grid-template-rows: 1fr .85fr; gap: 8px; }
+    .media { position: relative; overflow: hidden; border: 1px solid rgba(255,255,255,.12); border-radius: 13px; background: #141618; }
+    .media:first-child { grid-row: 1 / span 2; }
+    .media img { width: 100%; height: 100%; display: block; object-fit: cover; filter: saturate(.82) contrast(1.03); }
+    .media:first-child img { object-position: 51% center; }
+    .media:nth-child(2) img { object-position: 48% 38%; }
+    .media:nth-child(3) img { object-position: 58% 40%; }
+    .media span { position: absolute; left: 11px; bottom: 10px; padding: 5px 7px; border-radius: 6px; background: rgba(10,10,10,.76); color: #ddd; font: 8px/1 monospace; backdrop-filter: blur(10px); }
+    .command { position: absolute; z-index: 3; left: 50%; bottom: 28px; width: min(720px, calc(100% - 80px)); transform: translateX(-50%); display: grid; grid-template-columns: 1fr auto; gap: 9px; align-items: center; min-height: 54px; padding: 7px 7px 7px 17px; border: 1px solid rgba(255,255,255,.16); border-radius: 14px; background: rgba(20,21,23,.92); box-shadow: 0 18px 55px rgba(0,0,0,.45); backdrop-filter: blur(16px); color: #aeb0b3; font-size: 11px; }
+    .command button { min-height: 38px; padding: 0 14px; border: 0; border-radius: 9px; background: var(--signal); color: #071019; font-size: 10px; font-weight: 650; }
+    .capability-band { display: grid; grid-template-columns: 150px repeat(5, 1fr); border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); background: #0e0f10; }
+    .capability-band div { min-height: 62px; display: flex; align-items: center; justify-content: center; border-right: 1px solid var(--line); color: #a0a2a5; font: 9px/1 monospace; text-transform: uppercase; letter-spacing: .08em; }
+    .capability-band div:first-child { justify-content: flex-start; padding-left: 18px; color: #686b6f; }
+    .capability-band div:last-child { border-right: 0; }
+    .product-story { padding: 76px clamp(22px, 5vw, 68px); }
+    .product-story h3 { margin: 0; max-width: 750px; font: 520 clamp(34px, 4vw, 54px)/1 "Space Grotesk", Geist, sans-serif; letter-spacing: -.055em; }
+    .product-story > p { margin: 16px 0 31px; max-width: 52ch; color: var(--muted); font-size: 14px; }
+    .product-frame { padding: 7px; border: 1px solid var(--line); border-radius: 16px; background: rgba(255,255,255,.025); }
+    .product-frame img { display: block; width: 100%; border: 1px solid rgba(255,255,255,.08); border-radius: 10px; }
+    .bento { display: grid; grid-template-columns: 1.18fr .82fr; grid-template-rows: 250px 210px; gap: 10px; padding: 0 clamp(22px, 5vw, 68px) 76px; }
+    .tile { position: relative; overflow: hidden; border: 1px solid var(--line); border-radius: 14px; background: #111214; }
+    .tile.large { grid-row: 1 / span 2; }
+    .tile img { width: 100%; height: 100%; object-fit: cover; display: block; filter: saturate(.58) contrast(1.08); }
+    .tile .scrim { position: absolute; inset: 0; background: linear-gradient(180deg, transparent 35%, rgba(4,5,6,.9)); }
+    .tile-copy { position: absolute; left: 19px; right: 19px; bottom: 17px; }
+    .tile-copy strong { display: block; font-size: 15px; font-weight: 570; }
+    .tile-copy span { color: #a8aaad; font-size: 10px; }
+    .tile.generated { background: radial-gradient(circle at 78% 20%, rgba(140,203,255,.18), transparent 33%), #111417; }
+    .mini-grid { position: absolute; inset: 22px 20px 74px; display: grid; grid-template-columns: 1.15fr .85fr; gap: 6px; }
+    .mini-grid i { border-radius: 8px; background: linear-gradient(145deg, #26303a, #111316); border: 1px solid rgba(255,255,255,.08); }
+    .mini-grid i:nth-child(2) { background: linear-gradient(150deg, #17191b, #45627a); }
+    .identity-break { min-height: 290px; display: grid; grid-template-columns: .9fr 1.1fr; align-items: center; gap: 30px; padding: 54px clamp(22px, 5vw, 68px); border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); background: #08090a; }
+    .identity-break h3 { margin: 0; font: 520 clamp(34px, 4vw, 52px)/1 "Space Grotesk", Geist, sans-serif; letter-spacing: -.055em; }
+    .identity-break p { max-width: 47ch; margin: 16px 0 0; color: var(--muted); font-size: 13px; }
+    .strata-art { width: 100%; max-height: 250px; object-fit: cover; display: block; opacity: .87; mix-blend-mode: screen; }
+    .final-cta { padding: 88px 24px 94px; text-align: center; }
+    .final-cta h3 { margin: 0 auto; max-width: 730px; font: 520 clamp(38px, 5vw, 65px)/.98 "Space Grotesk", Geist, sans-serif; letter-spacing: -.06em; }
+    .final-cta p { margin: 16px auto 0; max-width: 42ch; color: var(--muted); }
+    .final-cta button { margin-top: 24px; min-height: 44px; padding: 0 19px; }
+    .rail { position: sticky; top: 16px; display: grid; gap: 12px; }
+    .panel { border: 1px solid var(--line); border-radius: 14px; padding: 18px; background: rgba(17,18,20,.92); }
+    .panel h3 { margin: 8px 0 13px; font-size: 18px; letter-spacing: -.025em; font-weight: 560; }
+    .panel p { margin: 0; color: var(--muted); font-size: 12px; }
+    .type-spec { display: grid; gap: 13px; }
+    .type-row { display: grid; grid-template-columns: 76px 1fr; gap: 10px; align-items: baseline; }
+    .type-row span { color: var(--dim); font: 9px/1 monospace; }
+    .type-row strong { font-weight: 520; }
+    .type-row:nth-child(1) strong { font: 520 23px/1 "Space Grotesk", sans-serif; letter-spacing: -.05em; }
+    .type-row:nth-child(2) strong { font-size: 15px; }
+    .type-row:nth-child(3) strong { font: 10px/1.4 "SFMono-Regular", Consolas, monospace; letter-spacing: .06em; }
+    .swatches { display: grid; grid-template-columns: repeat(5, 1fr); gap: 5px; margin: 13px 0 10px; }
+    .swatch { aspect-ratio: 1; border-radius: 7px; border: 1px solid rgba(255,255,255,.1); }
+    .palette-code { color: #85888c; font: 9px/1.7 monospace; }
+    .logo-art { margin-top: 13px; border: 1px solid var(--line); border-radius: 10px; overflow: hidden; background: #050505; }
+    .logo-art img { width: 100%; aspect-ratio: 1.45; object-fit: cover; display: block; }
+    .logo-note { margin-top: 10px; color: #919397; font-size: 10px; line-height: 1.55; }
+    .rules { margin: 0; padding: 0; list-style: none; }
+    .rules li { padding: 10px 0; border-bottom: 1px solid var(--line-soft); color: #b9bbbd; font-size: 11px; }
+    .rules li:last-child { border-bottom: 0; }
+    .rules b { color: var(--signal); font-weight: 560; }
+    .missing { border-color: rgba(140,203,255,.28); }
+    .missing h3 { color: var(--signal); }
+    .choices-wrap { margin-top: 22px; padding: 26px; border: 1px solid var(--line); border-radius: 16px; background: #0e0f10; }
+    .choices-wrap h2 { margin: 0; font: 540 25px/1.1 "Space Grotesk", Geist, sans-serif; letter-spacing: -.04em; }
+    .choices-wrap > p { margin: 7px 0 18px; color: var(--muted); font-size: 13px; }
+    .choices { display: grid; grid-template-columns: repeat(3, 1fr); gap: 9px; }
+    .option { min-height: 116px; padding: 16px; border: 1px solid var(--line); border-radius: 12px; background: #131416; color: var(--text); text-align: left; cursor: pointer; transition: transform 160ms var(--ease-out), border-color 160ms ease, background 160ms ease; }
+    .option:active { transform: scale(.98); }
+    .option.selected { border-color: var(--signal); background: rgba(140,203,255,.06); }
+    .option strong { display: block; margin: 7px 0 4px; font-size: 14px; }
+    .option span { color: var(--muted); font-size: 11px; line-height: 1.45; }
+    @media (hover:hover) and (pointer:fine) {
+      .option:hover { transform: translateY(-2px); border-color: #4c5055; }
+      .nav-cta:hover, .hero-cta:hover, .final-cta button:hover { background: #fff; }
+    }
+    @media (max-width: 1100px) {
+      .brief-header { grid-template-columns: 1fr; gap: 18px; }
+      .workspace { grid-template-columns: 1fr; }
+      .rail { position: static; grid-template-columns: repeat(2, 1fr); }
+    }
+    @media (max-width: 760px) {
+      .shell { width: min(100% - 24px, 1500px); padding-top: 24px; }
+      .brief-header h1 { font-size: 42px; }
+      .navlinks, .link { display: none; }
+      .landing-hero { min-height: auto; grid-template-columns: 1fr; padding-top: 52px; padding-bottom: 98px; }
+      .hero-copy h2 { font-size: 48px; }
+      .gallery { min-height: 320px; }
+      .command { bottom: 24px; width: calc(100% - 44px); }
+      .capability-band { grid-template-columns: repeat(3, 1fr); }
+      .capability-band div:first-child { display: none; }
+      .capability-band div:nth-last-child(-n+2) { display: none; }
+      .bento, .identity-break, .choices, .rail { grid-template-columns: 1fr; }
+      .bento { grid-template-rows: 330px 230px 230px; }
+      .tile.large { grid-row: auto; }
+    }
+    @media (prefers-reduced-motion: reduce) {
+      .option { transition: border-color 120ms ease; }
+      .option:hover, .option:active { transform: none; }
+    }
+  </style>
+</head>
+<body>
+  <main class="shell">
+    <header class="brief-header">
+      <div>
+        <div class="label">Direction B / Unified AI Workspace</div>
+        <h1>Model kataloğunu, üretimi ve otomasyonu tek premium ürün hikâyesinde birleştir.</h1>
+      </div>
+      <div>
+        <p>RIFT burada yalnızca geliştirme aracı değil. Kod, görsel, video, araştırma ve otomasyon için ortak üretim ortamı.</p>
+        <div class="dials"><span>Variance 7</span><span>Motion 6</span><span>Density 6</span></div>
+      </div>
+    </header>
+
+    <div class="workspace">
+      <section class="site-frame" aria-label="Direction B landing mockup">
+        <div class="framebar"><i></i><i></i><i></i><span>localhost:3060/landing/v2</span></div>
+        <div class="landing">
+          <nav class="nav">
+            <div class="brand"><span class="brand-mark" aria-hidden="true"></span>RIFT</div>
+            <div class="navlinks"><span>Workspace</span><span>Models</span><span>Enterprise</span><span>Pricing</span></div>
+            <div class="nav-actions"><span class="link">Sign in</span><button class="nav-cta">Open RIFT</button></div>
+          </nav>
+
+          <section class="landing-hero">
+            <div class="hero-copy">
+              <h2>Every model. One workspace.</h2>
+              <p>Build software, generate media and automate work without changing tools.</p>
+              <div class="hero-actions"><button class="hero-cta">Start creating</button><button class="hero-secondary">Explore the workspace</button></div>
+            </div>
+            <div class="gallery" aria-label="RIFT output gallery">
+              <div class="media"><img src="http://localhost:3060/landing-v2/studio-landscape.webp" alt="Landscape generated in RIFT Studio" /><span>IMAGE</span></div>
+              <div class="media"><img src="http://localhost:3060/landing-v2/studio-product.webp" alt="Product image generated in RIFT Studio" /><span>PRODUCT</span></div>
+              <div class="media"><img src="http://localhost:3060/landing-v2/studio-chrome.webp" alt="Chrome visual generated in RIFT Studio" /><span>MOTION</span></div>
+            </div>
+            <div class="command"><span>Create a launch film, product page and release workflow</span><button>Run</button></div>
+          </section>
+
+          <section class="capability-band" aria-label="Workspace capabilities"><div>One workspace</div><div>Image</div><div>Video</div><div>Code</div><div>Research</div><div>Audio</div></section>
+
+          <section class="product-story">
+            <h3>A catalog that turns into a workflow.</h3>
+            <p>Models are not isolated cards. RIFT connects selection, prompting, output review and the next action.</p>
+            <div class="product-frame"><img src="http://localhost:3060/landing-v2/app-studio.webp" alt="RIFT Studio workspace interface" /></div>
+          </section>
+
+          <section class="bento" aria-label="RIFT workspace capabilities">
+            <article class="tile large"><img src="http://localhost:3060/landing-v2/app-build.webp" alt="RIFT Build interface" /><div class="scrim"></div><div class="tile-copy"><strong>Turn an output into a product</strong><span>Move from generated media to a working implementation in the same thread.</span></div></article>
+            <article class="tile generated"><div class="mini-grid"><i></i><i></i></div><div class="tile-copy"><strong>Compare before you commit</strong><span>Review multiple outputs without losing the prompt or context.</span></div></article>
+            <article class="tile"><img src="http://localhost:3060/landing-v2/app-hack.webp" alt="RIFT Hack interface" /><div class="scrim"></div><div class="tile-copy"><strong>Investigate the hard parts</strong><span>Carry the same workspace context into deep technical analysis.</span></div></article>
+          </section>
+
+          <section class="identity-break">
+            <div><h3>One thread across every medium.</h3><p>`Rift Strata` visualizes separate model streams converging into one controlled workspace.</p></div>
+            <img class="strata-art" src="/files/rift-strata-b-preview.png" alt="Rift Strata procedural identity study" />
+          </section>
+
+          <section class="final-cta"><h3>Start with an idea. Leave with finished work.</h3><p>Choose the right model, keep the context and move directly into execution.</p><button>Open RIFT</button></section>
+        </div>
+      </section>
+
+      <aside class="rail">
+        <section class="panel">
+          <div class="label">Typography</div>
+          <h3>Broader voice, same discipline</h3>
+          <div class="type-spec">
+            <div class="type-row"><span>Display</span><strong>Space Grotesk 520</strong></div>
+            <div class="type-row"><span>Body</span><strong>Geist 400 at 16-18px</strong></div>
+            <div class="type-row"><span>Models</span><strong>JETBRAINS MONO</strong></div>
+          </div>
+          <p style="margin-top:13px">Display type adds creative range. Geist keeps every functional surface precise and readable.</p>
+        </section>
+
+        <section class="panel">
+          <div class="label">Color system</div>
+          <h3>Cold neutral, one ice signal</h3>
+          <div class="swatches"><div class="swatch" style="background:#0a0a0a"></div><div class="swatch" style="background:#111214"></div><div class="swatch" style="background:#292c30"></div><div class="swatch" style="background:#f4f4f0"></div><div class="swatch" style="background:#8ccbff"></div></div>
+          <div class="palette-code">#0A0A0A / #111214 / #292C30<br />#F4F4F0 / #8CCBFF</div>
+          <p style="margin-top:10px">Body contrast 8.31:1. Primary text 17.96:1. Signal accent 11.41:1.</p>
+        </section>
+
+        <section class="panel">
+          <div class="label">Logo system</div>
+          <h3>Rift Strata</h3>
+          <p>Mevcut glyph küçük boyutta kalır. Geniş yüzeylerde iki şerit, paralel ve incelen çizgi katmanlarına açılır.</p>
+          <div class="logo-art"><img src="/files/rift-strata-b-preview.png" alt="Rift Strata logo background exploration" /></div>
+          <div class="logo-note">16px: solid glyph. 28px: simplified two-ribbon mark. 128px ve üstü: line field. Hareket: çizgiler farklı kaynaklardan merkeze akar.</div>
+        </section>
+
+        <section class="panel">
+          <div class="label">Motion</div>
+          <h3>Outputs respond to intent</h3>
+          <ul class="rules"><li><b>Hero gallery:</b> user-driven focus</li><li><b>Mode change:</b> 420ms crossfade</li><li><b>UI:</b> 160-220ms ease-out</li><li><b>Strata:</b> slow one-time convergence</li><li><b>Reduced motion:</b> static selected frame</li></ul>
+        </section>
+
+        <section class="panel missing">
+          <div class="label">Launch blockers</div>
+          <h3>Catalog claims must be real</h3>
+          <p>Model erişimleri, maliyet, gecikme, lisans ve örnek çıktılar doğrulanmadan provider logosu veya performans iddiası yayınlanmaz.</p>
+        </section>
+      </aside>
+    </div>
+
+    <section class="choices-wrap">
+      <h2>B yönünün tonunu kilitleyelim.</h2>
+      <p>Bir seçeneğe tıkla. Sonra B’yi kilitleyip C yönüne geçeceğim.</p>
+      <div class="choices">
+        <button class="option" data-choice="B1 - Bu denge doğru" onclick="toggleSelect(this)"><div class="label">B1</div><strong>Bu denge doğru</strong><span>Görsel üretim güçlü, fakat ürün hâlâ ciddi ve kurumsal görünür.</span></button>
+        <button class="option" data-choice="B2 - Daha görsel" onclick="toggleSelect(this)"><div class="label">B2</div><strong>Daha görsel</strong><span>Media mosaic büyür, metin azalır ve Studio landing’in ana yüzüne dönüşür.</span></button>
+        <button class="option" data-choice="B3 - Daha kurumsal" onclick="toggleSelect(this)"><div class="label">B3</div><strong>Daha kurumsal</strong><span>Model kataloğu geri çekilir, ekip iş akışları ve güven daha erken görünür.</span></button>
+      </div>
+    </section>
+  </main>
+</body>
+</html>

@@ -1,1 +1,1 @@
-pnpm lint-staged && pnpm typecheck && pnpm test
+pnpm lint-staged && node scripts/package-local-cli.cjs --check && pnpm typecheck && pnpm test

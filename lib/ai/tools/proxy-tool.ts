@@ -1,6 +1,7 @@
 import { tool } from "ai";
 import { z } from "zod";
 import type { ToolContext } from "@/types";
+import { looseInt, coerceInt } from "./utils/loose-args";
 import {
   listRequests,
   viewRequest,
@@ -25,24 +26,13 @@ HTTPQL filter syntax:
   Combine with AND/OR: req.method.regex:"POST" AND req.path.regex:"/api/"`,
     inputSchema: z.object({
       httpql_filter: z.string().optional().describe("HTTPQL filter expression"),
-      start_page: z
-        .number()
-        .int()
-        .positive()
+      start_page: looseInt
         .optional()
         .describe("Starting page (1-based, default 1)"),
-      end_page: z
-        .number()
-        .int()
-        .positive()
+      end_page: looseInt
         .optional()
         .describe("Ending page (1-based, inclusive, default 1)"),
-      page_size: z
-        .number()
-        .int()
-        .positive()
-        .optional()
-        .describe("Requests per page (default 50)"),
+      page_size: looseInt.optional().describe("Requests per page (default 50)"),
       sort_by: z
         .enum([
           "timestamp",
@@ -74,9 +64,9 @@ HTTPQL filter syntax:
       try {
         const result = await listRequests(context, {
           httpqlFilter: httpql_filter,
-          startPage: start_page,
-          endPage: end_page,
-          pageSize: page_size,
+          startPage: coerceInt(start_page),
+          endPage: coerceInt(end_page),
+          pageSize: coerceInt(page_size),
           sortBy: sort_by,
           sortOrder: sort_order,
           scopeId: scope_id,

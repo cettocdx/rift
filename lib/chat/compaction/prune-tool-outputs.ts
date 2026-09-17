@@ -28,6 +28,10 @@ const PROTECTED_TOOLS = new Set([
   "list_notes",
   "update_note",
   "delete_note",
+  // These outputs are user deliverables, not disposable execution logs. Their
+  // durable file IDs must survive long conversations and storage compaction.
+  "generate_image",
+  "generate_video",
 ]);
 
 const TOOL_TYPE_PREFIX = "tool-";
@@ -48,6 +52,27 @@ export interface PruneResult {
     | null;
 }
 
+/**
+ * A piece of evidence lifted out of a message before it was shrunk.
+ *
+ * Compaction used to be destructive: the only way it made a message fit
+ * Convex's 1 MiB document cap was by overwriting tool output with a one-line
+ * placeholder, so the terminal output a user watched stream in was gone for
+ * good on reload. The content is now handed back here so the caller can store
+ * it beside the message instead of on top of it.
+ */
+export interface OffloadedEvidence {
+  toolCallId?: string;
+  toolName: string;
+  kind: "terminal_output" | "tool_output" | "tool_input";
+  content: string;
+  command?: string;
+  exitCode?: number;
+  startedAt?: number;
+  endedAt?: number;
+  durationMs?: number;
+}
+
 export interface StorageCompactionResult<T extends UIMessage = UIMessage> {
   message: T;
   compacted: boolean;
@@ -55,10 +80,28 @@ export interface StorageCompactionResult<T extends UIMessage = UIMessage> {
   afterSizeBytes: number;
   strippedUiOnlyFields: boolean;
   prunedCount: number;
+  /** Content removed from the message that the caller should persist. */
+  offloaded: OffloadedEvidence[];
+  /** Number of streamed terminal parts folded into `offloaded`. */
+  strippedTerminalParts: number;
+  /** Tool INPUT strings excerpted to make the message fit. */
+  excerptedInputs: number;
+  /** False means even the last pass could not get under the limit. */
+  fitsSoftLimit: boolean;
 }
 
-const STORAGE_MESSAGE_SOFT_LIMIT_BYTES = 850 * 1024;
+// Text is also stored in the searchable content field. Reserve room for that
+// duplicate plus document metadata and the full-history attachment.
+const STORAGE_MESSAGE_SOFT_LIMIT_BYTES = 400 * 1024;
 const STORAGE_TOOL_OUTPUT_TOKEN_BUDGET = 20_000;
+/**
+ * Below this, a tool input string is not worth excerpting: the placeholder and
+ * its offload row would cost more than the string saves.
+ */
+const STORAGE_INPUT_STRING_MIN_BYTES = 2_000;
+/** How much of an excerpted input survives inline, at each end. */
+const STORAGE_INPUT_EXCERPT_HEAD_CHARS = 600;
+const STORAGE_INPUT_EXCERPT_TAIL_CHARS = 200;
 const STORAGE_REASONING_CHAR_BUDGET = 32_000;
 const STORAGE_REASONING_PART_CHAR_LIMIT = 8_000;
 const STORAGE_COMPACTED_REASONING_PREFIX =
@@ -76,6 +119,50 @@ interface ToolPart {
   output?: any;
 }
 
+const MODEL_TOOL_OUTPUT_TYPES = new Set([
+  "text",
+  "json",
+  "execution-denied",
+  "error-text",
+  "error-json",
+  "content",
+]);
+
+const isModelToolResultOutput = (
+  output: unknown,
+): output is { type: string; value?: unknown; reason?: unknown } =>
+  typeof output === "object" &&
+  output !== null &&
+  "type" in output &&
+  typeof output.type === "string" &&
+  MODEL_TOOL_OUTPUT_TYPES.has(output.type);
+
+const unwrapModelToolResultOutput = (output: unknown): unknown => {
+  if (!isModelToolResultOutput(output)) return output;
+  if (output.type === "execution-denied") return output.reason;
+  return "value" in output ? output.value : output;
+};
+
+const compactText = (value: unknown, maxLength: number): string => {
+  const normalized =
+    typeof value === "string"
+      ? value.replace(/\s+/g, " ").trim()
+      : value == null
+        ? ""
+        : String(value);
+  return normalized.length > maxLength
+    ? `${normalized.slice(0, maxLength - 3)}...`
+    : normalized;
+};
+
+const isCompactedModelToolOutput = (output: unknown): boolean => {
+  const value = unwrapModelToolResultOutput(output);
+  return (
+    typeof value === "string" &&
+    /^\[(?:Terminal|File|Search|Files|URL|Subagent|Tool):/.test(value)
+  );
+};
+
 /**
  * Builds a compact placeholder string given the tool name, its input args, and output.
  * Shared by both UIMessage and ModelMessage pruners.
@@ -85,11 +172,14 @@ const buildPlaceholderFromParts = (
   input: any,
   output: any,
 ): string => {
+  const normalizedOutput = unwrapModelToolResultOutput(output) as any;
+
   switch (toolName) {
     case "run_terminal_cmd": {
       const cmd = input?.command ?? "unknown";
       const shortCmd = cmd.length > 80 ? cmd.slice(0, 77) + "..." : cmd;
-      const exitCode = output?.exitCode ?? output?.exit_code ?? "?";
+      const exitCode =
+        normalizedOutput?.exitCode ?? normalizedOutput?.exit_code ?? "?";
       return `[Terminal: ran '${shortCmd}', exit code ${exitCode}]`;
     }
 
@@ -97,7 +187,7 @@ const buildPlaceholderFromParts = (
       const action = input?.action ?? "unknown";
       const path = input?.path ?? input?.file_path ?? "unknown";
       if (action === "read") {
-        const content = output?.content ?? output ?? "";
+        const content = normalizedOutput?.content ?? normalizedOutput ?? "";
         const lines =
           typeof content === "string" ? content.split("\n").length : "?";
         return `[File: read ${path} (${lines} lines)]`;
@@ -108,18 +198,19 @@ const buildPlaceholderFromParts = (
     case "match": {
       let count = "?";
       let files = "";
-      if (Array.isArray(output)) {
-        count = String(output.length);
+      if (Array.isArray(normalizedOutput)) {
+        count = String(normalizedOutput.length);
         const fileSet = new Set(
-          output
+          normalizedOutput
             .map((m: any) => m.file ?? m.path ?? m.filename)
             .filter(Boolean),
         );
         files =
           fileSet.size > 0 ? ` in ${[...fileSet].slice(0, 5).join(", ")}` : "";
         if (fileSet.size > 5) files += ` (+${fileSet.size - 5} more)`;
-      } else if (output && typeof output === "object") {
-        const results = output.results ?? output.matches ?? [];
+      } else if (normalizedOutput && typeof normalizedOutput === "object") {
+        const results =
+          normalizedOutput.results ?? normalizedOutput.matches ?? [];
         count = Array.isArray(results) ? String(results.length) : "?";
       }
       return `[Match: ${count} results${files}]`;
@@ -132,13 +223,41 @@ const buildPlaceholderFromParts = (
     }
 
     case "get_terminal_files": {
-      const n = Array.isArray(output) ? output.length : "?";
+      const n = Array.isArray(normalizedOutput) ? normalizedOutput.length : "?";
       return `[Files: retrieved ${n} files]`;
     }
 
-    case "open_url": {
+    case "open_url":
+    case "browse_url": {
       const url = input?.url ?? "unknown";
       return `[URL: opened ${url}]`;
+    }
+
+    case "delegate_task": {
+      const name = compactText(
+        normalizedOutput?.agent?.name ?? input?.name ?? "specialist",
+        48,
+      );
+      const summary = compactText(
+        normalizedOutput?.summary ??
+          normalizedOutput?.error ??
+          "completed without a summary",
+        220,
+      );
+      return `[Subagent: ${name} — ${summary}]`;
+    }
+
+    case "search": {
+      const si = (input ?? {}) as { kind?: string; pattern?: string };
+      const so = (output ?? {}) as { count?: number };
+      const sn = typeof so.count === "number" ? `${so.count} ` : "";
+      return `[${si.kind === "glob" ? "Glob" : "Grep"}: '${si.pattern ?? ""}' → ${sn}results]`;
+    }
+
+    case "apply_patch": {
+      const po = (output ?? {}) as { files?: unknown[] };
+      const pn = Array.isArray(po.files) ? po.files.length : 0;
+      return `[Patch: ${pn} file${pn === 1 ? "" : "s"}]`;
     }
 
     default:
@@ -157,9 +276,12 @@ const buildPlaceholder = (part: ToolPart): string => {
 // ---------------------------------------------------------------------------
 
 const countOutputTokens = (output: unknown): number => {
-  if (output == null) return 0;
-  if (typeof output === "string") return safeCountTokens(output);
-  return safeCountTokens(JSON.stringify(output));
+  const normalizedOutput = unwrapModelToolResultOutput(output);
+  if (normalizedOutput == null) return 0;
+  if (typeof normalizedOutput === "string") {
+    return safeCountTokens(normalizedOutput);
+  }
+  return safeCountTokens(JSON.stringify(normalizedOutput));
 };
 
 export const estimateSerializedSizeBytes = (value: unknown): number =>
@@ -206,6 +328,140 @@ const stripBulkyOutputFields = (part: ToolPart): ToolPart => {
   return part;
 };
 
+/**
+ * Every long string inside a tool call's INPUT, with the path to reach it.
+ *
+ * Inputs were the blind spot that made storage compaction unable to converge.
+ * Every other pass here trims `output`, and for a Build run the input is where
+ * the bulk actually lives: the `file` tool carries a whole file body in
+ * `input.text`, and an edit carries both halves in `input.edits[].find/.replace`.
+ * Sixty file writes is ~900KB that nothing could shrink, which is how a message
+ * still measured 1.99MB after five reduction passes and was refused by a
+ * database whose document limit is 1MB -- taking an hour of finished work with
+ * it. Walking the input generically (rather than naming `file.text`) means a
+ * tool added next month is covered without anyone remembering to come here.
+ */
+interface InputStringRef {
+  path: (string | number)[];
+  value: string;
+  bytes: number;
+}
+
+const collectInputStrings = (
+  value: unknown,
+  path: (string | number)[] = [],
+  found: InputStringRef[] = [],
+): InputStringRef[] => {
+  if (typeof value === "string") {
+    const bytes = new TextEncoder().encode(value).byteLength;
+    if (bytes >= STORAGE_INPUT_STRING_MIN_BYTES) {
+      found.push({ path, value, bytes });
+    }
+    return found;
+  }
+  if (Array.isArray(value)) {
+    value.forEach((entry, index) =>
+      collectInputStrings(entry, [...path, index], found),
+    );
+    return found;
+  }
+  if (value && typeof value === "object") {
+    for (const [key, entry] of Object.entries(value)) {
+      collectInputStrings(entry, [...path, key], found);
+    }
+  }
+  return found;
+};
+
+/** Immutably replace the value at `path`, cloning only the spine. */
+const setAtPath = (
+  target: unknown,
+  path: (string | number)[],
+  next: unknown,
+): unknown => {
+  if (path.length === 0) return next;
+  const [head, ...rest] = path;
+  if (Array.isArray(target)) {
+    const copy = target.slice();
+    copy[head as number] = setAtPath(copy[head as number], rest, next);
+    return copy;
+  }
+  const copy = { ...(target as Record<string, unknown>) };
+  copy[head as string] = setAtPath(copy[head as string], rest, next);
+  return copy;
+};
+
+const excerptInputString = (value: string): string => {
+  const head = value.slice(0, STORAGE_INPUT_EXCERPT_HEAD_CHARS);
+  const tail = value.slice(-STORAGE_INPUT_EXCERPT_TAIL_CHARS);
+  const omitted = value.length - head.length - tail.length;
+  return `${head}\n\n[... ${omitted.toLocaleString("en-US")} characters moved to run evidence ...]\n\n${tail}`;
+};
+
+/**
+ * The pass that guarantees the message fits: excerpt tool INPUT strings,
+ * largest first, until the payload is under the limit.
+ *
+ * Largest-first is what makes this both cheap and gentle -- one 400KB file body
+ * usually buys the whole budget, so a run's smaller inputs stay whole. Nothing
+ * is destroyed: every excerpted string goes to `offloaded` and is written to
+ * the run's evidence rows beside the message.
+ */
+const excerptBulkyToolInputs = (
+  parts: UIMessage["parts"],
+  softLimitBytes: number,
+  currentSizeBytes: number,
+): {
+  parts: UIMessage["parts"];
+  offloaded: OffloadedEvidence[];
+  excerptedCount: number;
+} => {
+  const candidates: (InputStringRef & { partIndex: number })[] = [];
+  parts.forEach((part, partIndex) => {
+    const toolPart = part as ToolPart;
+    if (!toolPart?.type?.startsWith(TOOL_TYPE_PREFIX)) return;
+    if (toolPart.input === undefined) return;
+    for (const ref of collectInputStrings(toolPart.input)) {
+      candidates.push({ ...ref, partIndex });
+    }
+  });
+
+  if (candidates.length === 0) {
+    return { parts, offloaded: [], excerptedCount: 0 };
+  }
+
+  candidates.sort((a, b) => b.bytes - a.bytes);
+
+  const nextParts = parts.slice();
+  const offloaded: OffloadedEvidence[] = [];
+  let projectedBytes = currentSizeBytes;
+  let excerptedCount = 0;
+
+  for (const candidate of candidates) {
+    if (projectedBytes <= softLimitBytes) break;
+    const excerpt = excerptInputString(candidate.value);
+    const excerptBytes = new TextEncoder().encode(excerpt).byteLength;
+    if (excerptBytes >= candidate.bytes) continue;
+
+    const toolPart = nextParts[candidate.partIndex] as ToolPart;
+    nextParts[candidate.partIndex] = {
+      ...toolPart,
+      input: setAtPath(toolPart.input, candidate.path, excerpt),
+    } as UIMessage["parts"][number];
+
+    offloaded.push({
+      toolCallId: toolPart.toolCallId,
+      toolName: toolPart.type.slice(TOOL_TYPE_PREFIX.length),
+      kind: "tool_input",
+      content: candidate.value,
+    });
+    projectedBytes -= candidate.bytes - excerptBytes;
+    excerptedCount += 1;
+  }
+
+  return { parts: nextParts, offloaded, excerptedCount };
+};
+
 const compactReasoningParts = (
   parts: UIMessage["parts"],
 ): UIMessage["parts"] => {
@@ -249,6 +505,117 @@ const compactReasoningParts = (
   return compacted;
 };
 
+/**
+ * Folds streamed `data-terminal` parts into one evidence blob per tool call and
+ * removes them from the message.
+ *
+ * These carry the raw bytes the live terminal rendered. Each emit is its own
+ * part with its own id, so a single long-running command can leave hundreds of
+ * them on one message -- they were the largest single contributor to assistant
+ * messages approaching the 1 MiB cap, and nothing in the compaction pipeline
+ * could shrink them. The final tool result already holds the same output, so
+ * removing them loses nothing once the text is preserved here.
+ */
+const extractStreamedTerminalParts = (
+  parts: UIMessage["parts"],
+): {
+  parts: UIMessage["parts"];
+  evidence: OffloadedEvidence[];
+  strippedCount: number;
+} => {
+  const byToolCall = new Map<string, string[]>();
+  let strippedCount = 0;
+
+  const remaining = parts.filter((part) => {
+    if ((part as { type?: string })?.type !== "data-terminal") return true;
+    const data = (part as { data?: { terminal?: unknown; toolCallId?: unknown } })
+      .data;
+    const text = typeof data?.terminal === "string" ? data.terminal : "";
+    const toolCallId =
+      typeof data?.toolCallId === "string" ? data.toolCallId : "";
+    strippedCount += 1;
+    if (!text) return false;
+    const bucket = byToolCall.get(toolCallId);
+    if (bucket) bucket.push(text);
+    else byToolCall.set(toolCallId, [text]);
+    return false;
+  });
+
+  if (strippedCount === 0) {
+    return { parts, evidence: [], strippedCount: 0 };
+  }
+
+  const evidence: OffloadedEvidence[] = [];
+  for (const [toolCallId, chunks] of byToolCall) {
+    evidence.push({
+      toolCallId: toolCallId || undefined,
+      toolName: "run_terminal_cmd",
+      kind: "terminal_output",
+      content: chunks.join(""),
+    });
+  }
+
+  return { parts: remaining, evidence, strippedCount };
+};
+
+/** Serializes a tool output for storage as evidence text. */
+const serializeToolOutput = (output: unknown): string => {
+  if (typeof output === "string") return output;
+  try {
+    return JSON.stringify(output, null, 2);
+  } catch {
+    return String(output);
+  }
+};
+
+/**
+ * Identifies the tool outputs a pruning pass replaced with placeholders, by
+ * comparing parts before and after. Pruning turns a structured output into a
+ * one-line string, so that transition is the signal.
+ */
+const collectPrunedOutputs = (
+  before: UIMessage["parts"],
+  after: UIMessage["parts"],
+): OffloadedEvidence[] => {
+  const evidence: OffloadedEvidence[] = [];
+
+  for (let index = 0; index < before.length; index += 1) {
+    const original = before[index] as ToolPart | undefined;
+    const next = after[index] as ToolPart | undefined;
+    if (!original || !next) continue;
+    if (original.type !== next.type) continue;
+    if (!original.type?.startsWith(TOOL_TYPE_PREFIX)) continue;
+    // Structured before, one-line placeholder after: this output was replaced.
+    if (typeof original.output === "string" || original.output == null) continue;
+    if (typeof next.output !== "string") continue;
+
+    const toolName = original.type.slice(TOOL_TYPE_PREFIX.length);
+    const result = (original.output as { result?: Record<string, unknown> })
+      ?.result;
+    const readNumber = (key: string): number | undefined => {
+      const value = result?.[key] ?? (original.output as Record<string, unknown>)?.[key];
+      return typeof value === "number" ? value : undefined;
+    };
+
+    evidence.push({
+      toolCallId: original.toolCallId,
+      toolName,
+      kind: toolName === "run_terminal_cmd" ? "terminal_output" : "tool_output",
+      content: serializeToolOutput(original.output),
+      command:
+        typeof original.input?.command === "string"
+          ? original.input.command
+          : undefined,
+      exitCode: readNumber("exitCode"),
+      startedAt: readNumber("startedAt"),
+      endedAt: readNumber("endedAt"),
+      durationMs: readNumber("durationMs"),
+    });
+  }
+
+  return evidence;
+};
+
 const stripStorageOnlyParts = (parts: UIMessage["parts"]): UIMessage["parts"] =>
   parts.filter(
     (part) =>
@@ -283,8 +650,20 @@ export function compactMessageForStorage<T extends UIMessage>(
       afterSizeBytes: beforeSizeBytes,
       strippedUiOnlyFields: false,
       prunedCount: 0,
+      offloaded: [],
+      strippedTerminalParts: 0,
+      excerptedInputs: 0,
+      // Reports the truth, not the fact that we returned early: this branch is
+      // also taken by a non-assistant message, which is never compacted here
+      // and so can leave without fitting.
+      fitsSoftLimit: beforeSizeBytes <= softLimitBytes,
     };
   }
+
+  // Everything this function removes to make the message fit is collected here
+  // so the caller can persist it beside the message. Compaction bounds what a
+  // message costs; it is not licence to destroy the run's evidence.
+  const offloaded: OffloadedEvidence[] = [];
 
   let strippedUiOnlyFields = false;
   let parts = message.parts.map((part) => {
@@ -295,8 +674,23 @@ export function compactMessageForStorage<T extends UIMessage>(
 
   let afterSizeBytes = estimateSerializedSizeBytes(parts);
   let prunedCount = 0;
+  let strippedTerminalParts = 0;
+
+  // Streamed terminal parts come out first: they are duplicates of output the
+  // tool result already carries, and they are the biggest single contributor to
+  // an oversized message. Removing them costs the least and saves the most.
+  if (afterSizeBytes > softLimitBytes) {
+    const extracted = extractStreamedTerminalParts(parts);
+    if (extracted.strippedCount > 0) {
+      parts = extracted.parts;
+      offloaded.push(...extracted.evidence);
+      strippedTerminalParts = extracted.strippedCount;
+      afterSizeBytes = estimateSerializedSizeBytes(parts);
+    }
+  }
 
   if (afterSizeBytes > softLimitBytes) {
+    const partsBefore = parts;
     const pruneResult = pruneToolOutputs(
       [{ ...message, parts }],
       toolOutputTokenBudget,
@@ -304,13 +698,16 @@ export function compactMessageForStorage<T extends UIMessage>(
     );
     parts = pruneResult.messages[0]?.parts ?? parts;
     prunedCount += pruneResult.prunedCount;
+    offloaded.push(...collectPrunedOutputs(partsBefore, parts));
     afterSizeBytes = estimateSerializedSizeBytes(parts);
   }
 
   if (afterSizeBytes > softLimitBytes) {
+    const partsBefore = parts;
     const pruneResult = pruneToolOutputs([{ ...message, parts }], 0, 0);
     parts = pruneResult.messages[0]?.parts ?? parts;
     prunedCount += pruneResult.prunedCount;
+    offloaded.push(...collectPrunedOutputs(partsBefore, parts));
     afterSizeBytes = estimateSerializedSizeBytes(parts);
   }
 
@@ -324,8 +721,54 @@ export function compactMessageForStorage<T extends UIMessage>(
     afterSizeBytes = estimateSerializedSizeBytes(parts);
   }
 
+  // The pass that has to work. Everything above trims OUTPUT, and a Build run's
+  // bulk is in tool INPUT, so before this the cascade could run out of ideas
+  // while still far over the limit -- and then returned the oversized message
+  // anyway, handing the database a document it was certain to refuse.
+  let excerptedInputs = 0;
+  if (afterSizeBytes > softLimitBytes) {
+    const excerpted = excerptBulkyToolInputs(
+      parts,
+      softLimitBytes,
+      afterSizeBytes,
+    );
+    if (excerpted.excerptedCount > 0) {
+      parts = excerpted.parts;
+      offloaded.push(...excerpted.offloaded);
+      excerptedInputs = excerpted.excerptedCount;
+      afterSizeBytes = estimateSerializedSizeBytes(parts);
+    }
+  }
+
+  // Last resort for string outputs, protected results, metadata or prose that
+  // earlier passes intentionally preserve. saveMessage archives the COMPLETE
+  // original before committing any compacted representation.
+  if (afterSizeBytes > softLimitBytes) {
+    const bounded = [...parts];
+    const largestFirst = bounded.map((part, index) => ({
+      index, size: estimateSerializedSizeBytes(part),
+    })).sort((a, b) => b.size - a.size);
+    for (const { index } of largestFirst) {
+      if (afterSizeBytes <= softLimitBytes) break;
+      const part = bounded[index];
+      bounded[index] = part.type === "text"
+        ? { type: "text", text: `${part.text.slice(0, 2000)}\n\n[Full text is preserved in the attached run archive.]` }
+        : { type: "text", text: "[Full operation details are preserved in the attached run archive.]" };
+      afterSizeBytes = estimateSerializedSizeBytes(bounded);
+    }
+    parts = bounded;
+    if (afterSizeBytes > softLimitBytes) {
+      // Also bound pathological numbers of individually small parts.
+      parts = [{ type: "text", text: "Full run history is preserved in the attached archive." }];
+      afterSizeBytes = estimateSerializedSizeBytes(parts);
+    }
+  }
+
   const compacted =
-    strippedUiOnlyFields || prunedCount > 0 || afterSizeBytes < beforeSizeBytes;
+    strippedUiOnlyFields ||
+    prunedCount > 0 ||
+    strippedTerminalParts > 0 ||
+    afterSizeBytes < beforeSizeBytes;
 
   return {
     message: compacted ? ({ ...message, parts } as T) : message,
@@ -334,6 +777,14 @@ export function compactMessageForStorage<T extends UIMessage>(
     afterSizeBytes,
     strippedUiOnlyFields,
     prunedCount,
+    offloaded,
+    strippedTerminalParts,
+    excerptedInputs,
+    // Whether the cascade actually achieved its purpose. Callers log this: a
+    // false here is the shape of the production failure that motivated the
+    // input pass, and it is worth knowing about BEFORE the database refuses
+    // the write rather than after an hour of work is already lost.
+    fitsSoftLimit: afterSizeBytes <= softLimitBytes,
   };
 }
 
@@ -505,8 +956,8 @@ export interface ModelPruneResult {
  * during the agentic loop (up to 100 tool calls per streamText invocation).
  *
  * ModelMessage format:
- *   assistant: { role: "assistant", content: [{ type: "tool-call", toolCallId, toolName, args }] }
- *   tool:      { role: "tool", content: [{ type: "tool-result", toolCallId, toolName, output }] }
+ *   assistant: { role: "assistant", content: [{ type: "tool-call", toolCallId, toolName, input }] }
+ *   tool:      { role: "tool", content: [{ type: "tool-result", toolCallId, toolName, output: { type, value } }] }
  *
  * To build rich placeholders, we first index tool-call args by toolCallId
  * from assistant messages, then correlate with tool-result outputs.
@@ -525,7 +976,7 @@ export function pruneModelMessages(
     for (const part of content) {
       const p = part as Record<string, unknown>;
       if (p.type === "tool-call" && typeof p.toolCallId === "string") {
-        argsById.set(p.toolCallId, p.args);
+        argsById.set(p.toolCallId, "input" in p ? p.input : p.args);
       }
     }
   }
@@ -556,8 +1007,8 @@ export function pruneModelMessages(
       )
         continue;
 
-      // Skip already-pruned (string output = placeholder)
-      if (typeof part.output === "string") continue;
+      // Skip placeholders produced by an earlier compaction pass.
+      if (isCompactedModelToolOutput(part.output)) continue;
       if (part.output == null) continue;
 
       const tokens = countOutputTokens(part.output);
@@ -637,7 +1088,12 @@ export function pruneModelMessages(
         resultPart.output,
       );
 
-      return { ...resultPart, output: placeholder };
+      return {
+        ...resultPart,
+        output: isModelToolResultOutput(resultPart.output)
+          ? { type: "text", value: placeholder }
+          : placeholder,
+      };
     });
 
     return { ...msg, content: newContent };

@@ -204,6 +204,7 @@ export const connect = mutation({
       v.object({
         commands: v.boolean(),
         pty: v.boolean(),
+        commandReadiness: v.optional(v.boolean()),
       }),
     ),
   },
@@ -339,9 +340,10 @@ export const refreshCentrifugoToken = mutation({
   args: {
     token: v.string(),
     connectionId: v.string(),
+    commandReadiness: v.optional(v.boolean()),
   },
   returns: refreshCentrifugoTokenReturns,
-  handler: async (ctx, { token, connectionId }) => {
+  handler: async (ctx, { token, connectionId, commandReadiness }) => {
     const tokenResult = await validateToken(ctx.db, token);
     if (!tokenResult.valid) {
       throw new ConvexError({
@@ -367,7 +369,11 @@ export const refreshCentrifugoToken = mutation({
       return terminatedResult("connection_inactive", connectionId, connection);
     }
 
-    await ctx.db.patch(connection._id, { last_heartbeat: Date.now() });
+    await ctx.db.patch(connection._id, { last_heartbeat: Date.now(),
+      ...(commandReadiness !== undefined ? { capabilities: {
+        ...(connection.capabilities ?? { commands: false, pty: false }), commandReadiness,
+      }} : {}),
+    });
 
     const centrifugoToken = await generateCentrifugoToken(
       connection.user_id,
@@ -468,7 +474,10 @@ export const connectDesktop = mutation({
       client_version: "desktop",
       mode: "dangerous",
       os_info: args.osInfo,
-      capabilities: { commands: true, pty: true },
+      // RIFT Desktop production exposes only the consent-scoped local-access
+      // relay. Arbitrary host commands and PTYs are development-only Tauri
+      // capabilities and must never be advertised to Build workers.
+      capabilities: { commands: false, pty: false },
       last_heartbeat: Date.now(),
       status: "connected",
       created_at: Date.now(),
@@ -614,6 +623,7 @@ export const listConnections = query({
       capabilities: v.object({
         commands: v.boolean(),
         pty: v.boolean(),
+        commandReadiness: v.optional(v.boolean()),
       }),
     }),
   ),
@@ -665,6 +675,7 @@ export const listConnectionsForBackend = query({
       capabilities: v.object({
         commands: v.boolean(),
         pty: v.boolean(),
+        commandReadiness: v.optional(v.boolean()),
       }),
     }),
   ),

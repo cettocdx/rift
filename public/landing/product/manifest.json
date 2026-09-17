@@ -1,0 +1,88 @@
+{
+  "capturedAt": "2026-09-13T10:30:37.373Z",
+  "captureKind": "offline-staged-demo",
+  "command": "node scripts/product-capture/capture.cjs",
+  "captureViewport": {
+    "cssWidth": 1280,
+    "cssHeight": 720,
+    "deviceScaleFactor": 3,
+    "pixelWidth": 3840,
+    "pixelHeight": 2160
+  },
+  "assets": [
+    {
+      "view": "build",
+      "file": "build-product-design-4k.webp",
+      "kind": "staged-demo",
+      "sha256": "59624f7cada2267430fe6f54a0c140a254921edfd72c0e22963db0b3b2b30f77"
+    },
+    {
+      "view": "build",
+      "file": "build-application-4k.webp",
+      "kind": "staged-demo",
+      "sha256": "59624f7cada2267430fe6f54a0c140a254921edfd72c0e22963db0b3b2b30f77"
+    },
+    {
+      "view": "build",
+      "file": "build-reasoning-4k.webp",
+      "kind": "staged-demo",
+      "sha256": "59624f7cada2267430fe6f54a0c140a254921edfd72c0e22963db0b3b2b30f77"
+    },
+    {
+      "view": "studio",
+      "file": "studio-4k.webp",
+      "kind": "staged-demo",
+      "sha256": "548d68592e26492b48b8a5729918f05e71a7a4a4298258d35a56b6ce4e1b0153"
+    },
+    {
+      "view": "agents",
+      "file": "agents-4k.webp",
+      "kind": "staged-demo",
+      "sha256": "0d7b7efb8e6412919a74f3da8cf940a3f6ff81e8cf04a2f9d61f2382bfc989d5"
+    },
+    {
+      "view": "appearance",
+      "file": "appearance-4k.webp",
+      "kind": "staged-demo",
+      "sha256": "94975d690f3c0a6db30faad502126a1fa5c17ddbd0e395aae432873ef25f0923"
+    },
+    {
+      "view": "workbench",
+      "file": "workbench-4k.webp",
+      "kind": "staged-demo",
+      "sha256": "44f6d01643c402de6b16ab755031957810359e1807cd08bcb26f53e089d39c88"
+    },
+    {
+      "view": "workspace",
+      "file": "workspace-4k.webp",
+      "kind": "staged-demo",
+      "sha256": "e1aec4de230903b3066d4d7a19f5d83d80571ed01dba5dd28e65dfdd06859907"
+    },
+    {
+      "file": "hero-run-4k.mp4",
+      "kind": "staged-demo-scene-reel",
+      "sha256": "c55a9682816bda44080b0cc6bbdef7f23a0fa4e7a274d2fbc86ccaad599add8f"
+    },
+    {
+      "file": "hero-run-4k.webm",
+      "kind": "staged-demo-scene-reel",
+      "sha256": "dfc60bdb44a59f2d8c2bbe209c3202965b30d5d6dd7370509488e69762afb09d"
+    },
+    {
+      "file": "hero-run-poster.jpg",
+      "view": "build",
+      "kind": "staged-demo",
+      "sha256": "1e9d4b1db6238125d4a849450a5c5a54fb6b28b229a19ea8fe70526b2fb7bc42"
+    },
+    {
+      "view": "build-product-design-application",
+      "file": "product-design-app-4k.webp",
+      "sha256": "3871a483479e53d13e37619280379474e643128d83681e38cd2413d70e04f641"
+    },
+    {
+      "view": "auth-application",
+      "file": "application-studio-4k.webp",
+      "sha256": "7299cf4d4a31764fa0c4e090b7836ca6a97f3d1c500e764ee709a1794cc1e674"
+    }
+  ]
+}

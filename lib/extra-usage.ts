@@ -1,4 +1,4 @@
-import { getConvexClient } from "@/lib/db/convex-client";
+import { getConvexClient, getConvexServiceKey } from "@/lib/db/convex-client";
 import { api } from "@/convex/_generated/api";
 
 export interface ExtraUsageBalance {
@@ -9,6 +9,11 @@ export interface ExtraUsageBalance {
   autoReloadThresholdDollars?: number;
   autoReloadThresholdPoints?: number;
   autoReloadAmountDollars?: number;
+  includedTotalPoints: number;
+  includedRemainingPoints: number;
+  includedResetAt?: string;
+  debtPoints: number;
+  legacyRedisMigrated: boolean;
 }
 
 export interface DeductBalanceResult {
@@ -44,7 +49,7 @@ export async function getExtraUsageBalance(
     const settings = await convex.query(
       api.extraUsage.getExtraUsageBalanceForBackend,
       {
-        serviceKey: process.env.CONVEX_SERVICE_ROLE_KEY!,
+        serviceKey: getConvexServiceKey()!,
         userId,
       },
     );
@@ -56,10 +61,53 @@ export async function getExtraUsageBalance(
       autoReloadThresholdDollars: settings.autoReloadThresholdDollars,
       autoReloadThresholdPoints: settings.autoReloadThresholdPoints,
       autoReloadAmountDollars: settings.autoReloadAmountDollars,
+      includedTotalPoints: settings.includedTotalPoints,
+      includedRemainingPoints: settings.includedRemainingPoints,
+      includedResetAt: settings.includedResetAt,
+      debtPoints: settings.debtPoints,
+      legacyRedisMigrated: settings.legacyRedisMigrated,
     };
   } catch (error) {
     console.error("Error getting extra usage balance:", error);
     return null;
+  }
+}
+
+/**
+ * Claim the user's one lifetime free Agent run. Returns true if THIS call
+ * claimed it (first ever agent run), false if it was already used — in which
+ * case the caller must draw from the prepaid balance. Errors propagate so a
+ * Convex hiccup surfaces as a retryable rate-limit error rather than silently
+ * granting or denying.
+ */
+export async function claimFreeAgentRun(userId: string): Promise<boolean> {
+  const convex = getConvexClient();
+  const result = await convex.mutation(
+    api.extraUsage.claimFreeAgentRunForBackend,
+    {
+      serviceKey: getConvexServiceKey()!,
+      userId,
+    },
+  );
+  return result.granted;
+}
+
+/**
+ * Refund (un-claim) the user's one free Agent run after a failed agent run, so
+ * the lifetime gate is only spent on a run that actually completed. Resilient —
+ * never throws (called from error handlers); returns true on success.
+ */
+export async function refundFreeAgentRun(userId: string): Promise<boolean> {
+  try {
+    const convex = getConvexClient();
+    await convex.mutation(api.extraUsage.refundFreeAgentRunForBackend, {
+      serviceKey: getConvexServiceKey()!,
+      userId,
+    });
+    return true;
+  } catch (error) {
+    console.error("Error refunding free agent run:", error);
+    return false;
   }
 }
 
@@ -104,7 +152,7 @@ export async function refundToBalance(
     const convex = getConvexClient();
 
     const result = await convex.mutation(api.extraUsage.refundPoints, {
-      serviceKey: process.env.CONVEX_SERVICE_ROLE_KEY!,
+      serviceKey: getConvexServiceKey()!,
       userId,
       amountPoints: pointsToRefund,
     });
@@ -155,7 +203,7 @@ export async function deductFromBalance(
     const result = await convex.action(
       api.extraUsageActions.deductWithAutoReload,
       {
-        serviceKey: process.env.CONVEX_SERVICE_ROLE_KEY!,
+        serviceKey: getConvexServiceKey()!,
         userId,
         amountPoints: pointsUsed,
       },
@@ -180,6 +228,104 @@ export async function deductFromBalance(
       insufficientFunds: false,
       monthlyCapExceeded: false,
     };
+  }
+}
+
+export interface PlanCreditDeductResult extends DeductBalanceResult {
+  includedPointsDeducted: number;
+  purchasedPointsDeducted: number;
+  includedTotalPoints: number;
+  includedRemainingPoints: number;
+  includedResetAt?: string;
+  debtPoints: number;
+}
+
+/**
+ * Atomically spend Pro/Max account credits: expiring included allowance first,
+ * then permanent add-ons. This is the only authorization path for consumer
+ * paid plans after the Redis-ledger cutover.
+ */
+export async function deductFromPlanCredits(
+  userId: string,
+  subscription: "pro" | "ultra",
+  pointsUsed: number,
+  options: { allowAutoReload?: boolean; allowDebt?: boolean } = {},
+): Promise<PlanCreditDeductResult> {
+  const convex = getConvexClient();
+  // No retries or action fallback: a failed response can follow a committed debit.
+  const result: PlanCreditDeductResult =
+    options.allowAutoReload !== true
+      ? await convex.mutation(
+          api.extraUsage.deductPlanCreditsWithoutAutoReload,
+          {
+            serviceKey: getConvexServiceKey()!,
+            userId,
+            amountPoints: pointsUsed,
+            subscription,
+            allowDebt: options.allowDebt,
+          },
+        )
+      : await convex.action(api.extraUsageActions.deductWithAutoReload, {
+          serviceKey: getConvexServiceKey()!,
+          userId,
+          amountPoints: pointsUsed,
+          subscription,
+          allowAutoReload: options.allowAutoReload,
+          allowDebt: options.allowDebt,
+        });
+  return {
+    success: result.success,
+    newBalanceDollars: result.newBalanceDollars,
+    insufficientFunds: result.insufficientFunds,
+    monthlyCapExceeded: result.monthlyCapExceeded,
+    autoReloadTriggered: result.autoReloadTriggered,
+    autoReloadResult: result.autoReloadResult,
+    includedPointsDeducted: result.includedPointsDeducted,
+    purchasedPointsDeducted: result.purchasedPointsDeducted,
+    includedTotalPoints: result.includedTotalPoints,
+    includedRemainingPoints: result.includedRemainingPoints,
+    includedResetAt: result.includedResetAt,
+    debtPoints: result.debtPoints,
+  };
+}
+
+export async function migrateLegacyPlanCredits(
+  userId: string,
+  allowancePoints: number,
+  legacyConsumedPoints: number,
+  migrationKey: string,
+): Promise<{ usedPoints: number; remainingPoints: number }> {
+  const convex = getConvexClient();
+  return convex.mutation(api.extraUsage.migrateLegacyIncludedUsage, {
+    serviceKey: getConvexServiceKey()!,
+    userId,
+    allowancePoints,
+    legacyConsumedPoints,
+    migrationKey,
+  });
+}
+
+/** Restore a failed account-ledger reservation to the exact original sources. */
+export async function refundPlanCredits(
+  userId: string,
+  refundKey: string,
+  includedPoints: number,
+  purchasedPoints: number,
+): Promise<void> {
+  if (includedPoints <= 0 && purchasedPoints <= 0) return;
+  const convex = getConvexClient();
+  const result = await convex.mutation(
+    api.extraUsage.refundPlanCreditDeduction,
+    {
+      serviceKey: getConvexServiceKey()!,
+      userId,
+      refundKey,
+      includedPoints,
+      purchasedPoints,
+    },
+  );
+  if (!result.success) {
+    throw new Error("Failed to refund account credit reservation");
   }
 }
 
@@ -210,7 +356,7 @@ export async function getTeamExtraUsageState(
     const state = await convex.query(
       api.teamExtraUsage.getTeamExtraUsageStateForBackend,
       {
-        serviceKey: process.env.CONVEX_SERVICE_ROLE_KEY!,
+        serviceKey: getConvexServiceKey()!,
         organizationId,
         userId,
       },
@@ -253,7 +399,7 @@ export async function deductFromTeamBalance(
     const result = await convex.action(
       api.teamExtraUsageActions.deductWithAutoReloadForTeam,
       {
-        serviceKey: process.env.CONVEX_SERVICE_ROLE_KEY!,
+        serviceKey: getConvexServiceKey()!,
         organizationId,
         userId,
         amountPoints: pointsUsed,
@@ -302,7 +448,7 @@ export async function refundToTeamBalance(
   try {
     const convex = getConvexClient();
     const result = await convex.mutation(api.teamExtraUsage.refundTeamPoints, {
-      serviceKey: process.env.CONVEX_SERVICE_ROLE_KEY!,
+      serviceKey: getConvexServiceKey()!,
       organizationId,
       userId,
       amountPoints: pointsToRefund,

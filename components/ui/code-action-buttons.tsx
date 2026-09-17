@@ -35,7 +35,7 @@ export const CodeActionButtons: React.FC<CodeActionButtonsProps> = ({
 
   const handleCopy = async () => {
     try {
-      await navigator.clipboard.writeText(content.trim());
+      await navigator.clipboard.writeText(content);
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
       if (variant === "sidebar") {
@@ -58,28 +58,28 @@ export const CodeActionButtons: React.FC<CodeActionButtonsProps> = ({
 
   const getButtonClasses = () => {
     if (variant === "sidebar") {
-      return "inline-flex items-center justify-center rounded-md px-2.5 py-1.5 text-xs transition-colors text-muted-foreground hover:bg-background hover:text-foreground";
+      return "inline-flex size-6 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-foreground/[0.06] hover:text-foreground focus-visible:outline-none";
     }
-    return "p-1.5 opacity-70 hover:opacity-100 transition-opacity rounded hover:bg-secondary text-muted-foreground";
+    return "inline-flex size-6 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-foreground/[0.06] hover:text-foreground focus-visible:outline-none";
   };
 
   const getWrapButtonClasses = () => {
     if (variant === "sidebar") {
-      return `inline-flex items-center justify-center rounded-md px-2.5 py-1.5 text-xs transition-colors ${
+      return `inline-flex size-6 items-center justify-center rounded-md transition-colors focus-visible:outline-none ${
         isWrapped
-          ? "bg-background text-foreground shadow-sm"
-          : "text-muted-foreground hover:bg-background hover:text-foreground"
+          ? "bg-foreground/[0.08] text-foreground"
+          : "text-muted-foreground hover:bg-foreground/[0.06] hover:text-foreground"
       }`;
     }
-    return `p-1.5 transition-all rounded hover:bg-secondary text-muted-foreground ${
-      isWrapped ? "opacity-100 bg-secondary" : "opacity-70"
+    return `inline-flex size-6 items-center justify-center rounded-md transition-colors focus-visible:outline-none ${
+      isWrapped
+        ? "bg-foreground/[0.08] text-foreground"
+        : "text-muted-foreground hover:bg-foreground/[0.06] hover:text-foreground"
     }`;
   };
 
   return (
-    <div
-      className={`flex items-center ${variant === "sidebar" ? "gap-0.5" : "space-x-2"}`}
-    >
+    <div className="flex items-center gap-0.5">
       {showDownload && (
         <Tooltip>
           <TooltipTrigger asChild>
@@ -89,7 +89,7 @@ export const CodeActionButtons: React.FC<CodeActionButtonsProps> = ({
               className={getButtonClasses()}
               aria-label="Download"
             >
-              <Download size={14} />
+              <Download size={13} strokeWidth={1.75} />
             </button>
           </TooltipTrigger>
           <TooltipContent>Download</TooltipContent>
@@ -107,7 +107,7 @@ export const CodeActionButtons: React.FC<CodeActionButtonsProps> = ({
                 isWrapped ? "Disable text wrapping" : "Enable text wrapping"
               }
             >
-              <WrapText size={14} />
+              <WrapText size={13} strokeWidth={1.75} />
             </button>
           </TooltipTrigger>
           <TooltipContent>
@@ -125,7 +125,11 @@ export const CodeActionButtons: React.FC<CodeActionButtonsProps> = ({
               className={getButtonClasses()}
               aria-label={copied ? "Copied!" : "Copy"}
             >
-              {copied ? <Check size={14} /> : <Copy size={14} />}
+              {copied ? (
+                <Check size={13} strokeWidth={1.75} />
+              ) : (
+                <Copy size={13} strokeWidth={1.75} />
+              )}
             </button>
           </TooltipTrigger>
           <TooltipContent>{copied ? "Copied!" : "Copy"}</TooltipContent>

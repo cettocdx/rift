@@ -18,9 +18,11 @@ type UsageLimitStatus = {
   used: number;
   usagePercentage: number;
   resetTime: string | null;
+  cycleStarted: boolean;
 };
 
 type TokenUsageStatus = {
+  available: boolean;
   monthly: UsageLimitStatus;
   monthlyBudgetUsd: number;
 };
@@ -55,7 +57,7 @@ const formatResetDateFull = (resetTime: string | null): string => {
 const getUsageColorClass = (percentage: number): string => {
   if (percentage >= 90) return "bg-red-500";
   if (percentage >= 70) return "bg-orange-500";
-  return "bg-blue-500";
+  return "bg-primary";
 };
 
 const formatProjectionDate = (date: Date): string => {
@@ -91,9 +93,12 @@ const IncludedUsageCard = ({ subscription }: IncludedUsageCardProps) => {
     setIsLoading(true);
     try {
       const status = await getAgentRateLimitStatus({ subscription });
-      setTokenUsage(status);
+      // Treat the pre-availability-field response as healthy during rolling
+      // deployments; only an explicit `false` represents a failed status read.
+      setTokenUsage(status.available !== false ? status : null);
     } catch (error) {
-      console.error("Failed to fetch token usage:", error);
+      setTokenUsage(null);
+      void error;
     } finally {
       setIsLoading(false);
     }
@@ -118,7 +123,7 @@ const IncludedUsageCard = ({ subscription }: IncludedUsageCardProps) => {
       {tokenUsage ? (
         <>
           <div className="flex items-baseline gap-1.5">
-            <span className="text-2xl font-semibold tabular-nums">
+            <span className="text-2xl font-medium tabular-nums">
               {formatPointsAsDollars(tokenUsage.monthly.used)}
             </span>
             <span className="text-sm text-muted-foreground">
@@ -127,14 +132,18 @@ const IncludedUsageCard = ({ subscription }: IncludedUsageCardProps) => {
           </div>
           <div className="relative h-1.5 w-full overflow-hidden rounded-full bg-muted">
             <div
-              className={`h-full transition-all duration-500 ${getUsageColorClass(tokenUsage.monthly.usagePercentage)}`}
+              className={`h-full w-full origin-left transition-transform duration-500 ease-linear motion-reduce:transition-none ${getUsageColorClass(tokenUsage.monthly.usagePercentage)}`}
               style={{
-                width: `${Math.min(100, tokenUsage.monthly.usagePercentage)}%`,
+                transform: `scaleX(${Math.min(100, tokenUsage.monthly.usagePercentage) / 100})`,
               }}
             />
           </div>
           <div className="flex items-center gap-1 text-xs text-muted-foreground">
-            <span>{formatResetDateShort(tokenUsage.monthly.resetTime)}</span>
+            <span>
+              {tokenUsage.monthly.cycleStarted
+                ? formatResetDateShort(tokenUsage.monthly.resetTime)
+                : "30-day cycle starts with first use"}
+            </span>
             {tokenUsage.monthly.resetTime && (
               <Tooltip>
                 <TooltipTrigger asChild>

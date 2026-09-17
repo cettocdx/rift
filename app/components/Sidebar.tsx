@@ -10,39 +10,53 @@ import {
   SidebarGroup,
   SidebarGroupContent,
   SidebarHeader,
-  SidebarRail,
-  useSidebar,
 } from "@/components/ui/sidebar";
-import SidebarUserNav from "./SidebarUserNav";
-import SidebarHistory from "./SidebarHistory";
+import { MobileSidebarFooter } from "./MobileSidebarFooter";
+import { useConversationStatuses } from "@/app/hooks/useConversationStatuses";
 import SidebarHeaderContent from "./SidebarHeader";
-import { PentestArsenal } from "./PentestArsenal";
+import { SidebarGithub } from "./SidebarGithub";
+import { SidebarProjects } from "./SidebarProjects";
+import { SidebarActiveRuns } from "./SidebarActiveRuns";
 
 /** Chat list data lifted from parent so the subscription stays active when sidebar closes. */
 export type ChatListData = ReturnType<typeof useChats>;
 
 // ChatList component content - receives data from parent to avoid refetch on open/close
-const ChatListContent: FC<{ chatListData: ChatListData }> = ({
-  chatListData,
-}) => {
+const ChatListContent: FC<{
+  chatListData: ChatListData;
+  scrollWithHeader?: boolean;
+}> = ({ chatListData, scrollWithHeader = false }) => {
   const scrollContainerRef = useRef<HTMLDivElement>(null);
+  const chats = useConversationStatuses(chatListData.results || []);
 
   return (
-    <div className="flex h-full min-h-0 flex-col">
-      {/* Operation templates — pinned above scrollable history */}
-      <PentestArsenal />
+    <div
+      className={
+        scrollWithHeader ? "flex flex-col" : "flex h-full min-h-0 flex-col"
+      }
+    >
+      {/* Security operations live only in the dedicated Hack Workbench. */}
 
-      {/* Chat history — scrollable */}
+      {/* What is running right now, above the history it would otherwise be
+          buried in. Renders nothing when nothing is running, so the rail is
+          unchanged for the common case. */}
+      <SidebarActiveRuns />
+
+      {/* Build and Image chat history fills the remaining sidebar. */}
       <div
-        className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden terminal-scrollbar"
+        className={
+          scrollWithHeader
+            ? "overflow-x-hidden"
+            : "min-h-0 flex-1 overflow-y-auto overflow-x-hidden terminal-scrollbar"
+        }
         ref={scrollContainerRef}
         data-testid="sidebar-chat-list-scroll-container"
       >
-        <SidebarHistory
-          chats={chatListData.results || []}
+        <SidebarGithub chats={chats} />
+        <SidebarProjects
+          chats={chats}
           paginationStatus={chatListData.status}
           loadMore={chatListData.loadMore}
-          containerRef={scrollContainerRef}
         />
       </div>
     </div>
@@ -55,24 +69,20 @@ const DesktopSidebarContent: FC<{
   handleCloseSidebar: () => void;
   chatListData: ChatListData;
 }> = ({ isMobile, handleCloseSidebar, chatListData }) => {
-  const { state } = useSidebar();
-  const isCollapsed = state === "collapsed";
-
   return (
     <Sidebar
       side="left"
       collapsible="none"
-      className={`${isMobile ? "w-full" : "w-[260px]"}`}
+      className={isMobile ? "w-full" : undefined}
     >
-      <SidebarHeader>
-        <SidebarHeaderContent
-          handleCloseSidebar={handleCloseSidebar}
-          isCollapsed={isCollapsed}
-        />
+      {/* workspace.css owns the shared 8px inset and clears the native strip.
+          Keep the fallback compact for surfaces without the Pro shell. */}
+      <SidebarHeader className="px-1.5 pb-0 pt-2 md:pt-0.5">
+        <SidebarHeaderContent handleCloseSidebar={handleCloseSidebar} />
       </SidebarHeader>
 
       <SidebarContent className="min-h-0 flex-1">
-        <SidebarGroup className="min-h-0 flex-1 overflow-hidden">
+        <SidebarGroup className="min-h-0 flex-1 overflow-hidden px-0">
           <SidebarGroupContent className="h-full min-h-0">
             <ChatListContent chatListData={chatListData} />
           </SidebarGroupContent>
@@ -82,16 +92,23 @@ const DesktopSidebarContent: FC<{
   );
 };
 
-const MainSidebar: FC<{
+interface MainSidebarProps {
   isMobileOverlay?: boolean;
   /** When provided (e.g. from ChatLayout), avoids refetching when sidebar opens/closes */
   chatListData?: ChatListData;
-}> = ({ isMobileOverlay = false, chatListData: chatListDataProp }) => {
+}
+
+interface MainSidebarContentProps {
+  isMobileOverlay: boolean;
+  chatListData: ChatListData;
+}
+
+const MainSidebarContent: FC<MainSidebarContentProps> = ({
+  isMobileOverlay,
+  chatListData,
+}) => {
   const isMobile = useIsMobile();
   const { setChatSidebarOpen } = useGlobalState();
-  // Use lifted data when provided; otherwise subscribe here (e.g. SharedChatView)
-  const chatListDataFromHook = useChats();
-  const chatListData = chatListDataProp ?? chatListDataFromHook;
 
   const handleCloseSidebar = () => {
     setChatSidebarOpen(false);
@@ -101,22 +118,21 @@ const MainSidebar: FC<{
   if (isMobileOverlay) {
     return (
       <>
-        <div className="flex flex-col h-full w-full bg-sidebar border-r">
-          {/* Header with Actions */}
-          <SidebarHeaderContent
-            handleCloseSidebar={handleCloseSidebar}
-            isCollapsed={false}
-            isMobileOverlay={true}
-          />
-
-          <div className="flex-1 min-h-0 overflow-hidden">
-            <ChatListContent chatListData={chatListData} />
+        {/* The overlay panel that wraps this already paints the sidebar fill
+            and the divider; repeating them here stacked a second translucent
+            layer on the first. */}
+        <div className="flex h-full w-full flex-col">
+          {/* Expanded navigation can exceed a keyboard-reduced viewport. Let
+              the header and repositories share one scroller above the footer. */}
+          <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain terminal-scrollbar">
+            <SidebarHeaderContent
+              handleCloseSidebar={handleCloseSidebar}
+              isMobileOverlay
+            />
+            <ChatListContent chatListData={chatListData} scrollWithHeader />
           </div>
 
-          {/* Footer */}
-          <div className="p-2 pb-3">
-            <SidebarUserNav isCollapsed={false} />
-          </div>
+          <MobileSidebarFooter onNavigate={handleCloseSidebar} />
         </div>
       </>
     );
@@ -130,5 +146,33 @@ const MainSidebar: FC<{
     />
   );
 };
+
+// Keep the fallback subscription in a separate component. Calling useChats
+// unconditionally in MainSidebar created a second live Convex subscription
+// even when ChatLayout had already lifted and supplied the same result.
+const MainSidebarWithSubscription: FC<{
+  isMobileOverlay: boolean;
+}> = ({ isMobileOverlay }) => {
+  const chatListData = useChats();
+  return (
+    <MainSidebarContent
+      isMobileOverlay={isMobileOverlay}
+      chatListData={chatListData}
+    />
+  );
+};
+
+const MainSidebar: FC<MainSidebarProps> = ({
+  isMobileOverlay = false,
+  chatListData,
+}) =>
+  chatListData ? (
+    <MainSidebarContent
+      isMobileOverlay={isMobileOverlay}
+      chatListData={chatListData}
+    />
+  ) : (
+    <MainSidebarWithSubscription isMobileOverlay={isMobileOverlay} />
+  );
 
 export default MainSidebar;

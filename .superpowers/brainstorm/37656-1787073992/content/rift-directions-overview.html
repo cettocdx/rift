@@ -1,0 +1,242 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>RIFT Landing Yönleri</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      --bg: #080808;
+      --panel: #101010;
+      --panel-2: #151515;
+      --line: rgba(255,255,255,.11);
+      --line-strong: rgba(255,255,255,.22);
+      --text: #f4f4f2;
+      --muted: #989895;
+      --green: #9bf5b4;
+      --blue: #89c6ff;
+      --silver: #deded9;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      background:
+        radial-gradient(circle at 50% -20%, rgba(255,255,255,.08), transparent 34rem),
+        var(--bg);
+      color: var(--text);
+      font-family: Geist, "SF Pro Display", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      min-height: 100dvh;
+    }
+    button { font: inherit; }
+    .page { width: min(1560px, calc(100% - 40px)); margin: 0 auto; padding: 42px 0 64px; }
+    .topline { display: flex; justify-content: space-between; gap: 24px; align-items: flex-start; margin-bottom: 34px; }
+    .kicker { color: #c8c8c3; font: 500 11px/1.2 "SFMono-Regular", Consolas, monospace; letter-spacing: .13em; text-transform: uppercase; }
+    h1 { margin: 10px 0 0; font-size: clamp(34px, 4vw, 64px); line-height: .98; letter-spacing: -.055em; font-weight: 520; text-wrap: balance; }
+    .intro { width: min(460px, 100%); margin: 7px 0 0; color: var(--muted); font-size: 15px; line-height: 1.55; }
+    .concepts { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px; }
+    .concept {
+      padding: 0;
+      text-align: left;
+      color: inherit;
+      border: 1px solid var(--line);
+      border-radius: 18px;
+      background: linear-gradient(180deg, rgba(255,255,255,.035), rgba(255,255,255,.012));
+      overflow: hidden;
+      cursor: pointer;
+      transition: transform 180ms cubic-bezier(.23,1,.32,1), border-color 180ms ease, background 180ms ease;
+    }
+    @media (hover:hover) and (pointer:fine) {
+      .concept:hover { transform: translateY(-3px); border-color: var(--line-strong); }
+    }
+    .concept:active { transform: scale(.985); }
+    .concept.selected { border-color: rgba(255,255,255,.54); box-shadow: 0 0 0 1px rgba(255,255,255,.16) inset; }
+    .preview { position: relative; min-height: 430px; border-bottom: 1px solid var(--line); overflow: hidden; background: #090909; }
+    .browser { position: absolute; inset: 18px 18px 0; border: 1px solid rgba(255,255,255,.14); border-radius: 12px 12px 0 0; overflow: hidden; background: #0b0b0b; box-shadow: 0 24px 90px rgba(0,0,0,.55); }
+    .browserbar { height: 30px; display: flex; align-items: center; gap: 5px; padding: 0 10px; border-bottom: 1px solid rgba(255,255,255,.08); background: #121212; }
+    .browserbar i { width: 5px; height: 5px; border-radius: 50%; background: #5d5d5b; }
+    .browserbar span { margin-left: auto; color: #60605e; font: 9px/1 monospace; }
+    .nav { height: 48px; padding: 0 18px; display: flex; align-items: center; justify-content: space-between; border-bottom: 1px solid rgba(255,255,255,.07); }
+    .brand { display: flex; align-items: center; gap: 7px; font-size: 11px; font-weight: 650; letter-spacing: -.02em; }
+    .mark { width: 17px; height: 17px; border: 1px solid rgba(255,255,255,.72); border-radius: 5px; transform: rotate(45deg); }
+    .navlinks { color: #6d6d69; font-size: 8px; word-spacing: 8px; }
+    .mini-cta { border: 1px solid rgba(255,255,255,.22); border-radius: 999px; padding: 5px 8px; color: #d9d9d6; font-size: 7px; }
+    .hero { position: relative; padding: 30px 23px 18px; min-height: 170px; }
+    .hero h2 { width: 78%; margin: 0; font-size: clamp(25px, 2.2vw, 39px); line-height: .95; letter-spacing: -.06em; font-weight: 520; }
+    .hero p { width: 72%; margin: 13px 0 0; color: #82827e; font-size: 8px; line-height: 1.55; }
+    .actions { display: flex; gap: 7px; margin-top: 15px; }
+    .actions b, .actions em { display: inline-flex; align-items: center; min-height: 24px; border-radius: 999px; padding: 0 10px; font-size: 7px; font-style: normal; font-weight: 600; }
+    .actions b { background: #eeeeea; color: #0b0b0b; }
+    .actions em { border: 1px solid rgba(255,255,255,.14); color: #aaa; }
+    .product { position: absolute; left: 22px; right: 22px; bottom: 0; height: 142px; border: 1px solid rgba(255,255,255,.12); border-bottom: 0; border-radius: 9px 9px 0 0; background: #0d0d0d; overflow: hidden; }
+    .product-top { height: 24px; border-bottom: 1px solid rgba(255,255,255,.07); display: flex; align-items: center; gap: 10px; padding: 0 10px; color: #565654; font: 7px/1 monospace; }
+    .product-body { display: grid; grid-template-columns: 22% 1fr; height: calc(100% - 24px); }
+    .rail { border-right: 1px solid rgba(255,255,255,.07); padding: 10px 8px; }
+    .rail span { display: block; height: 4px; margin-bottom: 8px; border-radius: 2px; background: #2a2a29; }
+    .workspace { padding: 11px; position: relative; }
+    .code { height: 5px; margin-bottom: 7px; border-radius: 2px; background: #272727; }
+    .code:nth-child(2) { width: 74%; }
+    .code:nth-child(3) { width: 89%; }
+    .code:nth-child(4) { width: 62%; }
+    .code:nth-child(5) { width: 80%; }
+    .identity { position: absolute; right: 23px; top: 26px; width: 90px; height: 90px; opacity: .82; }
+    .identity::before, .identity::after { content: ""; position: absolute; inset: 0; border-radius: 50%; }
+    .a .identity::before { background: radial-gradient(circle, rgba(155,245,180,.8) 0 2%, transparent 3%); background-size: 10px 10px; mask-image: radial-gradient(circle, #000, transparent 67%); }
+    .a .identity::after { border: 1px solid rgba(155,245,180,.2); transform: scale(.56); }
+    .a .hero h2 { width: 68%; }
+    .a .product { left: 90px; }
+    .a .product-top { color: var(--green); }
+    .a .workspace .code:nth-child(3) { background: rgba(155,245,180,.28); }
+    .b .preview { background: radial-gradient(circle at 72% 20%, rgba(137,198,255,.14), transparent 32%), #090909; }
+    .b .hero h2 { width: 86%; }
+    .b .product-body { grid-template-columns: 18% 1fr; }
+    .b .workspace { display: grid; grid-template-columns: 1.15fr .85fr; gap: 7px; }
+    .b .media { border-radius: 5px; background: linear-gradient(135deg, #37404c, #13171c 45%, #26384a); }
+    .b .media:nth-child(2) { background: linear-gradient(145deg, #262626, #67737e); }
+    .b .media:nth-child(3) { grid-column: 1 / -1; background: linear-gradient(100deg, #15181b, rgba(137,198,255,.36), #1a1c1e); }
+    .b .identity { border: 1px solid rgba(137,198,255,.35); border-radius: 50%; transform: rotate(22deg); box-shadow: inset 0 0 0 12px #090909, inset 0 0 0 13px rgba(137,198,255,.25); }
+    .b .identity::before { border: 1px dashed rgba(255,255,255,.65); inset: 9px; }
+    .b .identity::after { border: 1px solid rgba(255,255,255,.16); inset: -8px; }
+    .c .preview { background: radial-gradient(circle at 82% 18%, rgba(255,255,255,.08), transparent 28%), #080808; }
+    .c .hero { text-align: center; display: flex; flex-direction: column; align-items: center; }
+    .c .hero h2 { width: 88%; }
+    .c .hero p { width: 70%; }
+    .c .identity { left: 50%; right: auto; top: 11px; transform: translateX(-50%); width: 118px; height: 118px; opacity: .18; }
+    .c .identity::before { border-radius: 50%; background: repeating-conic-gradient(from 0deg, rgba(255,255,255,.95) 0deg 1.5deg, transparent 1.5deg 7deg); mask-image: radial-gradient(circle, transparent 0 32%, #000 33% 58%, transparent 59%); }
+    .c .product { height: 124px; left: 28px; right: 28px; }
+    .c .product-body { display: grid; grid-template-columns: repeat(3, 1fr); gap: 1px; background: rgba(255,255,255,.07); }
+    .mode { background: #0d0d0d; padding: 10px; }
+    .mode strong { display: block; margin-bottom: 14px; font: 500 7px/1 monospace; color: #aeaeaa; }
+    .mode span { display: block; height: 4px; width: 88%; margin-bottom: 6px; background: #282827; border-radius: 2px; }
+    .mode span:last-child { width: 58%; }
+    .details { padding: 21px 22px 23px; }
+    .letter { color: #73736f; font: 500 10px/1 monospace; letter-spacing: .14em; }
+    .details h3 { margin: 10px 0 7px; font-size: 19px; letter-spacing: -.035em; font-weight: 540; }
+    .details > p { min-height: 45px; margin: 0; color: var(--muted); font-size: 12px; line-height: 1.5; }
+    .chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 17px; }
+    .chips span { border: 1px solid rgba(255,255,255,.1); border-radius: 999px; padding: 5px 8px; color: #a5a5a0; font: 8px/1 monospace; }
+    .scorecard { display: grid; grid-template-columns: 180px repeat(3, 1fr); margin-top: 14px; border: 1px solid var(--line); border-radius: 14px; overflow: hidden; }
+    .scorecard div { min-height: 42px; padding: 12px 14px; border-right: 1px solid var(--line); border-bottom: 1px solid var(--line); color: #aaa; font-size: 11px; }
+    .scorecard div:nth-child(4n) { border-right: 0; }
+    .scorecard div:nth-last-child(-n+4) { border-bottom: 0; }
+    .scorecard .row { color: #6f6f6b; font: 9px/1.4 monospace; text-transform: uppercase; letter-spacing: .1em; }
+    .scorecard strong { color: #ededeb; font-weight: 520; }
+    .footer-note { margin: 15px 2px 0; color: #747470; font-size: 11px; }
+    @media (max-width: 1000px) {
+      .topline { display: block; }
+      .intro { margin-top: 18px; }
+      .concepts { grid-template-columns: 1fr; }
+      .preview { min-height: 450px; }
+      .scorecard { grid-template-columns: 130px repeat(3, 1fr); overflow-x: auto; }
+      .scorecard div { min-width: 130px; }
+    }
+    @media (max-width: 600px) {
+      .page { width: min(100% - 24px, 1560px); padding-top: 24px; }
+      .scorecard { display: none; }
+      .preview { min-height: 400px; }
+      .browser { inset: 12px 12px 0; }
+    }
+    @media (prefers-reduced-motion: reduce) {
+      .concept { transition: border-color 120ms ease; }
+      .concept:hover, .concept:active { transform: none; }
+    }
+  </style>
+</head>
+<body>
+  <main class="page">
+    <header class="topline">
+      <div>
+        <div class="kicker">RIFT Brand and Landing Study</div>
+        <h1>Üç ayrı şirket anlatısı.<br />Üç ayrı premium sistem.</h1>
+      </div>
+      <p class="intro">Bu ilk ekran görsel yönü, ürün hiyerarşisini ve marka hareketini karşılaştırıyor. Her yön sonraki adımda tam landing akışına dönüşecek.</p>
+    </header>
+
+    <section class="concepts">
+      <button class="concept a" data-choice="A - Agent Workstation" onclick="toggleSelect(this)">
+        <div class="preview">
+          <div class="browser">
+            <div class="browserbar"><i></i><i></i><i></i><span>rift.ai</span></div>
+            <div class="nav"><div class="brand"><span class="mark"></span>RIFT</div><div class="navlinks">Product Enterprise Docs</div><div class="mini-cta">Download</div></div>
+            <div class="hero">
+              <div class="identity"></div>
+              <h2>Give RIFT the work.</h2>
+              <p>Plan, code, test and ship from one professional agent workstation.</p>
+              <div class="actions"><b>Download RIFT</b><em>Watch demo</em></div>
+            </div>
+            <div class="product">
+              <div class="product-top">TASK  /  BUILD  /  LIVE</div>
+              <div class="product-body"><div class="rail"><span></span><span></span><span></span><span></span></div><div class="workspace"><div class="code"></div><div class="code"></div><div class="code"></div><div class="code"></div><div class="code"></div></div></div>
+            </div>
+          </div>
+        </div>
+        <div class="details">
+          <div class="letter">A</div>
+          <h3>Agent Workstation</h3>
+          <p>Build merkezde. Studio ve Hack, işi tamamlayan uzman yüzeyler. En net B2B anlatısı ve en güçlü güven sinyali.</p>
+          <div class="chips"><span>Axiom precision</span><span>Live product proof</span><span>Rift Field</span></div>
+        </div>
+      </button>
+
+      <button class="concept b" data-choice="B - Unified AI Workspace" onclick="toggleSelect(this)">
+        <div class="preview">
+          <div class="browser">
+            <div class="browserbar"><i></i><i></i><i></i><span>rift.ai</span></div>
+            <div class="nav"><div class="brand"><span class="mark"></span>RIFT</div><div class="navlinks">Create Models Automate</div><div class="mini-cta">Open RIFT</div></div>
+            <div class="hero">
+              <div class="identity"></div>
+              <h2>Every model. One workspace.</h2>
+              <p>Build software, generate media and automate work without changing tools.</p>
+              <div class="actions"><b>Start creating</b><em>Explore models</em></div>
+            </div>
+            <div class="product">
+              <div class="product-top">WORKSPACE  /  MODELS  /  OUTPUTS</div>
+              <div class="product-body"><div class="rail"><span></span><span></span><span></span></div><div class="workspace"><div class="media"></div><div class="media"></div><div class="media"></div></div></div>
+            </div>
+          </div>
+        </div>
+        <div class="details">
+          <div class="letter">B</div>
+          <h3>Unified AI Workspace</h3>
+          <p>Geniş pazar ve görsel üretim önde. Wiro benzeri içerik yoğunluğu, Axiom benzeri kurumsal çerçeve içinde.</p>
+          <div class="chips"><span>Broad platform</span><span>Media mosaic</span><span>Rift Strata</span></div>
+        </div>
+      </button>
+
+      <button class="concept c" data-choice="C - AI Operating System" onclick="toggleSelect(this)">
+        <div class="preview">
+          <div class="browser">
+            <div class="browserbar"><i></i><i></i><i></i><span>rift.ai</span></div>
+            <div class="nav"><div class="brand"><span class="mark"></span>RIFT</div><div class="navlinks">System Research Company</div><div class="mini-cta">Enter system</div></div>
+            <div class="hero">
+              <div class="identity"></div>
+              <h2>One system. Three modes.</h2>
+              <p>Build, create and investigate through a single agent operating layer.</p>
+              <div class="actions"><b>Enter RIFT</b><em>See the system</em></div>
+            </div>
+            <div class="product">
+              <div class="product-top">RIFT SYSTEM</div>
+              <div class="product-body"><div class="mode"><strong>BUILD</strong><span></span><span></span></div><div class="mode"><strong>STUDIO</strong><span></span><span></span></div><div class="mode"><strong>HACK</strong><span></span><span></span></div></div>
+            </div>
+          </div>
+        </div>
+        <div class="details">
+          <div class="letter">C</div>
+          <h3>AI Operating System</h3>
+          <p>Build, Studio ve Hack eşit. En iddialı marka dünyası ve en güçlü lansman etkisi, fakat açıklaması daha zor.</p>
+          <div class="chips"><span>Category creation</span><span>Three-mode story</span><span>Rift Aperture</span></div>
+        </div>
+      </button>
+    </section>
+
+    <section class="scorecard" aria-label="Yön karşılaştırması">
+      <div class="row">Kriter</div><div><strong>A</strong></div><div><strong>B</strong></div><div><strong>C</strong></div>
+      <div class="row">İlk bakış netliği</div><div>Çok yüksek</div><div>Yüksek</div><div>Orta</div>
+      <div class="row">Kurumsal güven</div><div>Çok yüksek</div><div>Yüksek</div><div>Yüksek</div>
+      <div class="row">Görsel farklılık</div><div>Yüksek</div><div>Çok yüksek</div><div>En yüksek</div>
+      <div class="row">Ürün genişliği</div><div>Odaklı</div><div>Geniş</div><div>Eşit üçlü</div>
+    </section>
+    <p class="footer-note">Bir karta tıklayabilirsin. Bu seçim diğer iki yönü iptal etmez, yalnızca kalite çıtasını hangi tarafa kuracağımızı gösterir.</p>
+  </main>
+</body>
+</html>

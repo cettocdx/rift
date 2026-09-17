@@ -22,10 +22,9 @@ pub struct ShellConfig {
 /// - **Windows:** prefer `bash.exe` from Git for Windows (POSIX semantics, no
 ///   cmd.exe quoting quirks). Override with `RIFT_BASH_PATH`. Falls back
 ///   to `cmd /C` when git-bash is not installed.
-/// - **Unix:** the user's `$SHELL` as a login shell so PATH from
-///   `.zshrc` / `.bashrc` / `.profile` is sourced — needed to find
-///   globally-installed CLIs (e.g. those in `~/.local/bin` or
-///   `nvm`/`pyenv`-managed bin dirs).
+/// - **Unix:** the user's `$SHELL` without evaluating login profiles. The GUI
+///   process receives a deterministic PATH from [`effective_path`] instead,
+///   so common CLI locations work without executing arbitrary profile code.
 pub fn get_shell_config() -> ShellConfig {
     #[cfg(windows)]
     {
@@ -67,10 +66,108 @@ pub fn get_shell_config() -> ShellConfig {
         });
         ShellConfig {
             shell: shell.clone(),
-            flag: "-lc",
+            flag: "-c",
             is_cmd: false,
         }
     }
+}
+
+#[cfg(not(windows))]
+fn build_search_path(
+    home: Option<&std::path::Path>,
+    inherited: &std::ffi::OsStr,
+) -> std::ffi::OsString {
+    use std::collections::HashSet;
+    use std::path::{Path, PathBuf};
+
+    let mut paths = Vec::<PathBuf>::new();
+    let mut seen = HashSet::<PathBuf>::new();
+    let mut push = |path: PathBuf| {
+        if path.is_absolute() && seen.insert(path.clone()) {
+            paths.push(path);
+        }
+    };
+
+    if let Some(home) = home.filter(|path| path.is_absolute()) {
+        for suffix in [".local/bin", ".grok/bin", ".cargo/bin", ".bun/bin"] {
+            push(home.join(suffix));
+        }
+    }
+    for path in [
+        "/opt/homebrew/bin",
+        "/opt/homebrew/sbin",
+        "/usr/local/bin",
+        "/usr/local/sbin",
+        "/usr/bin",
+        "/bin",
+        "/usr/sbin",
+        "/sbin",
+    ] {
+        push(Path::new(path).to_path_buf());
+    }
+    for path in std::env::split_paths(inherited) {
+        push(path);
+    }
+
+    std::env::join_paths(paths).unwrap_or_else(|_| inherited.to_os_string())
+}
+
+/// PATH used by commands launched from a GUI process. macOS applications do
+/// not inherit the interactive terminal's PATH, so explicitly include common
+/// user and package-manager locations while discarding relative entries.
+#[cfg(not(windows))]
+pub fn effective_path() -> std::ffi::OsString {
+    let home = std::env::var_os("HOME").map(std::path::PathBuf::from);
+    build_search_path(
+        home.as_deref(),
+        std::env::var_os("PATH").as_deref().unwrap_or_default(),
+    )
+}
+
+#[cfg(windows)]
+pub fn effective_path() -> std::ffi::OsString {
+    let inherited = std::env::var_os("PATH").unwrap_or_default();
+    let paths = std::env::split_paths(&inherited)
+        .filter(|path| path.is_absolute())
+        .collect::<Vec<_>>();
+    std::env::join_paths(paths).unwrap_or(inherited)
+}
+
+/// Resolve one fixed executable name against the GUI-safe search path. The
+/// caller chooses the name from a compile-time allowlist; no webview-provided
+/// command or path reaches this function.
+pub fn find_gui_executable(command: &str) -> Option<std::path::PathBuf> {
+    if command.is_empty()
+        || command.contains('/')
+        || command.contains('\\')
+        || command.contains('\0')
+    {
+        return None;
+    }
+
+    #[cfg(windows)]
+    let names = [
+        command.to_string(),
+        format!("{command}.exe"),
+        format!("{command}.cmd"),
+        format!("{command}.bat"),
+    ];
+    #[cfg(not(windows))]
+    let names = [command.to_string()];
+
+    for directory in std::env::split_paths(&effective_path()) {
+        for name in &names {
+            let candidate = directory.join(name);
+            #[cfg(not(windows))]
+            let runnable = candidate.is_file() && is_executable(&candidate);
+            #[cfg(windows)]
+            let runnable = candidate.is_file();
+            if runnable {
+                return std::fs::canonicalize(&candidate).ok();
+            }
+        }
+    }
+    None
 }
 
 /// Locate `bash.exe` from Git for Windows. Tries:
@@ -149,6 +246,7 @@ pub fn build_command(
     #[cfg(not(windows))]
     {
         cmd.arg(config.flag).arg(command);
+        cmd.env("PATH", effective_path());
         unsafe {
             cmd.pre_exec(|| {
                 if libc::setsid() == -1 {
@@ -173,6 +271,35 @@ pub fn build_command(
     cmd.stderr(std::process::Stdio::piped());
 
     cmd
+}
+
+#[cfg(all(test, not(windows)))]
+mod tests {
+    use super::*;
+    use std::path::{Path, PathBuf};
+
+    #[test]
+    fn gui_search_path_includes_cli_locations_and_rejects_relative_entries() {
+        let path = build_search_path(
+            Some(Path::new("/Users/rift")),
+            std::ffi::OsStr::new("relative:/custom/bin:/usr/bin"),
+        );
+        let entries: Vec<PathBuf> = std::env::split_paths(&path).collect();
+
+        assert!(entries.contains(&PathBuf::from("/Users/rift/.local/bin")));
+        assert!(entries.contains(&PathBuf::from("/Users/rift/.grok/bin")));
+        assert!(entries.contains(&PathBuf::from("/opt/homebrew/bin")));
+        assert!(entries.contains(&PathBuf::from("/usr/local/bin")));
+        assert!(entries.contains(&PathBuf::from("/custom/bin")));
+        assert!(!entries.contains(&PathBuf::from("relative")));
+    }
+
+    #[test]
+    fn executable_lookup_rejects_paths_from_callers() {
+        assert!(find_gui_executable("../codex").is_none());
+        assert!(find_gui_executable("/usr/bin/env").is_none());
+        assert!(find_gui_executable("").is_none());
+    }
 }
 
 /// Gracefully kill a child process.

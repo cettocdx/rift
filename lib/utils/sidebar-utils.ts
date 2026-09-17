@@ -9,6 +9,7 @@ import {
   formatSendInput,
   isInteractiveShellAction,
 } from "@/app/components/tools/shell-tool-utils";
+import { getTranscriptToolStatus } from "@/lib/chat/transcript-presentation";
 
 interface MessagePart {
   type: string;
@@ -48,6 +49,9 @@ export function extractSidebarContentFromMessage(
     string,
     { originalContent: string; modifiedContent: string }
   >();
+  // Native versions are only useful with the exact grant and path that was read.
+  // Keep this cache local and populate it in execution order, never across turns.
+  const desktopReadContent = new Map<string, string>();
 
   message.parts.forEach((part) => {
     if (part.type === "data-terminal" && part.data?.toolCallId) {
@@ -77,6 +81,68 @@ export function extractSidebarContentFromMessage(
       part.type.startsWith("tool-") &&
       !STREAMS_DURING_INPUT.has(part.type)
     ) {
+      return;
+    }
+
+    if (
+      part.type === "tool-desktop_workspace_read" ||
+      part.type === "tool-desktop_workspace_write"
+    ) {
+      const input = part.input;
+      const file = part.output?.file;
+      if (
+        part.state !== "output-available" ||
+        part.output?.ok !== true ||
+        typeof input?.grantId !== "string" ||
+        !input.grantId ||
+        typeof input.relativePath !== "string" ||
+        !input.relativePath ||
+        file?.relativePath !== input.relativePath
+      ) {
+        return;
+      }
+
+      if (part.type === "tool-desktop_workspace_read") {
+        if (file.encoding !== "utf8" || typeof file.content !== "string")
+          return;
+        if (typeof file.version === "string" && file.version) {
+          desktopReadContent.set(
+            JSON.stringify([input.grantId, input.relativePath, file.version]),
+            file.content,
+          );
+        }
+        contentList.push({
+          path: input.relativePath,
+          content: file.content,
+          action: "reading",
+          toolCallId: part.toolCallId || "",
+        });
+      } else {
+        if (
+          typeof input.content !== "string" ||
+          (input.encoding !== undefined && input.encoding !== "utf8")
+        )
+          return;
+        const originalContent =
+          typeof input.expectedVersion === "string" && input.expectedVersion
+            ? desktopReadContent.get(
+                JSON.stringify([
+                  input.grantId,
+                  input.relativePath,
+                  input.expectedVersion,
+                ]),
+              )
+            : undefined;
+        contentList.push({
+          path: input.relativePath,
+          content: input.content,
+          action: "editing",
+          toolCallId: part.toolCallId || "",
+          originalContent,
+          modifiedContent: input.content,
+          ...(originalContent === undefined ? { diffUnavailable: true } : {}),
+        });
+      }
       return;
     }
 
@@ -158,6 +224,7 @@ export function extractSidebarContentFromMessage(
       contentList.push({
         command,
         output: finalOutput,
+        toolOutcome: getTranscriptToolStatus(part, "streaming", false),
         isExecuting:
           part.state === "input-available" || part.state === "running",
         isBackground: part.input.is_background,
@@ -206,6 +273,7 @@ export function extractSidebarContentFromMessage(
       contentList.push({
         command,
         output: finalOutput,
+        toolOutcome: getTranscriptToolStatus(part, "streaming", false),
         isExecuting:
           part.state === "input-available" || part.state === "running",
         isBackground: false,
@@ -392,6 +460,7 @@ export function extractSidebarContentFromMessage(
       let range = undefined;
       let originalContent: string | undefined;
       let modifiedContent: string | undefined;
+      let diffUnavailable = false;
 
       if (part.type === "tool-file") {
         // New unified file tool
@@ -468,13 +537,22 @@ export function extractSidebarContentFromMessage(
             originalContent = output.originalContent as string;
             modifiedContent = output.modifiedContent as string;
             content = modifiedContent || "";
-          } else if (typeof output === "string") {
-            // Fallback: old string format
-            const lines = output.split("\n");
-            const contentLines = lines
-              .slice(2)
-              .map((line: string) => line.replace(/^\d+\t/, ""));
-            content = contentLines.join("\n");
+          } else {
+            // Saved legacy operations may wrap their numbered result in content.
+            const legacy =
+              typeof output === "string" ? output : output?.content;
+            if (typeof legacy === "string") {
+              const lines = legacy.split("\n");
+              const heading = lines.findIndex(
+                (line) => line === "Latest content with line numbers:",
+              );
+              content = (
+                heading >= 0 ? lines.slice(heading + 1) : lines.slice(2)
+              )
+                .map((line) => line.replace(/^\s*\d+[|\t]/, ""))
+                .join("\n");
+              diffUnavailable = true;
+            }
           }
         }
       } else if (part.type === "tool-read_file") {
@@ -537,6 +615,7 @@ export function extractSidebarContentFromMessage(
         toolCallId: part.toolCallId || "",
         originalContent,
         modifiedContent,
+        ...(diffUnavailable ? { diffUnavailable: true } : {}),
         mediaType:
           part.type === "tool-file" &&
           typeof part.output === "object" &&

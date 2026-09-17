@@ -1,40 +1,35 @@
 import { Redis } from "@upstash/redis";
+import {
+  captureRedisClientContext,
+  getRedisClientContext,
+  type RedisClientContext,
+} from "./redis-context";
 
-// Singleton Redis client instance
-let redisClient: Redis | null = null;
-let redisInitialized = false;
+let defaultContext: RedisClientContext | undefined;
 
-/**
- * Get or create a singleton Redis client for rate limiting.
- * Returns null if Redis is not configured.
- */
+/** Lazily create a client for this run, or the current unscoped configuration. */
 export const createRedisClient = (): Redis | null => {
-  // Return cached client if already initialized
-  if (redisInitialized) {
-    return redisClient;
+  const scoped = getRedisClientContext();
+  let context = scoped;
+  if (!context) {
+    const current = captureRedisClientContext();
+    if (
+      !defaultContext ||
+      defaultContext.url !== current.url ||
+      defaultContext.token !== current.token
+    ) {
+      defaultContext = current;
+    }
+    context = defaultContext;
   }
-
-  // Accept both the standalone Upstash names and Vercel's Marketplace/KV
-  // integration names (KV_REST_API_*), so the limiter works regardless of which
-  // way the Redis store was connected to the project.
-  const redisUrl =
-    process.env.UPSTASH_REDIS_REST_URL || process.env.KV_REST_API_URL;
-  const redisToken =
-    process.env.UPSTASH_REDIS_REST_TOKEN || process.env.KV_REST_API_TOKEN;
-
-  redisInitialized = true;
-
-  if (!redisUrl || !redisToken) {
-    redisClient = null;
-    return null;
-  }
-
-  redisClient = new Redis({
-    url: redisUrl,
-    token: redisToken,
-  });
-
-  return redisClient;
+  if (context.client !== undefined) return context.client;
+  if (!context.url || !context.token) return (context.client = null);
+  // Assign only after construction succeeds; transient initialization failures
+  // must not leave a permanently unavailable client in the process cache.
+  return (context.client = new Redis({
+    url: context.url,
+    token: context.token,
+  }));
 };
 
 /**

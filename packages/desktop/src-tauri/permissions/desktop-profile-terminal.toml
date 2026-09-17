@@ -1,0 +1,20 @@
+[[permission]]
+identifier = "allow-desktop-profile-terminal"
+description = "Allows fixed-profile native terminals inside an explicitly granted writable workspace. No caller-provided command, environment, executable path, or absolute working directory is accepted."
+commands.allow = [
+  "native_codex_open",
+  "native_codex_send",
+  "native_codex_poll",
+  "native_codex_close",
+  "list_desktop_terminal_profiles",
+  "synchronize_desktop_terminal_owner",
+  "create_desktop_profile_pty",
+  "create_desktop_profile_pty_v2",
+  "read_desktop_profile_pty_output",
+  "acknowledge_desktop_profile_pty_output",
+  "detach_desktop_profile_pty",
+  "close_desktop_profile_terminal",
+  "send_desktop_profile_pty_input",
+  "resize_desktop_profile_pty",
+  "kill_desktop_profile_pty",
+]

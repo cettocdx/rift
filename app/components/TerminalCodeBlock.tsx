@@ -225,7 +225,9 @@ export const TerminalCodeBlock = ({
   }, [wrap]);
 
   const isInteractiveAction = isInteractiveShellAction(shellAction);
-  const commandPrefix = shellAction === "send" ? ">" : "$";
+  // Keep the operator's command byte-for-byte. Only interactive `send` actions
+  // receive a direction marker; normal commands no longer get a decorative `$`.
+  const displayedCommand = shellAction === "send" ? `> ${command}` : command;
 
   // For interactive actions the output already contains the full session
   // snapshot (with the PTY echo of the model's input inline). The ToolBlock
@@ -235,8 +237,8 @@ export const TerminalCodeBlock = ({
   const terminalContent = isInteractiveAction
     ? (output ?? command)
     : output
-      ? `${commandPrefix} ${command}\n${output}`
-      : `${commandPrefix} ${command}`;
+      ? `${displayedCommand}\n${output}`
+      : displayedCommand;
   const displayContent = output || "";
 
   // For non-sidebar variant, keep the original terminal look
@@ -300,7 +302,7 @@ export const TerminalCodeBlock = ({
       {/* xterm manages its own viewport + scrollbar; AnsiCodeBlock needs the
           wrapper to scroll. Avoid double scrollbars by toggling overflow. */}
       <div
-        className={`h-full w-full bg-background ${useXterm ? "overflow-hidden" : "overflow-auto"}`}
+        className={`h-full w-full bg-transparent ${useXterm ? "overflow-hidden" : "overflow-auto"}`}
       >
         {isExecuting && !output && status === "streaming" ? (
           isInteractiveAction ? (
@@ -316,7 +318,7 @@ export const TerminalCodeBlock = ({
                     : "whitespace-pre overflow-x-auto"
                 }`}
               >
-                <code>{`${commandPrefix} ${command}`}</code>
+                <code>{displayedCommand}</code>
               </pre>
               <div className="mt-3 text-muted-foreground">
                 <Shimmer>Executing command</Shimmer>

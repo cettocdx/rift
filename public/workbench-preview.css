@@ -1,0 +1,3260 @@
+/*
+ * RIFT Workbench preview
+ *
+ * This layer is intentionally inert unless the preview server stamps the
+ * exact data-ui-skin value on <html>. Only the isolated preview server links
+ * this stylesheet, keeping the normal application bundle lean while the
+ * experiment stays one-switch reversible.
+ */
+
+html[data-ui-skin="hack-terminal"] {
+  color-scheme: dark;
+
+  --radius: 0.5rem;
+  --background: #050608;
+  --foreground: #f3f6f9;
+  --card: #090b0e;
+  --card-foreground: #f3f6f9;
+  --popover: #090b0e;
+  --popover-foreground: #f3f6f9;
+  --primary: #a8d9ff;
+  --primary-foreground: #071018;
+  --secondary: #0d1217;
+  --secondary-foreground: #e9f1f7;
+  --muted: #0d1217;
+  --muted-foreground: #98a5b1;
+  --accent: #111922;
+  --accent-foreground: #f3f6f9;
+  --destructive: #be8585;
+  --border: #1c232a;
+  --input: #27313a;
+  --ring: color-mix(in srgb, var(--foreground) 48%, var(--background));
+  --link-color: #a8d9ff;
+
+  --sidebar: #090b0e;
+  --sidebar-foreground: #dce4eb;
+  --sidebar-primary: #a8d9ff;
+  --sidebar-primary-foreground: #071018;
+  --sidebar-accent: #0e141a;
+  --sidebar-accent-foreground: #f3f6f9;
+  --sidebar-border: #1c232a;
+  --sidebar-ring: var(--ring);
+
+  --signal: #a8d9ff;
+  --signal-bright: #d1ebff;
+  --signal-dim: #7fb4da;
+  --signal-soft: rgba(168, 217, 255, 0.1);
+  --surface-1: #050608;
+  --surface-2: #090b0e;
+  --surface-3: #0d1217;
+  --surface-4: #111922;
+  --elevated: #090b0e;
+  --surface: #090b0e;
+  --border-strong: #344452;
+  --success: #9bb4c5;
+  --warning: #b5afa4;
+  --info: #a8d9ff;
+  --rift-glow: rgba(168, 217, 255, 0.08);
+  --grid-dot: rgba(201, 229, 248, 0.045);
+  --fill-input-chat: #070a0d;
+
+  --premium-bg: #0d1217;
+  --premium-text: #d1ebff;
+  --premium-hover: #a8d9ff;
+  --scrollbar-track: transparent;
+  --scrollbar-thumb: rgba(142, 162, 178, 0.26);
+  --scrollbar-thumb-hover: rgba(168, 217, 255, 0.42);
+  --sidebar-mask: linear-gradient(
+    90deg,
+    #090b0e 0%,
+    #090b0e 92%,
+    transparent 100%
+  );
+  --sidebar-mask-active: linear-gradient(
+    90deg,
+    #0e141a 0%,
+    #0e141a 88%,
+    transparent 96%,
+    transparent 100%
+  );
+
+  background: #050608;
+}
+
+html[data-ui-skin="hack-terminal"] body {
+  min-width: 320px;
+  overflow: hidden;
+  background: #050608;
+  color: var(--foreground);
+  font-family:
+    var(--font-geist),
+    system-ui,
+    -apple-system,
+    BlinkMacSystemFont,
+    "Segoe UI",
+    sans-serif;
+  font-size: 14px;
+  letter-spacing: -0.004em;
+}
+
+html[data-ui-skin="hack-terminal"] ::selection {
+  background: #17344c;
+  color: #ffffff;
+}
+
+html[data-ui-skin="hack-terminal"]
+  :where(
+    button,
+    a,
+    input,
+    textarea,
+    select,
+    [role="button"],
+    [tabindex]:not([tabindex="-1"])
+  ):focus-visible {
+  outline: 1px solid var(--ring);
+  outline-offset: 1px;
+}
+
+/* The preview is a full application surface. It uses the dynamic viewport
+   directly, with no decorative desktop matte around the product UI. */
+html[data-ui-skin="hack-terminal"] [data-rift-route-shell="chat"] {
+  position: relative;
+  isolation: isolate;
+  min-height: 100dvh;
+  padding: 0;
+  overscroll-behavior: none;
+  background: #050608;
+}
+
+html[data-ui-skin="hack-terminal"] [data-rift-route-shell="chat"]::before {
+  display: none;
+}
+
+html[data-ui-skin="hack-terminal"] [data-rift-workspace] {
+  flex: 1 1 auto;
+  z-index: 1;
+  min-height: 0;
+  min-width: 0;
+  width: 100%;
+  padding-top: 0;
+  overflow: hidden;
+  border: 0;
+  border-radius: 0;
+  background: #050608;
+  box-shadow: none;
+  animation: none;
+}
+
+/* Cursor-class application surface used only by the isolated 3011 shell. It
+   stays dense and flat, with one titlebar, one status bar, and 1px separators
+   between real work surfaces. */
+html[data-ui-skin="hack-terminal"]
+  [data-workbench-variant="cursor"]
+  [data-pro-workbench] {
+  --background: #050608;
+  --foreground: #f3f6f9;
+  --muted-foreground: #98a5b1;
+  --border: #1c232a;
+  --sidebar: #090b0e;
+  --sidebar-border: #1c232a;
+  --sidebar-accent: #0e141a;
+
+  flex: 1 1 auto;
+  z-index: 1;
+  min-height: 0;
+  min-width: 0;
+  width: 100%;
+  overflow: hidden;
+  border: 0;
+  border-radius: 0;
+  background: #050608;
+  box-shadow: none;
+  animation: none;
+}
+
+html[data-ui-skin="hack-terminal"]
+  [data-workbench-variant="cursor"]
+  [data-pro-workbench]
+  > .pro-shell-bg {
+  background:
+    radial-gradient(
+      circle at 52% 44%,
+      rgba(168, 217, 255, 0.035),
+      transparent 36%
+    ),
+    #050608;
+}
+
+html[data-ui-skin="hack-terminal"] [data-rift-workspace-shell] {
+  min-height: 100dvh;
+  padding: 0;
+  overscroll-behavior: none;
+  background: #050608;
+}
+
+html[data-ui-skin="hack-terminal"] [data-rift-workspace-shell]::before {
+  display: none;
+}
+
+html[data-ui-skin="hack-terminal"]
+  [data-rift-workspace-shell]
+  [data-pro-workbench]
+  > .pro-shell-bg {
+  background: #050608;
+}
+
+html[data-ui-skin="hack-terminal"]
+  [data-workbench-variant="cursor"]
+  [data-pro-workbench-body] {
+  padding: 0 !important;
+}
+
+html[data-ui-skin="hack-terminal"]
+  [data-workbench-variant="cursor"]
+  .pro-workspace {
+  border: 0;
+  border-radius: 0;
+  background: #050608;
+  box-shadow: none;
+  backdrop-filter: none;
+}
+
+html[data-ui-skin="hack-terminal"]
+  [data-workbench-variant="cursor"]
+  .pro-titlebar {
+  position: relative;
+  height: 40px;
+  border-color: #1c232a;
+  background: #090b0e;
+  backdrop-filter: none;
+}
+
+html[data-ui-skin="hack-terminal"]
+  [data-workbench-variant="cursor"]
+  .pro-titlebar::before {
+  content: "";
+  position: absolute;
+  left: 15px;
+  top: 50%;
+  width: 7px;
+  height: 7px;
+  translate: 0 -50%;
+  border: 1px solid #4c5964;
+  border-radius: 1px;
+  background: #202830;
+  box-shadow:
+    12px 0 0 #12171c,
+    12px 0 0 1px #4c5964,
+    24px 0 0 #a8d9ff,
+    24px 0 0 1px #5c7d96;
+}
+
+html[data-ui-skin="hack-terminal"]
+  [data-workbench-variant="cursor"]
+  .pro-titlebar
+  button {
+  border-radius: 3px;
+}
+
+html[data-ui-skin="hack-terminal"]
+  [data-workbench-variant="cursor"]
+  .pro-sidebar,
+html[data-ui-skin="hack-terminal"]
+  [data-workbench-variant="cursor"]
+  .pro-sidebar-rail {
+  border-color: #1c232a;
+  background: #090b0e;
+  backdrop-filter: none;
+}
+
+html[data-ui-skin="hack-terminal"] [data-workbench-variant="cursor"] .pro-main {
+  background: #050608;
+}
+
+html[data-ui-skin="hack-terminal"]
+  [data-workbench-variant="cursor"]
+  .pro-operation-bar
+  > div {
+  min-height: 34px;
+  border-color: #171e25;
+  background: #07090c;
+}
+
+html[data-ui-skin="hack-terminal"]
+  [data-workbench-variant="cursor"]
+  .pro-status-bar {
+  height: 28px;
+  border-color: #1c232a;
+  background: #07090c;
+  color: #87939e;
+  font-family: var(--font-jetbrains-mono), ui-monospace, monospace;
+  font-size: 11px;
+  backdrop-filter: none;
+}
+
+html[data-ui-skin="hack-terminal"]
+  [data-workbench-variant="cursor"]
+  .pro-resize-handle {
+  width: 1px;
+  background: #1c232a;
+}
+
+html[data-ui-skin="hack-terminal"]
+  [data-workbench-variant="cursor"]
+  .pro-resize-handle:hover,
+html[data-ui-skin="hack-terminal"]
+  [data-workbench-variant="cursor"]
+  .pro-resize-handle:active {
+  background: #78a9cc;
+}
+
+html[data-ui-skin="hack-terminal"]
+  [data-workbench-variant="cursor"]
+  .pro-terminal-pane {
+  border-color: #1c232a;
+  background: #030405;
+}
+
+/* The Cursor shell owns the desktop terminal below Monaco. Keep the chat
+   runtime mounted, but suppress its legacy side pane so terminal chunks do not
+   create a second competing work surface inside the agent column. */
+html[data-ui-skin="hack-terminal"]
+  [data-workbench-variant="cursor"]
+  [data-workbench-agent-pane]
+  :where(.pro-resize-handle, .pro-terminal-pane) {
+  display: none !important;
+}
+
+html[data-ui-skin="hack-terminal"]
+  [data-workbench-variant="cursor"]
+  :where([data-computer-sidebar], [data-build-preview-panel]) {
+  margin-right: 0 !important;
+}
+
+html[data-ui-skin="hack-terminal"]
+  [data-workbench-variant="cursor"]
+  :where([data-computer-sidebar], [data-build-preview-panel])
+  > div
+  > div {
+  border: 0;
+  border-radius: 0;
+  background: #050608;
+  box-shadow: none;
+}
+
+html[data-ui-skin="hack-terminal"]
+  [data-workbench-variant="cursor"]
+  [data-computer-sidebar]
+  > div
+  > div
+  > div {
+  padding: 12px;
+}
+
+html[data-ui-skin="hack-terminal"]
+  [data-workbench-variant="cursor"]
+  .pro-composer {
+  border-color: #28333d !important;
+  border-radius: 6px !important;
+  background: #070a0d !important;
+  box-shadow:
+    inset 0 1px rgba(255, 255, 255, 0.025),
+    0 14px 36px rgba(0, 0, 0, 0.24) !important;
+  backdrop-filter: none;
+}
+
+html[data-ui-skin="hack-terminal"]
+  [data-workbench-variant="cursor"]
+  .pro-empty-mark {
+  width: 48px;
+  height: 48px;
+  margin-bottom: 14px;
+  border-color: #1c232a;
+  border-radius: 5px;
+  background: #090b0e;
+  box-shadow: none;
+}
+
+html[data-ui-skin="hack-terminal"]
+  [data-workbench-variant="cursor"]
+  .pro-empty-hero
+  h1 {
+  font-family: var(--font-jetbrains-mono), ui-monospace, monospace;
+  font-size: clamp(20px, 2vw, 25px);
+  font-weight: 500;
+}
+
+/* Window chrome: neutral lights, a small mono identity and one blue live dot. */
+html[data-ui-skin="hack-terminal"] [data-testid="chat-titlebar"] {
+  height: 34px;
+  padding-inline: 14px;
+  border-bottom: 1px solid #1c232a;
+  background: #090b0e;
+  backdrop-filter: none;
+}
+
+html[data-ui-skin="hack-terminal"] [data-testid="chat-titlebar"]::before {
+  content: "";
+  position: absolute;
+  left: 14px;
+  top: 50%;
+  width: 7px;
+  height: 7px;
+  translate: 0 -50%;
+  border: 1px solid #53616d;
+  border-radius: 1px;
+  background: #222b33;
+  box-shadow:
+    12px 0 0 #13191f,
+    12px 0 0 1px #53616d,
+    24px 0 0 #a8d9ff,
+    24px 0 0 1px #5c7d96;
+}
+
+html[data-ui-skin="hack-terminal"] [data-testid="chat-titlebar"]::after {
+  content: "RIFT / OPERATOR WORKSPACE";
+  position: absolute;
+  left: 58px;
+  top: 50%;
+  translate: 0 -50%;
+  color: #aab6c1;
+  font-family: var(--font-jetbrains-mono), ui-monospace, monospace;
+  font-size: 10.5px;
+  font-weight: 500;
+  letter-spacing: 0.08em;
+}
+
+/* Sidebar hierarchy: separators and an active rail replace large colored
+   pills. Supporting text remains comfortably readable at 12-13px. */
+html[data-ui-skin="hack-terminal"] [data-testid="sidebar"],
+html[data-ui-skin="hack-terminal"] [data-testid="sidebar-rail"] {
+  border-color: #1c232a;
+  background: #090b0e;
+}
+
+html[data-ui-skin="hack-terminal"] [data-testid="sidebar-session-dock"] {
+  border-color: #1c232a;
+  background: #07090c;
+}
+
+html[data-ui-skin="hack-terminal"] [data-testid="sidebar"] [role="tablist"] {
+  gap: 2px;
+  padding: 3px;
+  border: 1px solid #171e25;
+  border-radius: 4px;
+  background: #030405;
+}
+
+html[data-ui-skin="hack-terminal"] [data-testid="sidebar"] [role="tab"] {
+  min-height: 44px;
+  border-radius: 2px;
+  color: #87939e;
+  font-size: 11.5px;
+  box-shadow: none;
+}
+
+html[data-ui-skin="hack-terminal"] [data-testid="sidebar"] [role="tab"]:hover {
+  background: #0b1015;
+  color: #dce4eb;
+}
+
+html[data-ui-skin="hack-terminal"]
+  [data-testid="sidebar"]
+  [role="tab"][aria-selected="true"] {
+  background: #0e141a;
+  color: #f3f6f9;
+  box-shadow: inset 2px 0 #a8d9ff;
+}
+
+html[data-ui-skin="hack-terminal"]
+  [data-testid="sidebar"]
+  :where(button, [role="button"]) {
+  border-radius: 3px;
+}
+
+html[data-ui-skin="hack-terminal"]
+  [data-testid="sidebar"]
+  :where(
+    button[aria-pressed="true"],
+    [data-sidebar="menu-button"][data-active="true"]
+  ) {
+  background: #0e141a;
+  color: #f3f6f9;
+  box-shadow: inset 2px 0 #a8d9ff;
+}
+
+html[data-ui-skin="hack-terminal"] [data-testid^="chat-item-"] {
+  min-height: 30px;
+  border-radius: 2px;
+  color: #a7b1bb;
+  font-size: 12px;
+}
+
+html[data-ui-skin="hack-terminal"] [data-testid^="chat-item-"]:hover {
+  background: #0b1015;
+  color: #e8eef3;
+}
+
+html[data-ui-skin="hack-terminal"]
+  [data-testid^="chat-item-"][data-active="true"] {
+  background: #0e141a;
+  color: #ffffff;
+  box-shadow: inset 2px 0 #a8d9ff;
+}
+
+html[data-ui-skin="hack-terminal"] [data-testid="sidebar-rail"] button {
+  border-radius: 3px;
+}
+
+/* Main reading plane */
+html[data-ui-skin="hack-terminal"] .rift-cursor-app,
+html[data-ui-skin="hack-terminal"] [data-rift-chat-root],
+html[data-ui-skin="hack-terminal"] [data-rift-chat-surface] {
+  background: #050608;
+}
+
+html[data-ui-skin="hack-terminal"] [data-testid="rift-brand-bar"] {
+  min-height: 48px;
+  gap: 9px;
+  padding: 8px 18px;
+  border-color: #1c232a;
+  background: #090b0e;
+}
+
+html[data-ui-skin="hack-terminal"] [data-testid="rift-brand-bar"]::after {
+  content: "RIFT / SESSION";
+  color: #8f9aa5;
+  font-family: var(--font-jetbrains-mono), ui-monospace, monospace;
+  font-size: 10.5px;
+  font-weight: 500;
+  letter-spacing: 0.08em;
+}
+
+html[data-ui-skin="hack-terminal"] [data-testid="rift-brand-bar"] svg {
+  filter: grayscale(1) contrast(1.05);
+}
+
+html[data-ui-skin="hack-terminal"] [data-rift-empty-stage] {
+  background:
+    radial-gradient(
+      circle at 50% 42%,
+      rgba(168, 217, 255, 0.045),
+      transparent 34%
+    ),
+    radial-gradient(circle, rgba(197, 222, 239, 0.05) 0 0.75px, transparent 1px)
+      0 0 / 8px 8px,
+    #050608;
+}
+
+html[data-ui-skin="hack-terminal"] [data-rift-empty-content] {
+  max-width: 840px;
+}
+
+html[data-ui-skin="hack-terminal"] [data-rift-empty-hero] {
+  margin-bottom: 18px;
+}
+
+html[data-ui-skin="hack-terminal"] [data-rift-empty-hero]::before {
+  content: "RIFT / COMMAND INPUT";
+  display: block;
+  margin-bottom: 10px;
+  color: #7e8993;
+  font-family: var(--font-jetbrains-mono), ui-monospace, monospace;
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.11em;
+}
+
+html[data-ui-skin="hack-terminal"] [data-rift-empty-hero] h1 {
+  margin-bottom: 0;
+  color: #f3f6f9;
+  font-family: var(--font-jetbrains-mono), ui-monospace, monospace;
+  font-size: clamp(22px, 2.1vw, 27px);
+  font-weight: 500;
+  letter-spacing: -0.035em;
+  line-height: 1.25;
+}
+
+/* Conversation rhythm */
+html[data-ui-skin="hack-terminal"] .messages-scroll {
+  scrollbar-color: rgba(142, 162, 178, 0.28) transparent;
+  background: #050608;
+}
+
+html[data-ui-skin="hack-terminal"] [data-testid="messages-container"] {
+  max-width: 860px;
+  gap: 28px;
+  padding: 28px 18px 124px;
+}
+
+html[data-ui-skin="hack-terminal"] [data-testid="message-content"] {
+  font-size: 15px;
+  line-height: 1.68;
+}
+
+html[data-ui-skin="hack-terminal"]
+  [data-testid="user-message"]
+  [data-testid="message-content"] {
+  border-color: #1c232a;
+  border-radius: 7px;
+  background: #0b0f13;
+  padding: 12px 15px;
+  color: #edf2f6;
+  box-shadow: inset 2px 0 #25323d;
+}
+
+html[data-ui-skin="hack-terminal"]
+  [data-testid="assistant-message"]
+  [data-testid="message-content"] {
+  color: #dce4eb;
+}
+
+/* Agent work is a transcript, not a stack of glowing cards. */
+html[data-ui-skin="hack-terminal"] [data-ui="work-log"] {
+  margin-block: 4px 12px;
+  padding-left: 0;
+}
+
+html[data-ui-skin="hack-terminal"] [data-ui="work-summary"] {
+  min-height: 32px;
+  padding: 0 0 9px;
+  border-color: #1c232a;
+  color: #9eabb6;
+  font-family: var(--font-jetbrains-mono), ui-monospace, monospace;
+  font-size: 12px;
+  letter-spacing: 0.01em;
+}
+
+html[data-ui-skin="hack-terminal"]
+  [data-ui="work-log"][data-timing="true"]
+  [data-ui="work-summary"] {
+  color: #d1ebff;
+}
+
+html[data-ui-skin="hack-terminal"] [data-ui="reasoning"] {
+  margin-block: 10px;
+  padding: 2px 0 2px 13px;
+  border: 0;
+  border-left: 1px solid #35414b;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+}
+
+html[data-ui-skin="hack-terminal"] [data-ui="reasoning"] > button {
+  min-height: 28px;
+  color: #97a3ae;
+}
+
+html[data-ui-skin="hack-terminal"] [data-ui="reasoning"] > button span {
+  font-size: 11px;
+  letter-spacing: 0.12em;
+}
+
+html[data-ui-skin="hack-terminal"]
+  [data-ui="reasoning"]
+  [data-state="open"]:not(button) {
+  border-left-color: #27323b;
+  color: #97a3ae;
+}
+
+html[data-ui-skin="hack-terminal"]
+  [data-ui="reasoning"][data-streaming="true"]
+  .animate-ping {
+  animation: none;
+  opacity: 0.28;
+}
+
+html[data-ui-skin="hack-terminal"] [data-ui="reasoning"] .font-mono {
+  font-size: 12.5px;
+  line-height: 1.7;
+}
+
+/* Terminal execution: a clear command header, explicit state and a deeper
+   inset output plane. Live output is rendered only by this preview skin. */
+html[data-ui-skin="hack-terminal"] [data-ui="tool-block"] {
+  margin-block: 10px;
+  overflow: hidden;
+  border-color: #1c232a;
+  border-radius: 3px;
+  background: #07090c;
+  box-shadow: none;
+}
+
+html[data-ui-skin="hack-terminal"] [data-ui="tool-block"] > div:first-child {
+  min-height: 36px;
+  padding: 8px 10px;
+  background: #090c10;
+  color: #98a5b1;
+}
+
+html[data-ui-skin="hack-terminal"]
+  [data-ui="tool-block"]
+  > div:first-child:hover {
+  background: #0d1217;
+}
+
+html[data-ui-skin="hack-terminal"]
+  [data-ui="tool-block"]
+  > div:first-child
+  .font-mono {
+  color: #e8eef3;
+  font-size: 12.5px;
+}
+
+html[data-ui-skin="hack-terminal"]
+  [data-ui="tool-block"][data-status="running"] {
+  border-color: #304252;
+  box-shadow: inset 2px 0 #a8d9ff;
+}
+
+html[data-ui-skin="hack-terminal"]
+  [data-ui="tool-block"][data-status="running"]
+  > div:first-child {
+  background: #0b1218;
+}
+
+html[data-ui-skin="hack-terminal"]
+  [data-ui="tool-block"][data-status="running"]
+  [data-ui="tool-output"] {
+  display: block !important;
+}
+
+html[data-ui-skin="hack-terminal"] [data-ui="tool-output"] {
+  max-height: 260px;
+  border-color: #171e25;
+  background: #020305;
+  padding: 11px 13px;
+  color: #c5d0d9;
+  font-size: 12.5px;
+  line-height: 1.72;
+  font-variant-ligatures: none;
+  scrollbar-color: rgba(168, 217, 255, 0.28) transparent;
+}
+
+html[data-ui-skin="hack-terminal"] .cursor-thinking {
+  min-height: 28px;
+  margin-block: 10px 0;
+  padding-left: 11px;
+  border-left: 1px solid #35414b;
+  color: #9ca9b4;
+  font-family: var(--font-jetbrains-mono), ui-monospace, monospace;
+  font-size: 12px;
+}
+
+/* A completed agent response reads as the deliverable, visually separate from
+   the reasoning and terminal transcript above it. */
+html[data-ui-skin="hack-terminal"] [data-ui="final-response"] {
+  position: relative;
+  margin-top: 16px;
+  padding: 27px 18px 18px;
+  border: 1px solid #1c232a;
+  border-top-color: #d6e8f4;
+  border-radius: 4px;
+  background: linear-gradient(180deg, #0a0d11 0%, #07090c 100%);
+  color: #edf2f6;
+}
+
+html[data-ui-skin="hack-terminal"] [data-ui="final-response"]::before {
+  content: "RIFT RESPONSE";
+  position: absolute;
+  top: 8px;
+  left: 18px;
+  color: #a8d9ff;
+  font-family: var(--font-jetbrains-mono), ui-monospace, monospace;
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.12em;
+}
+
+/* Non-agent final turns receive a quieter top rule without becoming a report
+   card, preserving the natural conversational mode. */
+html[data-ui-skin="hack-terminal"]
+  [data-testid="assistant-message"][data-rift-final="true"]
+  > div
+  > div
+  > [data-testid="message-content"]:not(:has([data-ui="final-response"])) {
+  padding-top: 15px;
+  border-top: 1px solid #27313a;
+}
+
+/* Composer: terminal proportions with one focus edge, no ambient neon. */
+html[data-ui-skin="hack-terminal"] [data-ui="composer-region"] {
+  background: transparent;
+}
+
+html[data-ui-skin="hack-terminal"] [data-ui="composer-column"] {
+  max-width: 840px;
+}
+
+html[data-ui-skin="hack-terminal"] [data-ui="composer-shell"] {
+  border-color: #28333d;
+  border-radius: 6px;
+  background: #070a0d;
+  box-shadow:
+    inset 0 1px rgba(255, 255, 255, 0.025),
+    0 14px 36px rgba(0, 0, 0, 0.24);
+  transition:
+    border-color 160ms ease,
+    box-shadow 160ms ease,
+    background-color 160ms ease;
+}
+
+html[data-ui-skin="hack-terminal"] [data-ui="composer-shell"]:focus-within {
+  border-color: var(--ring);
+  background: #080c10;
+  box-shadow:
+    inset 1px 0 var(--ring),
+    0 14px 36px rgba(0, 0, 0, 0.28);
+}
+
+html[data-ui-skin="hack-terminal"] [data-testid="chat-input"] {
+  caret-color: #a8d9ff;
+  color: #f3f6f9;
+  font-family: var(--font-jetbrains-mono), ui-monospace, monospace;
+  font-size: 14px;
+  line-height: 1.6;
+}
+
+html[data-ui-skin="hack-terminal"] [data-testid="chat-input"]::placeholder {
+  color: #65717c;
+  opacity: 1;
+}
+
+html[data-ui-skin="hack-terminal"]
+  [data-ui="composer-shell"]
+  :where(button, [role="combobox"]) {
+  border-radius: 4px;
+}
+
+html[data-ui-skin="hack-terminal"] [data-testid="send-button"] {
+  border-radius: 4px;
+  background: #d1ebff;
+  color: #071018;
+  box-shadow: none;
+}
+
+html[data-ui-skin="hack-terminal"] [data-testid="send-button"]:hover {
+  background: #ffffff;
+}
+
+html[data-ui-skin="hack-terminal"] [data-testid="send-button"]:disabled {
+  background: #12181e;
+  color: #5e6872;
+  opacity: 1;
+}
+
+html[data-ui-skin="hack-terminal"]
+  :where([data-testid="mode-agent-pill"], [data-testid="mode-ask-pill"]) {
+  border-radius: 3px;
+  font-family: var(--font-jetbrains-mono), ui-monospace, monospace;
+  font-size: 11.5px;
+}
+
+/* Portalled menus inherit the root tokens. These shape rules keep them in the
+   same disciplined geometry without targeting application-specific content. */
+html[data-ui-skin="hack-terminal"]
+  :where(
+    [data-slot="dropdown-menu-content"],
+    [data-slot="popover-content"],
+    [data-slot="dialog-content"]
+  ) {
+  border-color: #25303a;
+  border-radius: 5px;
+  background: #090b0e;
+  box-shadow: 0 18px 48px rgba(0, 0, 0, 0.52);
+}
+
+html[data-ui-skin="hack-terminal"] * {
+  scrollbar-width: thin;
+}
+
+@media (max-width: 980px) {
+  html[data-ui-skin="hack-terminal"] [data-testid="messages-container"] {
+    padding-inline: 14px;
+  }
+}
+
+@media (max-width: 767px) {
+  html[data-ui-skin="hack-terminal"],
+  html[data-ui-skin="hack-terminal"] body {
+    background: #050608;
+  }
+
+  html[data-ui-skin="hack-terminal"] [data-rift-route-shell="chat"] {
+    padding: 0;
+    background: #050608;
+  }
+
+  html[data-ui-skin="hack-terminal"] [data-rift-route-shell="chat"]::before {
+    display: none;
+  }
+
+  html[data-ui-skin="hack-terminal"] [data-rift-workspace] {
+    padding-top: 0;
+    border: 0;
+    border-radius: 0;
+    box-shadow: none;
+    animation: none;
+  }
+
+  html[data-ui-skin="hack-terminal"]
+    [data-workbench-variant="cursor"]
+    [data-pro-workbench] {
+    border: 0;
+    border-radius: 0;
+    box-shadow: none;
+    animation: none;
+  }
+
+  html[data-ui-skin="hack-terminal"]
+    [data-workbench-variant="cursor"]
+    .pro-titlebar {
+    height: 42px;
+    padding-inline: max(12px, env(safe-area-inset-left));
+  }
+
+  html[data-ui-skin="hack-terminal"]
+    [data-workbench-variant="cursor"]
+    .pro-titlebar::before {
+    display: none;
+  }
+
+  html[data-ui-skin="hack-terminal"] [data-testid="chat-titlebar"] {
+    height: 40px;
+    border-bottom: 0;
+    background: transparent;
+  }
+
+  html[data-ui-skin="hack-terminal"] [data-testid="chat-titlebar"]::before,
+  html[data-ui-skin="hack-terminal"] [data-testid="chat-titlebar"]::after {
+    display: none;
+  }
+
+  html[data-ui-skin="hack-terminal"] [data-testid="rift-brand-bar"] {
+    min-height: 44px;
+    padding-inline: 14px;
+  }
+
+  html[data-ui-skin="hack-terminal"] [data-testid="rift-brand-bar"]::after {
+    font-size: 10px;
+  }
+
+  html[data-ui-skin="hack-terminal"] [data-rift-empty-stage] {
+    background: #050608;
+  }
+
+  html[data-ui-skin="hack-terminal"] [data-rift-empty-hero] h1 {
+    font-size: 21px;
+  }
+
+  html[data-ui-skin="hack-terminal"] [data-testid="messages-container"] {
+    gap: 24px;
+    padding: 20px 13px 112px;
+  }
+
+  html[data-ui-skin="hack-terminal"] [data-ui="composer-region"] {
+    padding-right: max(12px, env(safe-area-inset-right));
+    padding-bottom: max(12px, env(safe-area-inset-bottom));
+    padding-left: max(12px, env(safe-area-inset-left));
+  }
+
+  html[data-ui-skin="hack-terminal"] [data-ui="final-response"] {
+    padding-inline: 14px;
+  }
+
+  html[data-ui-skin="hack-terminal"] [data-ui="final-response"]::before {
+    left: 14px;
+  }
+
+  html[data-ui-skin="hack-terminal"] [role="dialog"].terminal-panel {
+    border-right: 1px solid #25303a;
+    background: #090b0e;
+  }
+}
+
+@media (pointer: coarse) {
+  html[data-ui-skin="hack-terminal"]
+    :where(
+      [data-testid="sidebar"] button,
+      [data-testid="sidebar-rail"] button,
+      [data-ui="composer-shell"] button
+    ) {
+    min-width: 44px;
+    min-height: 44px;
+  }
+}
+
+/* -------------------------------------------------------------------------
+   Codex graphite finish
+
+   Final normal-app override for the isolated preview. The dedicated /hack
+   route does not render data-workbench-variant="cursor", so its established
+   terminal UI remains untouched. Color is deliberately quiet: graphite
+   surfaces, white hierarchy, and a pale blue signal only for live work.
+   ------------------------------------------------------------------------- */
+
+html[data-ui-skin="hack-terminal"]
+  [data-workbench-variant="cursor"]
+  [data-pro-workbench] {
+  --background: #1a1b1e;
+  --foreground: #f2f3f5;
+  --card: #242529;
+  --card-foreground: #f2f3f5;
+  --popover: #26272b;
+  --popover-foreground: #f2f3f5;
+  --primary: #b9d9ee;
+  --primary-foreground: #11161a;
+  --secondary: #28292d;
+  --secondary-foreground: #e6e8eb;
+  --muted: #28292d;
+  --muted-foreground: #a5a9b0;
+  --accent: #2d2e33;
+  --accent-foreground: #f4f5f6;
+  --border: #34363b;
+  --input: #3c3e44;
+  --ring: color-mix(in srgb, var(--foreground) 48%, var(--background));
+  --sidebar: #202125;
+  --sidebar-foreground: #e4e6e9;
+  --sidebar-accent: #2b2c31;
+  --sidebar-accent-foreground: #f4f5f6;
+  --sidebar-border: #34363b;
+  --surface-1: #18191c;
+  --surface-2: #202125;
+  --surface-3: #25262a;
+  --surface-4: #2b2c31;
+  --elevated: #26272b;
+  --surface: #202125;
+  --border-strong: #4a4d54;
+  --fill-input-chat: #25262a;
+  --success: #aeb8bf;
+  --warning: #c1b7a9;
+  --info: #b9d9ee;
+
+  background: #18191c;
+  color: #f2f3f5;
+}
+
+html[data-ui-skin="hack-terminal"]
+  [data-workbench-variant="cursor"]
+  [data-pro-workbench-body] {
+  padding: 0 !important;
+  background: #18191c;
+}
+
+html[data-ui-skin="hack-terminal"]
+  [data-workbench-variant="cursor"]
+  :where(
+    .pro-workspace,
+    .pro-main,
+    [data-rift-chat-root],
+    [data-rift-chat-surface]
+  ) {
+  background: #1a1b1e;
+}
+
+html[data-ui-skin="hack-terminal"]
+  [data-workbench-variant="cursor"]
+  .pro-titlebar {
+  height: 48px;
+  min-height: 48px;
+  border-color: #34363b;
+  background: #202125;
+}
+
+html[data-ui-skin="hack-terminal"]
+  [data-workbench-variant="cursor"]
+  .pro-titlebar
+  button {
+  border-radius: 7px;
+  color: #aeb2b9;
+}
+
+html[data-ui-skin="hack-terminal"]
+  [data-workbench-variant="cursor"]
+  .pro-titlebar
+  button:hover {
+  background: #2d2e33;
+  color: #f2f3f5;
+}
+
+html[data-ui-skin="hack-terminal"]
+  [data-workbench-variant="cursor"]
+  :where(.pro-sidebar, .pro-sidebar-rail) {
+  border-color: #34363b;
+  background: #202125;
+}
+
+html[data-ui-skin="hack-terminal"]
+  [data-workbench-variant="cursor"]
+  [data-pro-sidebar-header] {
+  border-bottom: 0;
+  background: #202125;
+}
+
+html[data-ui-skin="hack-terminal"]
+  [data-workbench-variant="cursor"]
+  [data-pro-section-label] {
+  color: #858a92;
+  font-size: 12px;
+  letter-spacing: 0;
+}
+
+html[data-ui-skin="hack-terminal"]
+  [data-workbench-variant="cursor"]
+  [data-pro-sidebar-header]
+  > button,
+html[data-ui-skin="hack-terminal"]
+  [data-workbench-variant="cursor"]
+  [data-pro-sidebar-header]
+  nav
+  button {
+  min-height: 36px;
+  border: 0 !important;
+  border-radius: 7px;
+  color: #b8bcc3;
+  font-size: 13.5px;
+  font-weight: 400;
+  box-shadow: none !important;
+}
+
+html[data-ui-skin="hack-terminal"]
+  [data-workbench-variant="cursor"]
+  [data-pro-sidebar-header]
+  > button:hover,
+html[data-ui-skin="hack-terminal"]
+  [data-workbench-variant="cursor"]
+  [data-pro-sidebar-header]
+  nav
+  button:hover {
+  background: #292a2f;
+  color: #f1f2f4;
+}
+
+html[data-ui-skin="hack-terminal"]
+  [data-workbench-variant="cursor"]
+  [data-pro-sidebar-header]
+  button[aria-current="page"] {
+  background: #303136;
+  color: #ffffff;
+  box-shadow: none !important;
+}
+
+html[data-ui-skin="hack-terminal"]
+  [data-workbench-variant="cursor"]
+  [data-testid="sidebar"] {
+  color: #e4e6e9;
+  font-size: 14px;
+}
+
+html[data-ui-skin="hack-terminal"]
+  [data-workbench-variant="cursor"]
+  [data-testid^="chat-item-"] {
+  min-height: 35px;
+  border-radius: 7px;
+  color: #acb0b7;
+  font-size: 13.5px;
+}
+
+html[data-ui-skin="hack-terminal"]
+  [data-workbench-variant="cursor"]
+  [data-testid^="chat-item-"]:hover {
+  background: #292a2f;
+  color: #e8eaed;
+}
+
+html[data-ui-skin="hack-terminal"]
+  [data-workbench-variant="cursor"]
+  [data-testid^="chat-item-"][data-active="true"] {
+  background: #303136;
+  color: #ffffff;
+  box-shadow: none;
+}
+
+html[data-ui-skin="hack-terminal"]
+  [data-workbench-variant="cursor"]
+  .pro-status-bar {
+  display: none !important;
+}
+
+html[data-ui-skin="hack-terminal"]
+  [data-workbench-variant="cursor"]
+  .pro-skip-link {
+  position: fixed;
+  z-index: 1000;
+  top: 8px;
+  left: 12px;
+  translate: 0 -160%;
+  border: 1px solid #59606a;
+  border-radius: 7px;
+  background: #2a2b30;
+  padding: 7px 11px;
+  color: #ffffff;
+  font-size: 13px;
+  transition: translate 150ms ease;
+}
+
+html[data-ui-skin="hack-terminal"]
+  [data-workbench-variant="cursor"]
+  .pro-skip-link:focus {
+  translate: 0;
+}
+
+html[data-ui-skin="hack-terminal"]
+  [data-workbench-variant="cursor"]
+  [data-rift-empty-stage],
+html[data-ui-skin="hack-terminal"]
+  [data-workbench-variant="cursor"]
+  .messages-scroll {
+  background: #1a1b1e;
+}
+
+html[data-ui-skin="hack-terminal"]
+  [data-workbench-variant="cursor"]
+  [data-rift-empty-content] {
+  max-width: 860px;
+}
+
+html[data-ui-skin="hack-terminal"]
+  [data-workbench-variant="cursor"]
+  [data-rift-empty-hero]
+  h1 {
+  color: #f0f1f3;
+  font-size: clamp(22px, 2vw, 27px);
+  font-weight: 480;
+  letter-spacing: -0.03em;
+}
+
+html[data-ui-skin="hack-terminal"]
+  [data-workbench-variant="cursor"]
+  [data-testid="messages-container"] {
+  max-width: 860px;
+  gap: 28px;
+  padding: 32px 22px 132px;
+}
+
+html[data-ui-skin="hack-terminal"]
+  [data-workbench-variant="cursor"]
+  [data-testid="message-content"] {
+  font-size: 15px;
+  line-height: 1.7;
+}
+
+html[data-ui-skin="hack-terminal"]
+  [data-workbench-variant="cursor"]
+  [data-testid="user-message"]
+  [data-testid="message-content"] {
+  border: 1px solid #34363b;
+  border-radius: 9px;
+  background: #242529;
+  padding: 11px 14px;
+  color: #f4f5f6;
+  box-shadow: none;
+}
+
+html[data-ui-skin="hack-terminal"]
+  [data-workbench-variant="cursor"]
+  [data-testid="user-message"]
+  [data-testid="message-content"]::before {
+  display: none !important;
+  content: none !important;
+}
+
+html[data-ui-skin="hack-terminal"]
+  [data-workbench-variant="cursor"]
+  [data-testid="assistant-message"]
+  [data-testid="message-content"] {
+  color: #e6e8eb;
+}
+
+html[data-ui-skin="hack-terminal"]
+  [data-workbench-variant="cursor"]
+  [data-ui="work-log"] {
+  margin: 2px 0 16px;
+  border: 0;
+  background: transparent;
+}
+
+html[data-ui-skin="hack-terminal"]
+  [data-workbench-variant="cursor"]
+  [data-ui="work-summary"] {
+  min-height: 36px;
+  border-color: #3a3c42;
+  padding: 0 0 10px;
+  color: #a8adb5;
+  font-family: var(--font-geist), system-ui, sans-serif;
+  font-size: 13px;
+  letter-spacing: 0;
+}
+
+html[data-ui-skin="hack-terminal"]
+  [data-workbench-variant="cursor"]
+  [data-ui="work-log"][data-timing="true"]
+  [data-ui="work-summary"] {
+  color: #c2d9e8;
+}
+
+html[data-ui-skin="hack-terminal"]
+  [data-workbench-variant="cursor"]
+  [data-ui="reasoning"] {
+  position: relative;
+  margin: 13px 0;
+  overflow: visible;
+  border: 0;
+  border-left: 1px solid #3c3f45;
+  border-radius: 0;
+  background: transparent;
+  padding: 5px 0 6px 16px;
+  box-shadow: none;
+}
+
+html[data-ui-skin="hack-terminal"]
+  [data-workbench-variant="cursor"]
+  [data-ui="reasoning"]::before {
+  position: absolute;
+  top: 9px;
+  left: -1px;
+  width: 1px;
+  height: 23px;
+  background: #7c8790;
+  content: "";
+  opacity: 0.55;
+}
+
+html[data-ui-skin="hack-terminal"]
+  [data-workbench-variant="cursor"]
+  [data-ui="reasoning"][data-streaming="true"] {
+  border-left-color: #415463;
+}
+
+html[data-ui-skin="hack-terminal"]
+  [data-workbench-variant="cursor"]
+  [data-ui="reasoning"][data-streaming="true"]::before {
+  background: #a9d1eb;
+  opacity: 1;
+}
+
+html[data-ui-skin="hack-terminal"]
+  [data-workbench-variant="cursor"]
+  [data-ui="reasoning"]
+  > button {
+  min-height: 27px;
+  padding: 0;
+  color: #b3b8bf;
+}
+
+html[data-ui-skin="hack-terminal"]
+  [data-workbench-variant="cursor"]
+  [data-ui="reasoning"]
+  > button
+  > span:nth-child(2) {
+  font-family: var(--font-geist), system-ui, sans-serif;
+  font-size: 12.5px;
+  font-weight: 550;
+  letter-spacing: 0.02em;
+  text-transform: none;
+}
+
+html[data-ui-skin="hack-terminal"]
+  [data-workbench-variant="cursor"]
+  [data-ui="reasoning"]
+  > div[data-state] {
+  max-height: 320px;
+  margin: 4px 0 0;
+  overflow-y: auto;
+  border: 0;
+  padding: 5px 0 1px;
+}
+
+html[data-ui-skin="hack-terminal"]
+  [data-workbench-variant="cursor"]
+  [data-ui="reasoning"]
+  .font-mono {
+  color: #aeb4bc;
+  font-size: 13.5px;
+  line-height: 1.72;
+}
+
+html[data-ui-skin="hack-terminal"]
+  [data-workbench-variant="cursor"]
+  :where(.rift-thinking-shimmer, .animate-text-shimmer) {
+  animation: none !important;
+  background: none !important;
+  color: #bfd9ea !important;
+  -webkit-text-fill-color: currentColor;
+}
+
+html[data-ui-skin="hack-terminal"]
+  [data-workbench-variant="cursor"]
+  .animate-ping {
+  animation: none !important;
+  box-shadow: none !important;
+}
+
+html[data-ui-skin="hack-terminal"]
+  [data-workbench-variant="cursor"]
+  [data-ui="tool-block"] {
+  margin: 14px 0;
+  overflow: hidden;
+  border: 1px solid #303238;
+  border-left: 2px solid #4a4e55;
+  border-radius: 5px;
+  background: #151619;
+  box-shadow: none;
+}
+
+html[data-ui-skin="hack-terminal"]
+  [data-workbench-variant="cursor"]
+  [data-ui="tool-block"]
+  > div:first-child {
+  min-height: 38px;
+  border-bottom: 1px solid #292b30;
+  background: #1b1c20;
+  padding: 7px 10px;
+  color: #aeb3ba;
+}
+
+html[data-ui-skin="hack-terminal"]
+  [data-workbench-variant="cursor"]
+  [data-ui="tool-block"]
+  > div:first-child:hover {
+  background: #202125;
+}
+
+html[data-ui-skin="hack-terminal"]
+  [data-workbench-variant="cursor"]
+  [data-ui="tool-block"]
+  > div:first-child
+  .font-mono {
+  color: #eef0f2;
+  font-size: 12.5px;
+}
+
+html[data-ui-skin="hack-terminal"]
+  [data-workbench-variant="cursor"]
+  [data-ui="tool-block"][data-status="running"] {
+  border-color: #3a5364;
+  border-left-color: #a9d1eb;
+  background: #14191d;
+}
+
+html[data-ui-skin="hack-terminal"]
+  [data-workbench-variant="cursor"]
+  [data-ui="tool-block"][data-status="running"]
+  > div:first-child {
+  background: #192128;
+  color: #c2dbe9;
+}
+
+html[data-ui-skin="hack-terminal"]
+  [data-workbench-variant="cursor"]
+  [data-ui="tool-block"][data-status="error"] {
+  border-left-color: #b97878;
+}
+
+html[data-ui-skin="hack-terminal"]
+  [data-workbench-variant="cursor"]
+  [data-ui="tool-output"] {
+  display: block !important;
+  max-height: 320px;
+  margin: 0;
+  border: 0;
+  background: #101113;
+  padding: 0;
+  color: #cbd0d5;
+  font-size: 12.5px;
+  line-height: 1.7;
+}
+
+html[data-ui-skin="hack-terminal"]
+  [data-workbench-variant="cursor"]
+  [data-ui="tool-output-meta"] {
+  position: sticky;
+  z-index: 1;
+  top: 0;
+  border-color: #292b30;
+  background: #151619;
+  color: #858c95;
+}
+
+html[data-ui-skin="hack-terminal"]
+  [data-workbench-variant="cursor"]
+  [data-ui="tool-block"][data-status="running"]
+  [data-ui="tool-output-meta"] {
+  color: #a9d1eb;
+}
+
+html[data-ui-skin="hack-terminal"]
+  [data-workbench-variant="cursor"]
+  [data-ui="tool-output-content"] {
+  min-height: 42px;
+  font-variant-ligatures: none;
+}
+
+html[data-ui-skin="hack-terminal"]
+  [data-workbench-variant="cursor"]
+  [data-ui="action-block"] {
+  min-height: 36px;
+  height: auto;
+  border: 0;
+  border-left: 1px solid #3c3f45;
+  border-radius: 0;
+  background: transparent;
+  padding: 7px 10px 7px 15px;
+  color: #aeb4bc;
+  box-shadow: none;
+}
+
+html[data-ui-skin="hack-terminal"]
+  [data-workbench-variant="cursor"]
+  [data-ui="action-block"]:hover {
+  border-left-color: #5b6068;
+  background: #202125;
+}
+
+html[data-ui-skin="hack-terminal"]
+  [data-workbench-variant="cursor"]
+  [data-ui="action-block"][data-running="true"] {
+  border-left-color: #a9d1eb;
+  background: transparent;
+}
+
+html[data-ui-skin="hack-terminal"]
+  [data-workbench-variant="cursor"]
+  [data-ui="action-block"]
+  > span:first-child {
+  color: #8aaec5;
+}
+
+html[data-ui-skin="hack-terminal"]
+  [data-workbench-variant="cursor"]
+  .cursor-thinking {
+  min-height: 34px;
+  margin: 12px 0 0;
+  border-left: 1px solid #a9d1eb;
+  padding: 5px 0 5px 16px;
+  color: #b6bdc5;
+  font-size: 13px;
+}
+
+html[data-ui-skin="hack-terminal"]
+  [data-workbench-variant="cursor"]
+  [data-ui="final-response"] {
+  position: relative;
+  margin-top: 22px;
+  border: 0;
+  border-top: 1px solid #414349;
+  border-radius: 0;
+  background: transparent;
+  padding: 34px 0 2px;
+  color: #f1f2f4;
+  box-shadow: none;
+}
+
+html[data-ui-skin="hack-terminal"]
+  [data-workbench-variant="cursor"]
+  [data-ui="final-response"]::before {
+  position: absolute;
+  top: 10px;
+  left: 0;
+  color: #b9d9ee;
+  content: "REPORT";
+  font-family: var(--font-jetbrains-mono), ui-monospace, monospace;
+  font-size: 10.5px;
+  font-weight: 650;
+  letter-spacing: 0.11em;
+}
+
+html[data-ui-skin="hack-terminal"]
+  [data-workbench-variant="cursor"]
+  [data-ui="composer-region"] {
+  padding: 10px 20px 16px;
+  background: #1a1b1e;
+}
+
+html[data-ui-skin="hack-terminal"]
+  [data-workbench-variant="cursor"]
+  [data-ui="composer-column"] {
+  max-width: 860px;
+}
+
+html[data-ui-skin="hack-terminal"]
+  [data-workbench-variant="cursor"]
+  :where(.pro-composer, [data-ui="composer-shell"]) {
+  border: 1px solid #3b3d43 !important;
+  border-radius: 11px !important;
+  background: #25262a !important;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.24) !important;
+  transition:
+    border-color 150ms ease,
+    background-color 150ms ease !important;
+}
+
+html[data-ui-skin="hack-terminal"]
+  [data-workbench-variant="cursor"]
+  :where(.pro-composer, [data-ui="composer-shell"]):focus-within {
+  border-color: #555860 !important;
+  background: #27282c !important;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.24) !important;
+}
+
+html[data-ui-skin="hack-terminal"]
+  [data-workbench-variant="cursor"]
+  [data-testid="chat-input"] {
+  color: #f5f6f7;
+  caret-color: #c7ddea;
+  font-family: var(--font-geist), system-ui, sans-serif;
+  font-size: 15px;
+  line-height: 1.55;
+}
+
+html[data-ui-skin="hack-terminal"]
+  [data-workbench-variant="cursor"]
+  [data-testid="chat-input"]::placeholder {
+  color: #898e96;
+}
+
+html[data-ui-skin="hack-terminal"]
+  [data-workbench-variant="cursor"]
+  [data-ui="composer-shell"]
+  :where(button, [role="combobox"]) {
+  border-radius: 7px;
+}
+
+html[data-ui-skin="hack-terminal"]
+  [data-workbench-variant="cursor"]
+  [data-testid="send-button"] {
+  background: #eef0f2;
+  color: #202125;
+  box-shadow: none;
+}
+
+html[data-ui-skin="hack-terminal"]
+  [data-workbench-variant="cursor"]
+  [data-testid="send-button"]:hover {
+  background: #ffffff;
+}
+
+html[data-ui-skin="hack-terminal"] [data-ui="settings-dialog"] {
+  border: 1px solid #3b3d43;
+  border-radius: 12px;
+  background: #242529;
+  color: #f1f2f4;
+  box-shadow: 0 24px 70px rgba(0, 0, 0, 0.44);
+}
+
+html[data-ui-skin="hack-terminal"] [data-ui="settings-sidebar"] {
+  border-color: #3b3d43;
+  background: #202125;
+}
+
+html[data-ui-skin="hack-terminal"] [data-ui="settings-tab"] {
+  border-radius: 7px;
+  font-size: 13.5px;
+}
+
+html[data-ui-skin="hack-terminal"]
+  [data-ui="settings-tab"][aria-selected="true"] {
+  background: #303136;
+  color: #ffffff;
+}
+
+html[data-ui-skin="hack-terminal"] [data-ui="settings-content"] {
+  background: #242529;
+}
+
+html[data-ui-skin="hack-terminal"] [data-codex-page] {
+  background: #1a1b1e;
+}
+
+html[data-ui-skin="hack-terminal"] [data-codex-page] > div {
+  animation: codex-route-in 170ms cubic-bezier(0.2, 0.75, 0.25, 1) both;
+}
+
+@keyframes codex-route-in {
+  from {
+    opacity: 0;
+    transform: translateY(3px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@media (max-width: 767px) {
+  html[data-ui-skin="hack-terminal"]
+    [data-workbench-variant="cursor"]
+    [data-testid="messages-container"] {
+    padding: 24px 15px 120px;
+  }
+
+  html[data-ui-skin="hack-terminal"]
+    [data-workbench-variant="cursor"]
+    [data-ui="composer-region"] {
+    padding: 8px 12px max(12px, env(safe-area-inset-bottom));
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html[data-ui-skin="hack-terminal"] [data-codex-page] > div,
+  html[data-ui-skin="hack-terminal"]
+    [data-workbench-variant="cursor"]
+    :where(.pro-skip-link, button, a, [role="button"], [role="tab"]) {
+    animation: none !important;
+    transition: none !important;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html[data-ui-skin="hack-terminal"] *,
+  html[data-ui-skin="hack-terminal"] *::before,
+  html[data-ui-skin="hack-terminal"] *::after {
+    scroll-behavior: auto !important;
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+/* -------------------------------------------------------------------------
+   Claude workbench pass
+
+   This section is deliberately scoped to the isolated Cursor/Claude preview.
+   The shared Hack surface keeps its existing skin, while the main chat becomes
+   one quiet canvas with one ice-blue interaction signal and no ambient effects.
+   ------------------------------------------------------------------------- */
+
+html[data-ui-skin="hack-terminal"]
+  [data-workbench-variant="cursor"]
+  [data-pro-workbench] {
+  --background: #0b0c0e;
+  --foreground: #f3f4f6;
+  --card: #111214;
+  --card-foreground: #f3f4f6;
+  --popover: #111214;
+  --popover-foreground: #f3f4f6;
+  --primary: #9fc7e2;
+  --primary-foreground: #081016;
+  --secondary: #141518;
+  --secondary-foreground: #e7e9ec;
+  --muted: #151619;
+  --muted-foreground: #989ea7;
+  --accent: #17191c;
+  --accent-foreground: #f3f4f6;
+  --border: #26282d;
+  --input: #34373d;
+  --ring: color-mix(in srgb, var(--foreground) 48%, var(--background));
+  --sidebar: #0f1012;
+  --sidebar-foreground: #dfe2e6;
+  --sidebar-accent: #17191c;
+  --sidebar-accent-foreground: #f3f4f6;
+  --sidebar-border: #25272b;
+  --signal: #9fc7e2;
+  --signal-bright: #9fc7e2;
+  --signal-dim: #7fa8c3;
+  --signal-soft: rgba(159, 199, 226, 0.09);
+  --surface-1: #0b0c0e;
+  --surface-2: #0f1012;
+  --surface-3: #141518;
+  --surface-4: #181a1d;
+  --elevated: #111214;
+  --surface: #0f1012;
+  --border-strong: #383b42;
+  --success: #abb3bc;
+  --warning: #aab9c4;
+  --info: #9fc7e2;
+  --rift-glow: transparent;
+  --grid-dot: transparent;
+  --fill-input-chat: #101113;
+
+  background: #0b0c0e;
+  color: #f3f4f6;
+}
+
+html[data-ui-skin="hack-terminal"]
+  [data-workbench-variant="cursor"]
+  [data-pro-workbench]
+  > .pro-shell-bg {
+  display: none;
+  background: none;
+}
+
+html[data-ui-skin="hack-terminal"]
+  [data-workbench-variant="cursor"]
+  :where(
+    .pro-workspace,
+    .pro-main,
+    [data-rift-chat-root],
+    [data-rift-chat-surface]
+  ) {
+  background: #0b0c0e;
+}
+
+html[data-ui-skin="hack-terminal"]
+  [data-workbench-variant="cursor"]
+  .pro-workspace {
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+}
+
+html[data-ui-skin="hack-terminal"]
+  [data-workbench-variant="cursor"]
+  .pro-titlebar {
+  z-index: 20;
+  height: 44px;
+  min-height: 44px;
+  border-color: #25272b;
+  background: #101113;
+  box-shadow: none;
+}
+
+html[data-ui-skin="hack-terminal"]
+  [data-workbench-variant="cursor"]
+  .pro-titlebar::before {
+  display: none;
+  content: none;
+}
+
+html[data-ui-skin="hack-terminal"]
+  [data-workbench-variant="cursor"]
+  .pro-titlebar
+  button {
+  border-radius: 4px;
+  transition-duration: 150ms;
+}
+
+html[data-ui-skin="hack-terminal"]
+  [data-workbench-variant="cursor"]
+  :where(.pro-sidebar, .pro-sidebar-rail) {
+  border-color: #25272b;
+  background: #0f1012;
+  box-shadow: none;
+}
+
+html[data-ui-skin="hack-terminal"]
+  [data-workbench-variant="cursor"]
+  [data-pro-sidebar-header] {
+  border-bottom: 1px solid #25272b;
+  background: #0f1012;
+}
+
+html[data-ui-skin="hack-terminal"]
+  [data-workbench-variant="cursor"]
+  [data-pro-sidebar-header]
+  [role="tablist"] {
+  gap: 1px;
+  padding: 0;
+  border-color: #25272b;
+  border-radius: 4px;
+  background: #25272b;
+}
+
+html[data-ui-skin="hack-terminal"]
+  [data-workbench-variant="cursor"]
+  [data-pro-sidebar-header]
+  [role="tab"] {
+  min-height: 36px;
+  border-radius: 0;
+  background: #0f1012;
+  color: #959ca5;
+  font-size: 12px;
+  box-shadow: none;
+}
+
+html[data-ui-skin="hack-terminal"]
+  [data-workbench-variant="cursor"]
+  [data-pro-sidebar-header]
+  [role="tab"]:hover {
+  background: #151619;
+  color: #e8eaed;
+}
+
+html[data-ui-skin="hack-terminal"]
+  [data-workbench-variant="cursor"]
+  [data-pro-sidebar-header]
+  [role="tab"][aria-selected="true"] {
+  background: #17191c;
+  color: #f3f4f6;
+  box-shadow: none;
+}
+
+html[data-ui-skin="hack-terminal"]
+  [data-workbench-variant="cursor"]
+  [data-pro-sidebar-header]
+  nav
+  button {
+  min-height: 32px;
+  border-radius: 4px;
+  font-size: 13px;
+  box-shadow: none;
+  transition-duration: 150ms;
+}
+
+html[data-ui-skin="hack-terminal"]
+  [data-workbench-variant="cursor"]
+  [data-pro-sidebar-header]
+  nav
+  button[aria-current="page"] {
+  background: #17191c;
+  color: #f3f4f6;
+  box-shadow: inset 2px 0 #799fba;
+}
+
+html[data-ui-skin="hack-terminal"]
+  [data-workbench-variant="cursor"]
+  [data-testid="sidebar"] {
+  color: #dfe2e6;
+  font-size: 13px;
+}
+
+html[data-ui-skin="hack-terminal"]
+  [data-workbench-variant="cursor"]
+  [data-testid="sidebar"]
+  [class*="tracking-wider"],
+html[data-ui-skin="hack-terminal"]
+  [data-workbench-variant="cursor"]
+  [data-pro-sidebar-meta] {
+  font-size: 11.5px;
+  letter-spacing: 0.08em;
+}
+
+html[data-ui-skin="hack-terminal"]
+  [data-workbench-variant="cursor"]
+  [data-testid="sidebar"]
+  [data-sidebar-arsenal-description] {
+  font-size: 11.5px;
+}
+
+html[data-ui-skin="hack-terminal"]
+  [data-workbench-variant="cursor"]
+  [data-testid^="chat-item-"] {
+  min-height: 32px;
+  border-radius: 3px;
+  color: #aeb4bc;
+  font-size: 13px;
+}
+
+html[data-ui-skin="hack-terminal"]
+  [data-workbench-variant="cursor"]
+  [data-testid^="chat-item-"][data-active="true"] {
+  background: #17191c;
+  color: #f3f4f6;
+  box-shadow: inset 2px 0 #799fba;
+}
+
+html[data-ui-skin="hack-terminal"]
+  [data-workbench-variant="cursor"]
+  .pro-operation-bar {
+  display: none;
+}
+
+html[data-ui-skin="hack-terminal"]
+  [data-workbench-variant="cursor"]
+  .pro-status-bar {
+  height: 27px;
+  min-height: 27px;
+  border-color: #25272b;
+  background: #0f1012;
+  color: #898f98;
+  font-size: 11.5px;
+  box-shadow: none;
+}
+
+html[data-ui-skin="hack-terminal"]
+  [data-workbench-variant="cursor"]
+  [data-rift-empty-stage] {
+  background: #0b0c0e;
+}
+
+html[data-ui-skin="hack-terminal"]
+  [data-workbench-variant="cursor"]
+  [data-rift-empty-content] {
+  max-width: 840px;
+}
+
+html[data-ui-skin="hack-terminal"]
+  [data-workbench-variant="cursor"]
+  [data-rift-empty-hero] {
+  margin-bottom: 0;
+}
+
+html[data-ui-skin="hack-terminal"]
+  [data-workbench-variant="cursor"]
+  [data-rift-empty-hero]::before {
+  display: none;
+  content: none;
+}
+
+html[data-ui-skin="hack-terminal"]
+  [data-workbench-variant="cursor"]
+  [data-rift-empty-hero]
+  h1 {
+  margin: 0;
+  color: #e8eaed;
+  font-family: var(--font-geist), system-ui, sans-serif;
+  font-size: clamp(21px, 2vw, 26px);
+  font-weight: 450;
+  letter-spacing: -0.025em;
+  line-height: 1.3;
+}
+
+html[data-ui-skin="hack-terminal"]
+  [data-workbench-variant="cursor"]
+  .messages-scroll {
+  background: #0b0c0e;
+  scrollbar-color: rgba(153, 161, 171, 0.28) transparent;
+}
+
+html[data-ui-skin="hack-terminal"]
+  [data-workbench-variant="cursor"]
+  [data-testid="messages-container"] {
+  max-width: 840px;
+  gap: 25px;
+  padding: 30px 20px 124px;
+}
+
+html[data-ui-skin="hack-terminal"]
+  [data-workbench-variant="cursor"]
+  [data-ui="message-sender-mark"] {
+  display: none;
+}
+
+html[data-ui-skin="hack-terminal"]
+  [data-workbench-variant="cursor"]
+  [data-testid="message-content"] {
+  font-size: 15px;
+  line-height: 1.68;
+}
+
+html[data-ui-skin="hack-terminal"]
+  [data-workbench-variant="cursor"]
+  [data-testid="user-message"]
+  [data-testid="message-content"] {
+  position: relative;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  padding: 2px 0 2px 22px;
+  color: #f0f1f3;
+  box-shadow: none;
+}
+
+html[data-ui-skin="hack-terminal"]
+  [data-workbench-variant="cursor"]
+  [data-testid="user-message"]
+  [data-testid="message-content"]::before {
+  content: ">";
+  position: absolute;
+  top: 2px;
+  left: 0;
+  color: #8eb6d1;
+  font-family: var(--font-jetbrains-mono), ui-monospace, monospace;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+html[data-ui-skin="hack-terminal"]
+  [data-workbench-variant="cursor"]
+  [data-testid="assistant-message"]
+  [data-testid="message-content"] {
+  color: #dfe2e6;
+}
+
+html[data-ui-skin="hack-terminal"]
+  [data-workbench-variant="cursor"]
+  [data-ui="work-log"] {
+  margin-block: 4px 14px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+}
+
+html[data-ui-skin="hack-terminal"]
+  [data-workbench-variant="cursor"]
+  [data-ui="work-summary"] {
+  min-height: 34px;
+  padding: 0 0 9px;
+  border-color: #25272b;
+  color: #9da4ad;
+  font-family: var(--font-jetbrains-mono), ui-monospace, monospace;
+  font-size: 12px;
+  letter-spacing: 0;
+}
+
+html[data-ui-skin="hack-terminal"]
+  [data-workbench-variant="cursor"]
+  [data-ui="work-log"][data-timing="true"]
+  [data-ui="work-summary"] {
+  color: #b8d4e6;
+}
+
+html[data-ui-skin="hack-terminal"]
+  [data-workbench-variant="cursor"]
+  [data-ui="reasoning"] {
+  margin-block: 9px;
+  padding: 2px 0 2px 13px;
+  border: 0;
+  border-left: 1px solid #33363c;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+}
+
+html[data-ui-skin="hack-terminal"]
+  [data-workbench-variant="cursor"]
+  [data-ui="reasoning"][data-streaming="true"] {
+  border-left-color: #789db7;
+}
+
+html[data-ui-skin="hack-terminal"]
+  [data-workbench-variant="cursor"]
+  [data-ui="reasoning"]
+  > button {
+  min-height: 30px;
+  color: #9ba2ab;
+}
+
+html[data-ui-skin="hack-terminal"]
+  [data-workbench-variant="cursor"]
+  [data-ui="reasoning"]
+  > button
+  span {
+  font-size: 11.5px;
+  letter-spacing: 0.09em;
+}
+
+html[data-ui-skin="hack-terminal"]
+  [data-workbench-variant="cursor"]
+  :where(.rift-thinking-shimmer, .animate-text-shimmer) {
+  animation: none !important;
+  background: none !important;
+  color: #a8c9de !important;
+  -webkit-text-fill-color: currentColor;
+}
+
+html[data-ui-skin="hack-terminal"]
+  [data-workbench-variant="cursor"]
+  .animate-ping {
+  animation: none !important;
+  box-shadow: none !important;
+}
+
+html[data-ui-skin="hack-terminal"]
+  [data-workbench-variant="cursor"]
+  [data-ui="reasoning"]
+  [class*="shadow-"] {
+  box-shadow: none !important;
+}
+
+html[data-ui-skin="hack-terminal"]
+  [data-workbench-variant="cursor"]
+  [data-ui="reasoning"]
+  .font-mono {
+  font-size: 13px;
+  line-height: 1.72;
+}
+
+html[data-ui-skin="hack-terminal"]
+  [data-workbench-variant="cursor"]
+  [data-ui="tool-block"] {
+  margin-block: 10px;
+  overflow: hidden;
+  border: 0;
+  border-left: 1px solid #34373d;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+}
+
+html[data-ui-skin="hack-terminal"]
+  [data-workbench-variant="cursor"]
+  [data-ui="tool-block"]
+  > div:first-child {
+  min-height: 34px;
+  padding: 6px 4px 6px 12px;
+  background: transparent;
+  color: #9ca3ac;
+}
+
+html[data-ui-skin="hack-terminal"]
+  [data-workbench-variant="cursor"]
+  [data-ui="tool-block"]
+  > div:first-child:hover {
+  background: #111214;
+}
+
+html[data-ui-skin="hack-terminal"]
+  [data-workbench-variant="cursor"]
+  [data-ui="tool-block"]
+  > div:first-child
+  .font-mono {
+  color: #e4e6e9;
+  font-size: 12.5px;
+}
+
+html[data-ui-skin="hack-terminal"]
+  [data-workbench-variant="cursor"]
+  [data-ui="tool-block"][data-status="running"] {
+  border-left-color: #8eb6d1;
+  box-shadow: none;
+}
+
+html[data-ui-skin="hack-terminal"]
+  [data-workbench-variant="cursor"]
+  [data-ui="tool-block"][data-status="running"]
+  > div:first-child {
+  background: transparent;
+  color: #b8d4e6;
+}
+
+html[data-ui-skin="hack-terminal"]
+  [data-workbench-variant="cursor"]
+  [data-ui="tool-output"] {
+  max-height: 280px;
+  margin: 0 0 3px 12px;
+  border: 1px solid #202328;
+  background: #08090b;
+  padding: 11px 13px;
+  color: #c9cdd2;
+  font-size: 12.5px;
+  line-height: 1.72;
+  scrollbar-color: rgba(159, 199, 226, 0.24) transparent;
+}
+
+html[data-ui-skin="hack-terminal"]
+  [data-workbench-variant="cursor"]
+  .cursor-thinking {
+  min-height: 30px;
+  margin-block: 9px 0;
+  padding-left: 12px;
+  border-left: 1px solid #789db7;
+  color: #a7afb8;
+  font-size: 12.5px;
+}
+
+html[data-ui-skin="hack-terminal"]
+  [data-workbench-variant="cursor"]
+  [data-ui="final-response"] {
+  position: relative;
+  margin-top: 18px;
+  padding: 30px 0 0;
+  border: 0;
+  border-top: 1px solid #3a3d43;
+  border-radius: 0;
+  background: transparent;
+  color: #f0f1f3;
+  box-shadow: none;
+}
+
+html[data-ui-skin="hack-terminal"]
+  [data-workbench-variant="cursor"]
+  [data-ui="final-response"]::before {
+  content: "RESULT";
+  top: 9px;
+  left: 0;
+  color: #9fc7e2;
+  font-family: var(--font-jetbrains-mono), ui-monospace, monospace;
+  font-size: 11.5px;
+  font-weight: 600;
+  letter-spacing: 0.1em;
+}
+
+html[data-ui-skin="hack-terminal"]
+  [data-workbench-variant="cursor"]
+  [data-testid="assistant-message"][data-rift-final="true"]
+  > div
+  > div
+  > [data-testid="message-content"]:not(:has([data-ui="final-response"])) {
+  padding-top: 17px;
+  border-top-color: #34373d;
+}
+
+html[data-ui-skin="hack-terminal"]
+  [data-workbench-variant="cursor"]
+  :where(.pro-composer, [data-ui="composer-shell"]) {
+  border-color: #34373d !important;
+  border-radius: 6px !important;
+  background: #101113 !important;
+  box-shadow: none !important;
+  backdrop-filter: none;
+  transition:
+    border-color 150ms ease,
+    background-color 150ms ease !important;
+}
+
+html[data-ui-skin="hack-terminal"]
+  [data-workbench-variant="cursor"]
+  :where(.pro-composer, [data-ui="composer-shell"]):focus-within {
+  border-color: var(--ring) !important;
+  background: #111316 !important;
+  box-shadow: inset 1px 0 var(--ring) !important;
+}
+
+html[data-ui-skin="hack-terminal"]
+  [data-workbench-variant="cursor"]
+  [data-ui="composer-column"] {
+  max-width: 840px;
+}
+
+html[data-ui-skin="hack-terminal"]
+  [data-workbench-variant="cursor"]
+  [data-testid="chat-input"] {
+  caret-color: #9fc7e2;
+  color: #f3f4f6;
+  font-size: 14px;
+}
+
+html[data-ui-skin="hack-terminal"]
+  [data-workbench-variant="cursor"]
+  [data-testid="chat-input"]::placeholder {
+  color: #747b84;
+}
+
+html[data-ui-skin="hack-terminal"]
+  [data-workbench-variant="cursor"]
+  [data-ui="composer-shell"]
+  :where(button, [role="combobox"]) {
+  border-radius: 4px;
+  transition-duration: 150ms;
+}
+
+html[data-ui-skin="hack-terminal"]
+  [data-workbench-variant="cursor"]
+  [data-testid="send-button"] {
+  background: #b9d7ea;
+  color: #081016;
+  box-shadow: none;
+}
+
+html[data-ui-skin="hack-terminal"]
+  [data-workbench-variant="cursor"]
+  [data-testid="send-button"]:hover {
+  background: #d3e6f2;
+}
+
+html[data-ui-skin="hack-terminal"]
+  [data-workbench-variant="cursor"]
+  :where(button, a, [role="button"], [role="tab"], [role="combobox"]) {
+  transition-duration: 150ms;
+}
+
+@media (max-width: 767px) {
+  html[data-ui-skin="hack-terminal"]
+    [data-workbench-variant="cursor"]
+    .pro-titlebar {
+    height: 44px;
+    min-height: 44px;
+    padding-right: max(10px, env(safe-area-inset-right));
+    padding-left: max(10px, env(safe-area-inset-left));
+  }
+
+  html[data-ui-skin="hack-terminal"]
+    [data-workbench-variant="cursor"]
+    [data-testid="messages-container"] {
+    gap: 22px;
+    padding: 22px 14px 112px;
+  }
+
+  html[data-ui-skin="hack-terminal"]
+    [data-workbench-variant="cursor"]
+    [data-ui="final-response"] {
+    padding-right: 0;
+    padding-left: 0;
+  }
+
+  html[data-ui-skin="hack-terminal"]
+    [data-workbench-variant="cursor"]
+    [data-ui="final-response"]::before {
+    left: 0;
+  }
+}
+
+@media (pointer: coarse) {
+  html[data-ui-skin="hack-terminal"]
+    [data-workbench-variant="cursor"]
+    :where(
+      .pro-titlebar button,
+      [data-testid="sidebar"] button,
+      [data-testid="sidebar-rail"] button,
+      [data-ui="composer-shell"] button
+    ) {
+    min-width: 44px;
+    min-height: 44px;
+  }
+}
+
+/* Final cascade lock: this must remain the last normal-workbench rule set. */
+html[data-ui-skin="hack-terminal"]
+  [data-workbench-variant="cursor"]
+  [data-pro-workbench] {
+  --background: #101010;
+  --foreground: #f1f1f1;
+  --card: #171717;
+  --card-foreground: #f1f1f1;
+  --popover: #2b2b2b;
+  --popover-foreground: #f1f1f1;
+  --primary: #b9d9ee;
+  --primary-foreground: #13181c;
+  --secondary: #1c1c1c;
+  --secondary-foreground: #e8eaed;
+  --muted: #1c1c1c;
+  --muted-foreground: #a8a8a8;
+  --accent: #292929;
+  --accent-foreground: #f6f7f8;
+  --border: #292929;
+  --input: #3a3a3a;
+  --ring: color-mix(in srgb, var(--foreground) 48%, var(--background));
+  --sidebar: #181818;
+  --sidebar-foreground: #e8eaed;
+  --sidebar-accent: #292929;
+  --sidebar-accent-foreground: #ffffff;
+  --sidebar-border: #292929;
+  --surface-1: #131313;
+  --surface-2: #181818;
+  --surface-3: #1e1e1e;
+  --surface-4: #252525;
+  --elevated: #242424;
+  --surface: #181818;
+  --border-strong: #3b3b3b;
+  --fill-input-chat: #2b2b2b;
+  --success: #b1bac1;
+  --warning: #c1b7a9;
+  --info: #b9d9ee;
+
+  background: #101010;
+  color: #f1f1f1;
+}
+
+html[data-ui-skin="hack-terminal"]
+  [data-workbench-variant="cursor"]
+  [data-pro-workbench-body] {
+  padding: 0 !important;
+  background: #101010;
+}
+
+html[data-ui-skin="hack-terminal"]
+  [data-workbench-variant="cursor"]
+  :where(
+    .pro-workspace,
+    .pro-main,
+    [data-rift-chat-root],
+    [data-rift-chat-surface],
+    [data-rift-empty-stage],
+    .messages-scroll
+  ) {
+  background: #101010;
+}
+
+html[data-ui-skin="hack-terminal"]
+  [data-workbench-variant="cursor"]
+  .pro-titlebar {
+  height: 44px;
+  min-height: 44px;
+  border-color: #292929;
+  background: #181818;
+}
+
+html[data-ui-skin="hack-terminal"]
+  [data-workbench-variant="cursor"]
+  .pro-titlebar
+  button {
+  border-radius: 6px;
+  color: #b4b4b4;
+}
+
+html[data-ui-skin="hack-terminal"]
+  [data-workbench-variant="cursor"]
+  .pro-titlebar
+  button:hover {
+  background: #292929;
+  color: #ffffff;
+}
+
+html[data-ui-skin="hack-terminal"]
+  [data-workbench-variant="cursor"]
+  :where(.pro-sidebar, .pro-sidebar-rail) {
+  border-color: #292929;
+  background: #181818;
+}
+
+html[data-ui-skin="hack-terminal"]
+  [data-workbench-variant="cursor"]
+  [data-pro-sidebar-header] {
+  border-bottom: 0;
+  background: #181818;
+}
+
+html[data-ui-skin="hack-terminal"]
+  [data-workbench-variant="cursor"]
+  [data-pro-section-label] {
+  color: #888d95;
+  font-size: 12px;
+  letter-spacing: 0;
+}
+
+html[data-ui-skin="hack-terminal"]
+  [data-workbench-variant="cursor"]
+  [data-pro-sidebar-header]
+  > button,
+html[data-ui-skin="hack-terminal"]
+  [data-workbench-variant="cursor"]
+  [data-pro-sidebar-header]
+  nav
+  button {
+  min-height: 36px;
+  border: 0 !important;
+  border-radius: 7px;
+  color: #b8b8b8;
+  font-size: 14px;
+  font-weight: 400;
+  box-shadow: none !important;
+}
+
+html[data-ui-skin="hack-terminal"]
+  [data-workbench-variant="cursor"]
+  [data-pro-sidebar-header]
+  :where(> button, nav button):hover {
+  background: #242424;
+  color: #f1f1f1;
+}
+
+html[data-ui-skin="hack-terminal"]
+  [data-workbench-variant="cursor"]
+  [data-pro-sidebar-header]
+  button[aria-current="page"] {
+  background: #292929;
+  color: #ffffff;
+  box-shadow: none !important;
+}
+
+html[data-ui-skin="hack-terminal"]
+  [data-workbench-variant="cursor"]
+  [data-testid="sidebar"] {
+  background: #181818;
+  color: #e8eaed;
+  font-size: 14px;
+}
+
+html[data-ui-skin="hack-terminal"]
+  [data-workbench-variant="cursor"]
+  [data-testid^="chat-item-"] {
+  min-height: 36px;
+  border-radius: 7px;
+  color: #adadad;
+  font-size: 14px;
+}
+
+html[data-ui-skin="hack-terminal"]
+  [data-workbench-variant="cursor"]
+  [data-testid^="chat-item-"]:hover {
+  background: #242424;
+  color: #f0f1f3;
+}
+
+html[data-ui-skin="hack-terminal"]
+  [data-workbench-variant="cursor"]
+  [data-testid^="chat-item-"][data-active="true"] {
+  background: #292929;
+  color: #ffffff;
+  box-shadow: none;
+}
+
+html[data-ui-skin="hack-terminal"]
+  [data-workbench-variant="cursor"]
+  .pro-status-bar {
+  display: none !important;
+}
+
+html[data-ui-skin="hack-terminal"]
+  [data-workbench-variant="cursor"]
+  [data-rift-empty-content],
+html[data-ui-skin="hack-terminal"]
+  [data-workbench-variant="cursor"]
+  [data-ui="composer-column"],
+html[data-ui-skin="hack-terminal"]
+  [data-workbench-variant="cursor"]
+  [data-testid="messages-container"] {
+  max-width: 900px;
+}
+
+html[data-ui-skin="hack-terminal"]
+  [data-workbench-variant="cursor"]
+  [data-rift-empty-hero]
+  h1 {
+  color: #f1f2f4;
+  font-size: clamp(22px, 2vw, 27px);
+  font-weight: 480;
+  letter-spacing: -0.03em;
+}
+
+html[data-ui-skin="hack-terminal"]
+  [data-workbench-variant="cursor"]
+  [data-testid="messages-container"] {
+  gap: 28px;
+  padding: 30px 24px 132px;
+}
+
+html[data-ui-skin="hack-terminal"]
+  [data-workbench-variant="cursor"]
+  [data-testid="message-content"] {
+  font-size: 15px;
+  line-height: 1.7;
+}
+
+html[data-ui-skin="hack-terminal"]
+  [data-workbench-variant="cursor"]
+  [data-testid="user-message"]
+  [data-testid="message-content"] {
+  border: 1px solid #363636;
+  border-radius: 18px;
+  background: #292929;
+  padding: 10px 14px;
+  color: #f5f6f7;
+  box-shadow: none;
+}
+
+html[data-ui-skin="hack-terminal"]
+  [data-workbench-variant="cursor"]
+  [data-testid="user-message"]
+  [data-testid="message-content"]::before {
+  display: none !important;
+  content: none !important;
+}
+
+html[data-ui-skin="hack-terminal"]
+  [data-workbench-variant="cursor"]
+  [data-ui="work-log"] {
+  width: 100%;
+  margin: 2px 0 18px;
+  border: 0;
+  background: transparent;
+}
+
+/* /hack-style reasoning and tool transcript for the normal workbench only. */
+html[data-ui-skin="hack-terminal"]
+  [data-workbench-variant="cursor"]
+  [data-ui="work-summary"] {
+  min-height: 34px;
+  border-color: #383a40;
+  padding: 0 0 9px;
+  color: #9ea4ac;
+  font-family: var(--font-jetbrains-mono), ui-monospace, monospace;
+  font-size: 12.5px;
+  letter-spacing: 0;
+}
+
+html[data-ui-skin="hack-terminal"]
+  [data-workbench-variant="cursor"]
+  [data-ui="work-log"][data-timing="true"]
+  [data-ui="work-summary"] {
+  color: #c3dbea;
+}
+
+html[data-ui-skin="hack-terminal"]
+  [data-workbench-variant="cursor"]
+  [data-ui="work-transcript"] {
+  margin-top: 0;
+  padding-top: 8px;
+}
+
+html[data-ui-skin="hack-terminal"]
+  [data-workbench-variant="cursor"]
+  [data-ui="reasoning"] {
+  position: relative;
+  width: 100%;
+  margin: 10px 0;
+  overflow: visible;
+  border: 0;
+  border-top: 1px solid #34373d;
+  border-bottom: 1px solid #34373d;
+  border-left: 1px solid #41464d;
+  border-radius: 0;
+  background: transparent;
+  padding: 12px 16px 13px 17px;
+  box-shadow: none;
+}
+
+html[data-ui-skin="hack-terminal"]
+  [data-workbench-variant="cursor"]
+  [data-ui="reasoning"]::before {
+  position: absolute;
+  top: 11px;
+  left: -1px;
+  width: 1px;
+  height: 27px;
+  background: #7e8791;
+  content: "";
+  opacity: 0.62;
+}
+
+html[data-ui-skin="hack-terminal"]
+  [data-workbench-variant="cursor"]
+  [data-ui="reasoning"][data-streaming="true"] {
+  border-left-color: #445b6b;
+}
+
+html[data-ui-skin="hack-terminal"]
+  [data-workbench-variant="cursor"]
+  [data-ui="reasoning"][data-streaming="true"]::before {
+  width: 2px;
+  height: 30px;
+  background: #b7dcf2;
+  opacity: 1;
+}
+
+html[data-ui-skin="hack-terminal"]
+  [data-workbench-variant="cursor"]
+  [data-ui="reasoning"]
+  > button {
+  min-height: 24px;
+  padding: 0;
+  color: #aeb5bd;
+}
+
+html[data-ui-skin="hack-terminal"]
+  [data-workbench-variant="cursor"]
+  [data-ui="reasoning"]
+  [data-ui="reasoning-status"] {
+  color: #8d959e;
+}
+
+html[data-ui-skin="hack-terminal"]
+  [data-workbench-variant="cursor"]
+  [data-ui="reasoning"][data-streaming="true"]
+  [data-ui="reasoning-status"]
+  > span {
+  background: #b7dcf2;
+  box-shadow: none;
+}
+
+html[data-ui-skin="hack-terminal"]
+  [data-workbench-variant="cursor"]
+  [data-ui="reasoning-label"] {
+  color: #aeb5bd;
+  font-family: var(--font-jetbrains-mono), ui-monospace, monospace;
+  font-size: 12.75px;
+  font-weight: 500;
+  letter-spacing: 0;
+}
+
+html[data-ui-skin="hack-terminal"]
+  [data-workbench-variant="cursor"]
+  [data-ui="reasoning"][data-streaming="true"]
+  [data-ui="reasoning-label"] {
+  color: #c5ddea;
+}
+
+html[data-ui-skin="hack-terminal"]
+  [data-workbench-variant="cursor"]
+  [data-ui="reasoning-duration"] {
+  color: #7f8790;
+  font-size: 11.5px;
+}
+
+html[data-ui-skin="hack-terminal"]
+  [data-workbench-variant="cursor"]
+  [data-ui="reasoning-chevron"] {
+  color: #737b84;
+}
+
+html[data-ui-skin="hack-terminal"]
+  [data-workbench-variant="cursor"]
+  [data-ui="reasoning"]
+  [data-ui="reasoning-content"] {
+  max-height: 360px;
+  margin: 7px 0 0;
+  overflow-y: auto;
+  border: 0;
+  padding: 0 2px 1px 20px;
+  scrollbar-color: rgba(183, 220, 242, 0.22) transparent;
+}
+
+html[data-ui-skin="hack-terminal"]
+  [data-workbench-variant="cursor"]
+  [data-ui="reasoning-copy"] {
+  color: #b9bec5;
+  font-family: var(--font-jetbrains-mono), ui-monospace, monospace;
+  font-size: 13.75px;
+  line-height: 1.72;
+}
+
+/* High-specificity surface lock after the legacy preview cascade. */
+html[data-ui-skin="hack-terminal"]
+  [data-workbench-variant="cursor"]
+  [data-pro-workbench]
+  .pro-main,
+html[data-ui-skin="hack-terminal"]
+  [data-workbench-variant="cursor"]
+  [data-pro-workbench]
+  [data-rift-chat-root],
+html[data-ui-skin="hack-terminal"]
+  [data-workbench-variant="cursor"]
+  [data-pro-workbench]
+  [data-rift-chat-surface],
+html[data-ui-skin="hack-terminal"]
+  [data-workbench-variant="cursor"]
+  [data-pro-workbench]
+  [data-rift-empty-stage],
+html[data-ui-skin="hack-terminal"]
+  [data-workbench-variant="cursor"]
+  [data-pro-workbench]
+  .messages-scroll {
+  background: #101010;
+}
+
+html[data-ui-skin="hack-terminal"]
+  [data-workbench-variant="cursor"]
+  [data-pro-workbench]
+  :where(.pro-sidebar, .pro-sidebar-rail, [data-testid="sidebar"]) {
+  border-color: #292929;
+  background: #181818;
+}
+
+html[data-ui-skin="hack-terminal"]
+  [data-workbench-variant="cursor"]
+  [data-pro-workbench]
+  :where(.pro-composer, [data-ui="composer-shell"]) {
+  border: 1px solid #3b3b3b !important;
+  border-radius: 18px !important;
+  background: #2b2b2b !important;
+  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.18) !important;
+}
+
+html[data-ui-skin="hack-terminal"]
+  [data-workbench-variant="cursor"]
+  [data-pro-workbench]
+  :where(.pro-composer, [data-ui="composer-shell"]):focus-within {
+  border-color: #4a4a4a !important;
+  background: #2e2e2e !important;
+}
+
+html[data-ui-skin="hack-terminal"]
+  [data-workbench-variant="cursor"]
+  [data-ui="reasoning-copy"]
+  :where(p, ul, ol) {
+  margin-block: 0.4em;
+}
+
+html[data-ui-skin="hack-terminal"]
+  [data-workbench-variant="cursor"]
+  [data-ui="reasoning-caret"] {
+  background: #b7dcf2;
+  box-shadow: none;
+}
+
+html[data-ui-skin="hack-terminal"]
+  [data-workbench-variant="cursor"]
+  [data-ui="tool-block"] {
+  position: relative;
+  width: 100%;
+  margin: 10px 0;
+  overflow: visible;
+  border: 0;
+  border-top: 1px solid #34373d;
+  border-bottom: 1px solid #34373d;
+  border-left: 1px solid #41464d;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+}
+
+html[data-ui-skin="hack-terminal"]
+  [data-workbench-variant="cursor"]
+  [data-ui="tool-block"]::before {
+  position: absolute;
+  z-index: 2;
+  top: 9px;
+  left: -1px;
+  width: 1px;
+  height: 27px;
+  background: #7e8791;
+  content: "";
+  opacity: 0.62;
+}
+
+html[data-ui-skin="hack-terminal"]
+  [data-workbench-variant="cursor"]
+  [data-ui="tool-summary"] {
+  min-height: 40px;
+  border: 0;
+  background: transparent;
+  padding: 8px 5px 8px 16px;
+  color: #aeb5bd;
+}
+
+html[data-ui-skin="hack-terminal"]
+  [data-workbench-variant="cursor"]
+  [data-ui="tool-summary"][data-interactive="true"]:hover {
+  background: transparent;
+  color: #d9dde1;
+}
+
+html[data-ui-skin="hack-terminal"]
+  [data-workbench-variant="cursor"]
+  [data-ui="tool-icon"] {
+  color: #8f98a1;
+}
+
+html[data-ui-skin="hack-terminal"]
+  [data-workbench-variant="cursor"]
+  [data-ui="tool-label"] {
+  color: #d8dce0;
+  font-size: 13.25px;
+  line-height: 1.5;
+}
+
+html[data-ui-skin="hack-terminal"]
+  [data-workbench-variant="cursor"]
+  [data-ui="tool-status"] {
+  color: #8f969f;
+  font-family: var(--font-jetbrains-mono), ui-monospace, monospace;
+  font-size: 11.5px;
+  letter-spacing: 0.01em;
+}
+
+html[data-ui-skin="hack-terminal"]
+  [data-workbench-variant="cursor"]
+  [data-ui="tool-block"][data-status="running"] {
+  border-top-color: #3a4852;
+  border-bottom-color: #3a4852;
+  border-left-color: #445b6b;
+  background: transparent;
+}
+
+html[data-ui-skin="hack-terminal"]
+  [data-workbench-variant="cursor"]
+  [data-ui="tool-block"][data-status="running"]::before {
+  width: 2px;
+  height: 30px;
+  background: #b7dcf2;
+  opacity: 1;
+}
+
+html[data-ui-skin="hack-terminal"]
+  [data-workbench-variant="cursor"]
+  [data-ui="tool-block"][data-status="running"]
+  [data-ui="tool-summary"] {
+  background: transparent;
+  color: #c5ddea;
+}
+
+html[data-ui-skin="hack-terminal"]
+  [data-workbench-variant="cursor"]
+  [data-ui="tool-block"][data-status="running"]
+  [data-ui="tool-status"] {
+  color: #b7dcf2;
+}
+
+html[data-ui-skin="hack-terminal"]
+  [data-workbench-variant="cursor"]
+  [data-ui="tool-block"][data-status="error"] {
+  border-left-color: #7f5558;
+}
+
+html[data-ui-skin="hack-terminal"]
+  [data-workbench-variant="cursor"]
+  [data-ui="tool-block"][data-status="error"]
+  [data-ui="tool-status"] {
+  color: #d99b9f;
+}
+
+html[data-ui-skin="hack-terminal"]
+  [data-workbench-variant="cursor"]
+  [data-ui="tool-output"] {
+  display: block !important;
+  max-height: 360px;
+  margin: 0;
+  border: 0;
+  border-top: 1px solid #34373d;
+  background: #18191c;
+  padding: 0;
+  color: #c7ccd2;
+  font-size: 13px;
+  line-height: 1.66;
+  scrollbar-color: rgba(183, 220, 242, 0.22) transparent;
+}
+
+html[data-ui-skin="hack-terminal"]
+  [data-workbench-variant="cursor"]
+  [data-ui="tool-output-meta"] {
+  position: sticky;
+  z-index: 1;
+  top: 0;
+  min-height: 28px;
+  border-color: #303238;
+  background: #1b1c1f;
+  color: #858d96;
+  font-size: 10.5px;
+  letter-spacing: 0.08em;
+}
+
+html[data-ui-skin="hack-terminal"]
+  [data-workbench-variant="cursor"]
+  [data-ui="tool-block"][data-status="running"]
+  [data-ui="tool-output-meta"] {
+  color: #b7dcf2;
+}
+
+html[data-ui-skin="hack-terminal"]
+  [data-workbench-variant="cursor"]
+  [data-ui="tool-output-content"] {
+  padding: 12px 17px 14px;
+}
+
+html[data-ui-skin="hack-terminal"]
+  [data-workbench-variant="cursor"]
+  [data-ui="terminal-command"] {
+  color: #e6e9ec;
+  font-size: 13.25px;
+  font-weight: 500;
+}
+
+html[data-ui-skin="hack-terminal"]
+  [data-workbench-variant="cursor"]
+  [data-ui="terminal-prompt"] {
+  color: #b7dcf2;
+}
+
+html[data-ui-skin="hack-terminal"]
+  [data-workbench-variant="cursor"]
+  [data-ui="terminal-output-body"] {
+  margin-top: 10px;
+  border-top: 1px solid #2e3035;
+  padding-top: 10px;
+  color: #b9bfc6;
+}
+
+html[data-ui-skin="hack-terminal"]
+  [data-workbench-variant="cursor"]
+  [data-ui="action-block"] {
+  position: relative;
+  display: flex;
+  width: 100%;
+  min-height: 36px;
+  height: auto;
+  border: 0;
+  border-top: 1px solid #34373d;
+  border-bottom: 1px solid #34373d;
+  border-left: 1px solid #41464d;
+  border-radius: 0;
+  background: transparent;
+  padding: 8px 12px 8px 16px;
+  color: #b4bac1;
+  box-shadow: none;
+}
+
+html[data-ui-skin="hack-terminal"]
+  [data-workbench-variant="cursor"]
+  [data-ui="action-block"]:hover {
+  border-left-color: #69717a;
+  background: transparent;
+  color: #dde1e5;
+}
+
+html[data-ui-skin="hack-terminal"]
+  [data-workbench-variant="cursor"]
+  [data-ui="action-block"][data-running="true"] {
+  border-left-color: #b7dcf2;
+  background: transparent;
+}
+
+html[data-ui-skin="hack-terminal"]
+  [data-workbench-variant="cursor"]
+  :where(
+    [data-ui="reasoning"],
+    [data-ui="tool-block"],
+    [data-ui="action-block"]
+  )
+  :where(.rift-thinking-shimmer, .animate-text-shimmer) {
+  animation: none !important;
+  background: none !important;
+  color: #c5ddea !important;
+  -webkit-text-fill-color: currentColor;
+}
+
+html[data-ui-skin="hack-terminal"]
+  [data-workbench-variant="cursor"]
+  .cursor-thinking {
+  grid-template-columns: auto auto auto minmax(0, 1fr) auto;
+  gap: 9px;
+  width: 100%;
+  min-height: 38px;
+  margin: 10px 0 0;
+  border-top: 1px solid #34373d;
+  border-bottom: 1px solid #2b2d32;
+  border-left: 1px solid #7fa8c2;
+  border-radius: 0;
+  background: #191a1d;
+  padding: 5px 10px;
+  color: #9098a1;
+  box-shadow: none;
+}
+
+html[data-ui-skin="hack-terminal"]
+  [data-workbench-variant="cursor"]
+  .cursor-thinking[data-phase="terminal"] {
+  border-top-color: #344958;
+  border-left-color: #a8d9ff;
+  background: #171b1f;
+}
+
+html[data-ui-skin="hack-terminal"]
+  [data-workbench-variant="cursor"]
+  .cursor-thinking-terminal {
+  color: #b2bac1;
+}
+
+html[data-ui-skin="hack-terminal"]
+  [data-workbench-variant="cursor"]
+  .cursor-thinking-pulse {
+  color: #86929d;
+}
+
+html[data-ui-skin="hack-terminal"]
+  [data-workbench-variant="cursor"]
+  .cursor-thinking[data-phase="terminal"]
+  :where(.cursor-thinking-terminal, .cursor-thinking-pulse) {
+  color: #b7dcf2;
+}
+
+html[data-ui-skin="hack-terminal"]
+  [data-workbench-variant="cursor"]
+  .cursor-thinking-phase {
+  border-color: #30343a;
+  background: #202126;
+  color: #aab2ba;
+}
+
+html[data-ui-skin="hack-terminal"]
+  [data-workbench-variant="cursor"]
+  .cursor-thinking[data-phase="terminal"]
+  .cursor-thinking-phase {
+  border-color: #344958;
+  background: #182128;
+  color: #b7dcf2;
+}
+
+html[data-ui-skin="hack-terminal"]
+  [data-workbench-variant="cursor"]
+  .cursor-thinking-copy
+  b {
+  color: #eef1f4;
+  font-size: 12px;
+}
+
+html[data-ui-skin="hack-terminal"]
+  [data-workbench-variant="cursor"]
+  .cursor-thinking-copy
+  code {
+  color: #8e969f;
+  font-size: 10px;
+}
+
+html[data-ui-skin="hack-terminal"]
+  [data-workbench-variant="cursor"]
+  .cursor-thinking-timer {
+  color: #b3bac1;
+}
+
+html[data-ui-skin="hack-terminal"]
+  [data-workbench-variant="cursor"]
+  [data-ui="final-response"] {
+  position: relative;
+  margin-top: 22px;
+  border: 0;
+  border-top: 1px solid #4a4c52;
+  border-radius: 0;
+  background: transparent;
+  padding: 34px 0 2px;
+  color: #f3f4f6;
+  box-shadow: none;
+}
+
+html[data-ui-skin="hack-terminal"]
+  [data-workbench-variant="cursor"]
+  [data-ui="final-response"]::before {
+  top: 10px;
+  left: 0;
+  color: #b9d9ee;
+  content: "REPORT";
+  font-size: 10.5px;
+  letter-spacing: 0.11em;
+}
+
+html[data-ui-skin="hack-terminal"]
+  [data-workbench-variant="cursor"]
+  [data-ui="composer-region"] {
+  padding: 10px 20px 16px;
+  background: #101010;
+}
+
+html[data-ui-skin="hack-terminal"]
+  [data-workbench-variant="cursor"]
+  :where(.pro-composer, [data-ui="composer-shell"]) {
+  border: 1px solid #3b3b3b !important;
+  border-radius: 18px !important;
+  background: #2b2b2b !important;
+  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.18) !important;
+}
+
+html[data-ui-skin="hack-terminal"]
+  [data-workbench-variant="cursor"]
+  :where(.pro-composer, [data-ui="composer-shell"]):focus-within {
+  border-color: #4a4a4a !important;
+  background: #2e2e2e !important;
+  box-shadow: 0 12px 30px rgba(0, 0, 0, 0.2) !important;
+}
+
+html[data-ui-skin="hack-terminal"]
+  [data-workbench-variant="cursor"]
+  [data-testid="chat-input"] {
+  color: #f6f7f8;
+  caret-color: #c8ddea;
+  font-family: var(--font-geist), system-ui, sans-serif;
+  font-size: 15px;
+  line-height: 1.55;
+}
+
+html[data-ui-skin="hack-terminal"]
+  [data-workbench-variant="cursor"]
+  [data-testid="chat-input"]::placeholder {
+  color: #8e939b;
+}
+
+html[data-ui-skin="hack-terminal"]
+  [data-workbench-variant="cursor"]
+  [data-ui="composer-shell"]
+  :where(button, [role="combobox"]) {
+  border-radius: 7px;
+}
+
+html[data-ui-skin="hack-terminal"]
+  [data-workbench-variant="cursor"]
+  [data-testid="send-button"] {
+  background: #eff1f3;
+  color: #242529;
+  box-shadow: none;
+}
+
+html[data-ui-skin="hack-terminal"]
+  [data-workbench-variant="cursor"]
+  [data-testid="send-button"]:hover {
+  background: #ffffff;
+}
+
+@media (max-width: 767px) {
+  html[data-ui-skin="hack-terminal"]
+    [data-workbench-variant="cursor"]
+    [data-testid="messages-container"] {
+    padding: 24px 15px 120px;
+  }
+
+  html[data-ui-skin="hack-terminal"]
+    [data-workbench-variant="cursor"]
+    [data-ui="composer-region"] {
+    padding: 8px 12px max(12px, env(safe-area-inset-bottom));
+  }
+}

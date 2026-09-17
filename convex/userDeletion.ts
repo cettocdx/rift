@@ -1,7 +1,9 @@
-import { mutation } from "./_generated/server";
+import { internalMutation, mutation } from "./_generated/server";
+import type { MutationCtx } from "./_generated/server";
 import { v } from "convex/values";
 import { internal } from "./_generated/api";
 import { fileCountAggregate } from "./fileAggregate";
+import { scheduleChatCheckpointCleanup } from "./lib/chatCheckpointCleanup";
 
 /**
  * Delete all data for the authenticated user in correct dependency order.
@@ -10,16 +12,98 @@ import { fileCountAggregate } from "./fileAggregate";
  * 1) Feedback records (referenced by messages)
  * 2) Messages (owned by user, reference chats and files)
  * 3) Chats (owned by user)
- * 4) Files + storage (owned by user, may be referenced by messages)
+ * 4) Task runs, tasks, then projects (dependency ordered and batched)
+ * 5) Files + storage (owned by user, may be referenced by messages)
  *    - S3 files: Batch deleted using scheduled action
  *    - Convex storage files: Deleted directly
- * 5) Memories (owned by user)
- * 6) Notes (owned by user)
- * 7) User customization (owned by user)
+ * 6) Memories (owned by user)
+ * 7) Notes (owned by user)
+ * 8) User customization (owned by user)
  *
  * Uses parallel queries and deletions for optimal performance.
  * S3 cleanup is scheduled asynchronously and errors don't block user deletion.
  */
+
+const OWNED_RECORD_DELETE_BATCH_SIZE = 100;
+
+async function scheduleNextOwnedRecordBatch(
+  ctx: MutationCtx,
+  userId: string,
+): Promise<void> {
+  await ctx.scheduler.runAfter(
+    0,
+    internal.userDeletion.deleteTasksAndProjectsBatch,
+    { userId },
+  );
+}
+
+/**
+ * Delete task runs before their tasks, and tasks before projects. Each query is
+ * ownership-indexed and capped so an account with a long execution history
+ * cannot exceed a Convex mutation's transaction limits.
+ */
+async function deleteTasksAndProjectsBatchForUser(
+  ctx: MutationCtx,
+  userId: string,
+): Promise<void> {
+  const taskRuns = await ctx.db
+    .query("task_runs")
+    .withIndex("by_user_and_started", (q) => q.eq("user_id", userId))
+    .take(OWNED_RECORD_DELETE_BATCH_SIZE);
+  await Promise.all(taskRuns.map((run) => ctx.db.delete(run._id)));
+  if (taskRuns.length === OWNED_RECORD_DELETE_BATCH_SIZE) {
+    await scheduleNextOwnedRecordBatch(ctx, userId);
+    return;
+  }
+
+  const tasks = await ctx.db
+    .query("tasks")
+    .withIndex("by_user_and_updated", (q) => q.eq("user_id", userId))
+    .take(OWNED_RECORD_DELETE_BATCH_SIZE);
+  await Promise.all(tasks.map((task) => ctx.db.delete(task._id)));
+  if (tasks.length === OWNED_RECORD_DELETE_BATCH_SIZE) {
+    await scheduleNextOwnedRecordBatch(ctx, userId);
+    return;
+  }
+
+  const meetings = await ctx.db
+    .query("bot_meetings")
+    .withIndex("by_user_project", (q) => q.eq("user_id", userId))
+    .take(OWNED_RECORD_DELETE_BATCH_SIZE);
+  await Promise.all(meetings.map((row) => ctx.db.delete(row._id)));
+  if (meetings.length === OWNED_RECORD_DELETE_BATCH_SIZE) {
+    await scheduleNextOwnedRecordBatch(ctx, userId);
+    return;
+  }
+  const bots = await ctx.db
+    .query("project_bots")
+    .withIndex("by_user_project", (q) => q.eq("user_id", userId))
+    .take(OWNED_RECORD_DELETE_BATCH_SIZE);
+  await Promise.all(bots.map((row) => ctx.db.delete(row._id)));
+  if (bots.length === OWNED_RECORD_DELETE_BATCH_SIZE) {
+    await scheduleNextOwnedRecordBatch(ctx, userId);
+    return;
+  }
+
+  const projects = await ctx.db
+    .query("projects")
+    .withIndex("by_user", (q) => q.eq("user_id", userId))
+    .take(OWNED_RECORD_DELETE_BATCH_SIZE);
+  await Promise.all(projects.map((project) => ctx.db.delete(project._id)));
+  if (projects.length === OWNED_RECORD_DELETE_BATCH_SIZE) {
+    await scheduleNextOwnedRecordBatch(ctx, userId);
+  }
+}
+
+export const deleteTasksAndProjectsBatch = internalMutation({
+  args: { userId: v.string() },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    await deleteTasksAndProjectsBatchForUser(ctx, args.userId);
+    return null;
+  },
+});
+
 export const deleteAllUserData = mutation({
   args: {},
   returns: v.null(),
@@ -31,43 +115,34 @@ export const deleteAllUserData = mutation({
 
     try {
       // Fetch all user data in parallel using indexed queries
+      const userId = user.subject.split("|")[0];
       const [chats, files, memories, notes, customization, messagesByUser] =
         await Promise.all([
           ctx.db
             .query("chats")
-            .withIndex("by_user_and_updated", (q) =>
-              q.eq("user_id", user.subject.split("|")[0]),
-            )
+            .withIndex("by_user_and_updated", (q) => q.eq("user_id", userId))
             .collect(),
           ctx.db
             .query("files")
-            .withIndex("by_user_id", (q) =>
-              q.eq("user_id", user.subject.split("|")[0]),
-            )
+            .withIndex("by_user_id", (q) => q.eq("user_id", userId))
             .collect(),
           ctx.db
             .query("memories")
             .withIndex("by_user_and_update_time", (q) =>
-              q.eq("user_id", user.subject.split("|")[0]),
+              q.eq("user_id", userId),
             )
             .collect(),
           ctx.db
             .query("notes")
-            .withIndex("by_user_and_updated", (q) =>
-              q.eq("user_id", user.subject.split("|")[0]),
-            )
+            .withIndex("by_user_and_updated", (q) => q.eq("user_id", userId))
             .collect(),
           ctx.db
             .query("user_customization")
-            .withIndex("by_user_id", (q) =>
-              q.eq("user_id", user.subject.split("|")[0]),
-            )
+            .withIndex("by_user_id", (q) => q.eq("user_id", userId))
             .first(),
           ctx.db
             .query("messages")
-            .withIndex("by_user_id", (q) =>
-              q.eq("user_id", user.subject.split("|")[0]),
-            )
+            .withIndex("by_user_id", (q) => q.eq("user_id", userId))
             .collect(),
         ]);
 
@@ -104,6 +179,12 @@ export const deleteAllUserData = mutation({
       await Promise.all(
         chats.map(async (chat) => {
           try {
+            // Checkpoint payloads are large; delete them in bounded internal
+            // jobs whose authorization survives removal of the account.
+            await scheduleChatCheckpointCleanup(ctx, {
+              chatId: chat.id,
+              userId,
+            });
             await ctx.db.delete(chat._id);
           } catch (error) {
             console.error(`Failed to delete chat ${chat._id}:`, error);
@@ -111,7 +192,12 @@ export const deleteAllUserData = mutation({
         }),
       );
 
-      // Step 4: Delete files and storage blobs (safe since messages no longer reference them)
+      // Step 4: Delete dependent task runs, tasks, then projects. The first
+      // bounded batch completes in this transaction; larger histories continue
+      // through the internal mutation scheduled by the helper.
+      await deleteTasksAndProjectsBatchForUser(ctx, userId);
+
+      // Step 5: Delete files and storage blobs (safe since messages no longer reference them)
 
       // Collect S3 keys for batch deletion
       const s3Keys: string[] = [];
@@ -156,7 +242,7 @@ export const deleteAllUserData = mutation({
             { s3Keys },
           );
           console.log(
-            `Scheduled deletion of ${s3Keys.length} S3 objects for user ${user.subject.split("|")[0]}`,
+            `Scheduled deletion of ${s3Keys.length} S3 objects for user ${userId}`,
           );
         } catch (error) {
           console.error("Failed to schedule S3 batch deletion:", error);
@@ -164,7 +250,7 @@ export const deleteAllUserData = mutation({
         }
       }
 
-      // Step 5: Delete memories (independent of other data)
+      // Step 6: Delete memories (independent of other data)
       await Promise.all(
         memories.map(async (memory) => {
           try {
@@ -175,7 +261,7 @@ export const deleteAllUserData = mutation({
         }),
       );
 
-      // Step 6: Delete notes (independent of other data)
+      // Step 7: Delete notes (independent of other data)
       await Promise.all(
         notes.map(async (note) => {
           try {
@@ -186,7 +272,7 @@ export const deleteAllUserData = mutation({
         }),
       );
 
-      // Step 7: Delete user customization (independent of other data)
+      // Step 8: Delete user customization (independent of other data)
       if (customization) {
         try {
           await ctx.db.delete(customization._id);

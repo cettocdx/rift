@@ -1,4 +1,18 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
-  "regions": ["dub1"]
+  "regions": ["dub1"],
+  "functions": {
+    "app/api/hack-chat/route.ts": {
+      "regions": ["iad1"]
+    },
+    "app/api/landing-image/route.ts": {
+      "maxDuration": 60
+    },
+    "app/api/landing-probe/route.ts": {
+      "maxDuration": 20
+    },
+    "app/api/landing-demo/route.ts": {
+      "maxDuration": 20
+    }
+  }
 }

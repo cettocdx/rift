@@ -19,6 +19,7 @@ jest.mock("convex/values", () => ({
     union: jest.fn(() => "union"),
     array: jest.fn(() => "array"),
     boolean: jest.fn(() => "boolean"),
+    any: jest.fn(() => "any"),
   },
   ConvexError: class ConvexError extends Error {
     data: unknown;

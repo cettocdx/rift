@@ -14,8 +14,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Copy, Check, Loader2, X as XIcon } from "lucide-react";
 import { toast } from "sonner";
-import { RiftPixelMark } from "@/components/icons/rift-pixel-mark";
-import { RiftWordmark } from "@/components/icons/rift-wordmark";
+import { RiftBrandLockup } from "@/components/icons/rift-brand-lockup";
 import { MessagePartHandler } from "@/app/components/MessagePartHandler";
 import { FilePartRenderer } from "@/app/components/FilePartRenderer";
 
@@ -125,22 +124,22 @@ export const ShareDialog = ({
   return (
     <Dialog open={open} onOpenChange={handleClose}>
       <DialogContent
-        className="sm:max-w-[640px] p-0 gap-0 overflow-hidden"
+        className="gap-0 overflow-hidden p-0 sm:max-w-[640px]"
         showCloseButton={false}
       >
         {/* Header */}
-        <div className="px-6 py-4 border-b flex items-center justify-between">
-          <DialogTitle className="text-3xl font-semibold">
+        <div className="flex h-10 items-center justify-between border-b px-3">
+          <DialogTitle className="min-w-0 truncate text-[13px] font-medium">
             {chatTitle}
           </DialogTitle>
           <Button
             variant="ghost"
-            size="icon"
-            className="h-9 w-9 rounded-lg"
+            size="icon-xs"
+            className="size-6"
             onClick={handleClose}
             aria-label="Close"
           >
-            <XIcon className="h-5 w-5" />
+            <XIcon className="size-3.5" />
           </Button>
         </div>
 
@@ -150,10 +149,10 @@ export const ShareDialog = ({
 
         {/* Loading State */}
         {isGenerating && (
-          <div className="flex items-center justify-center py-20">
-            <div className="flex flex-col items-center gap-4">
-              <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
-              <p className="text-sm text-muted-foreground">
+          <div className="flex items-center justify-center py-12">
+            <div className="flex flex-col items-center gap-2">
+              <Loader2 className="size-4 animate-spin text-muted-foreground motion-reduce:animate-none" />
+              <p className="text-xs text-muted-foreground">
                 Generating share link...
               </p>
             </div>
@@ -162,9 +161,9 @@ export const ShareDialog = ({
 
         {/* Error State */}
         {error && (
-          <div className="px-6 py-8">
-            <div className="space-y-4">
-              <p className="text-sm text-destructive text-center">{error}</p>
+          <div className="px-4 py-6">
+            <div className="space-y-3">
+              <p className="text-center text-xs text-destructive">{error}</p>
               <Button
                 onClick={async () => {
                   setError("");
@@ -205,12 +204,12 @@ export const ShareDialog = ({
         {shareUrl && !isGenerating && !error && (
           <div className="flex flex-col">
             {/* Chat Preview */}
-            <div className="px-6 py-4">
-              <div className="w-full rounded-xl aspect-[1200/630] overflow-hidden border bg-muted/30 relative">
+            <div className="px-4 py-3">
+              <div className="relative aspect-[1200/630] w-full overflow-hidden rounded-lg border bg-muted/30">
                 <div className="h-full w-full overflow-hidden pointer-events-none select-none">
                   {/* Content wrapper - adapts to dialog width, non-interactive preview */}
-                  <div className="h-full w-full p-4">
-                    <div className="w-full flex flex-col space-y-4">
+                  <div className="h-full w-full p-3">
+                    <div className="flex w-full flex-col space-y-3">
                       {previewMessages &&
                         previewMessages.map((message: PreviewMessage) => {
                           const isUser = message.role === "user";
@@ -270,8 +269,8 @@ export const ShareDialog = ({
                                   <div
                                     className={`${
                                       isUser
-                                        ? "max-w-[80%] bg-secondary rounded-[18px] px-4 py-1.5 data-[multiline]:py-3 rounded-se-lg text-foreground border border-border"
-                                        : "w-full prose space-y-3 max-w-none dark:prose-invert min-w-0"
+                                        ? "max-w-[80%] rounded-xl border border-border bg-card px-3 py-2 text-foreground"
+                                        : "prose min-w-0 w-full max-w-none space-y-2 dark:prose-invert"
                                     } overflow-hidden`}
                                   >
                                     {isUser ? (
@@ -335,48 +334,48 @@ export const ShareDialog = ({
                     </div>
                   </div>
                 </div>
-                {/* Fade-out gradient at the bottom - starts at 66% height, more opaque */}
-                <div className="absolute bottom-0 left-0 right-0 h-[34%] bg-gradient-to-t from-muted/90 via-muted/70 via-30% via-muted/40 via-70% to-transparent pointer-events-none" />
-
                 {/* Floating RIFT Logo - bottom right corner */}
-                <div className="absolute bottom-4 right-4 z-10 flex items-center gap-1.5">
-                  <RiftPixelMark size={18} />
-                  <RiftWordmark height={11} fill="#f5f5f2" />
+                <div className="absolute bottom-2 right-2 z-10 rounded-md border border-white/[0.08] bg-[#181818]/90 px-1.5 py-1">
+                  <RiftBrandLockup
+                    markSize={16}
+                    textSize={9}
+                    gap={4}
+                    className="text-[#f5f5f2]"
+                  />
                 </div>
               </div>
             </div>
 
             {/* Social Share Buttons */}
-            <div className="px-6 py-4">
-              <div className="flex justify-center gap-8">
+            <div className="border-t px-3 py-2.5">
+              <div className="flex flex-wrap items-center justify-end gap-1.5">
                 {/* Copy Link */}
                 <button
                   onClick={handleCopyLink}
-                  className="flex flex-col items-center gap-2 group"
+                  className="group flex h-7 items-center gap-1.5 rounded-md border px-2 text-[11px] text-muted-foreground transition-colors hover:bg-accent hover:text-foreground focus-visible:outline-none"
                 >
-                  <div className="h-16 w-16 rounded-full shadow-lg flex items-center justify-center hover:shadow-xl transition-shadow bg-background">
-                    <div className="flex h-8 w-8 items-center justify-center">
+                  <div className="flex items-center justify-center">
+                    <div className="flex items-center justify-center">
                       {copied ? (
-                        <Check className="h-5 w-5" />
+                        <Check className="size-3.5" />
                       ) : (
-                        <Copy className="h-5 w-5" />
+                        <Copy className="size-3.5" />
                       )}
                     </div>
                   </div>
-                  <span className="text-xs text-center max-w-16">
-                    {copied ? "Copied!" : "Copy link"}
-                  </span>
+                  <span>{copied ? "Copied!" : "Copy link"}</span>
                 </button>
 
                 {/* X (Twitter) */}
                 <button
                   onClick={() => handleSocialShare("x")}
-                  className="flex flex-col items-center gap-2 group"
+                  className="group flex h-7 items-center gap-1.5 rounded-md border px-2 text-[11px] text-muted-foreground transition-colors hover:bg-accent hover:text-foreground focus-visible:outline-none"
                 >
-                  <div className="h-16 w-16 rounded-full shadow-lg flex items-center justify-center hover:shadow-xl transition-shadow bg-background">
-                    <div className="flex h-8 w-8 items-center justify-center">
+                  <div className="flex items-center justify-center">
+                    <div className="flex items-center justify-center">
                       <svg
-                        className="h-5 w-5"
+                        aria-hidden="true"
+                        className="size-3.5"
                         viewBox="0 0 24 24"
                         fill="currentColor"
                       >
@@ -384,18 +383,19 @@ export const ShareDialog = ({
                       </svg>
                     </div>
                   </div>
-                  <span className="text-xs text-center max-w-16">X</span>
+                  <span>X</span>
                 </button>
 
                 {/* LinkedIn */}
                 <button
                   onClick={() => handleSocialShare("linkedin")}
-                  className="flex flex-col items-center gap-2 group"
+                  className="group flex h-7 items-center gap-1.5 rounded-md border px-2 text-[11px] text-muted-foreground transition-colors hover:bg-accent hover:text-foreground focus-visible:outline-none"
                 >
-                  <div className="h-16 w-16 rounded-full shadow-lg flex items-center justify-center hover:shadow-xl transition-shadow bg-background">
-                    <div className="flex h-8 w-8 items-center justify-center">
+                  <div className="flex items-center justify-center">
+                    <div className="flex items-center justify-center">
                       <svg
-                        className="h-5 w-5"
+                        aria-hidden="true"
+                        className="size-3.5"
                         viewBox="0 0 24 24"
                         fill="currentColor"
                       >
@@ -403,18 +403,19 @@ export const ShareDialog = ({
                       </svg>
                     </div>
                   </div>
-                  <span className="text-xs text-center max-w-16">LinkedIn</span>
+                  <span>LinkedIn</span>
                 </button>
 
                 {/* Reddit */}
                 <button
                   onClick={() => handleSocialShare("reddit")}
-                  className="flex flex-col items-center gap-2 group"
+                  className="group flex h-7 items-center gap-1.5 rounded-md border px-2 text-[11px] text-muted-foreground transition-colors hover:bg-accent hover:text-foreground focus-visible:outline-none"
                 >
-                  <div className="h-16 w-16 rounded-full shadow-lg flex items-center justify-center hover:shadow-xl transition-shadow bg-background">
-                    <div className="flex h-8 w-8 items-center justify-center">
+                  <div className="flex items-center justify-center">
+                    <div className="flex items-center justify-center">
                       <svg
-                        className="h-5 w-5"
+                        aria-hidden="true"
+                        className="size-3.5"
                         viewBox="0 0 24 24"
                         fill="currentColor"
                       >
@@ -422,7 +423,7 @@ export const ShareDialog = ({
                       </svg>
                     </div>
                   </div>
-                  <span className="text-xs text-center max-w-16">Reddit</span>
+                  <span>Reddit</span>
                 </button>
               </div>
             </div>

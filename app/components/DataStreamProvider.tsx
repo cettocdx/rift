@@ -13,6 +13,12 @@ import type { DataUIPart } from "ai";
 interface DataStreamStateValue {
   dataStream: DataUIPart<any>[];
   isAutoResuming: boolean;
+  /**
+   * True from the moment a reattach begins until the producer's replay-edge
+   * marker arrives. While true, replayed history is painted instantly instead
+   * of being animated word by word as if it were being typed right now.
+   */
+  isReplaying: boolean;
   autoContinueCount: number;
 }
 
@@ -20,6 +26,7 @@ interface DataStreamStateValue {
 interface DataStreamDispatchValue {
   setDataStream: React.Dispatch<React.SetStateAction<DataUIPart<any>[]>>;
   setIsAutoResuming: React.Dispatch<React.SetStateAction<boolean>>;
+  setIsReplaying: React.Dispatch<React.SetStateAction<boolean>>;
   setAutoContinueCount: React.Dispatch<React.SetStateAction<number>>;
 }
 
@@ -35,17 +42,23 @@ export function DataStreamProvider({
 }) {
   const [dataStream, setDataStream] = useState<DataUIPart<any>[]>([]);
   const [isAutoResuming, setIsAutoResuming] = useState<boolean>(false);
+  const [isReplaying, setIsReplaying] = useState<boolean>(false);
   const [autoContinueCount, setAutoContinueCount] = useState<number>(0);
 
   const stateValue = useMemo(
-    () => ({ dataStream, isAutoResuming, autoContinueCount }),
-    [dataStream, isAutoResuming, autoContinueCount],
+    () => ({ dataStream, isAutoResuming, isReplaying, autoContinueCount }),
+    [dataStream, isAutoResuming, isReplaying, autoContinueCount],
   );
 
   const dispatchValue = useMemo(
-    () => ({ setDataStream, setIsAutoResuming, setAutoContinueCount }),
+    () => ({
+      setDataStream,
+      setIsAutoResuming,
+      setIsReplaying,
+      setAutoContinueCount,
+    }),
     // setState functions from useState are stable — this memo runs once
-    [setDataStream, setIsAutoResuming, setAutoContinueCount],
+    [setDataStream, setIsAutoResuming, setIsReplaying, setAutoContinueCount],
   );
 
   return (

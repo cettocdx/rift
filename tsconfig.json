@@ -30,12 +30,14 @@
     "**/*.tsx",
     ".next/types/**/*.ts",
     ".next/dev/types/**/*.ts",
-    "trigger.config.ts"
+    ".next-landing-local/types/**/*.ts",
+    ".next-landing-local/dev/types/**/*.ts"
   ],
   "exclude": [
     "node_modules",
     "**/*.test.ts",
     "**/*.test.tsx",
-    "**/__tests__/**"
+    "**/__tests__/**",
+    ".next-*/**"
   ]
 }

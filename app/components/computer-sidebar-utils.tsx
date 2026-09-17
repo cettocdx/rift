@@ -39,7 +39,7 @@ export function getCategoryColor(category: NoteCategory): string {
     case "findings":
       return "text-red-500";
     case "methodology":
-      return "text-blue-500";
+      return "text-primary";
     case "questions":
       return "text-yellow-500";
     case "plan":
@@ -111,14 +111,17 @@ export function getActionText(content: SidebarContent): string {
       };
       return streamingActionMap[content.action || "reading"];
     }
+    // Terse past tense, one word where one word will do. "Successfully wrote"
+    // spends four syllables telling the reader nothing they wouldn't assume —
+    // a failed operation says so through its own status.
     const completedActionMap = {
       viewing: "Viewed",
       reading: "Read",
-      creating: "Successfully wrote",
-      editing: "Successfully edited",
-      writing: "Successfully wrote",
-      searching: "Search results",
-      appending: "Successfully appended to",
+      creating: "Wrote",
+      editing: "Edited",
+      writing: "Wrote",
+      searching: "Searched",
+      appending: "Appended to",
     };
     return completedActionMap[content.action || "reading"];
   }
@@ -131,6 +134,15 @@ export function getActionText(content: SidebarContent): string {
   }
 
   if (isSidebarTerminal(content)) {
+    if (content.toolOutcome === "failed") return "Failed";
+    if (content.toolOutcome === "interrupted") return "Interrupted";
+    if (content.toolOutcome === "not-approved") return "Not approved";
+    if (
+      content.toolOutcome === "unknown" &&
+      !content.isExecuting &&
+      !content.isBackground
+    )
+      return "Result unconfirmed";
     return getShellActionLabel({
       isShellTool: !!content.shellAction,
       action: content.shellAction,
@@ -141,7 +153,7 @@ export function getActionText(content: SidebarContent): string {
   }
 
   if (isSidebarWebSearch(content)) {
-    return content.isSearching ? "Searching web" : "Search results";
+    return content.isSearching ? "Searching web" : "Searched web";
   }
 
   if (isSidebarNotes(content)) {
@@ -180,26 +192,37 @@ export function getActionText(content: SidebarContent): string {
 
 const iconClass = "w-5 h-5 text-muted-foreground";
 
-export function getSidebarIcon(content: SidebarContent): React.ReactNode {
+/**
+ * The activity trace renders these at Grok's measured size — 14px on a
+ * hairline stroke, taking its colour from the row so the glyph and the verb
+ * read as one unit. Callers that want the older 20px muted treatment get it by
+ * omitting the argument.
+ */
+export const TRACE_ICON_CLASS = "size-[14px] stroke-[1]";
+
+export function getSidebarIcon(
+  content: SidebarContent,
+  className: string = iconClass,
+): React.ReactNode {
   if (isSidebarFile(content)) {
     if (content.action === "viewing") {
       return content.kind === "pdf" ? (
-        <FileText className={iconClass} />
+        <FileText className={className} />
       ) : (
-        <Eye className={iconClass} />
+        <Eye className={className} />
       );
     }
     if (content.action === "searching") {
-      return <FolderSearch className={iconClass} />;
+      return <FolderSearch className={className} />;
     }
-    return <Edit className={iconClass} />;
+    return <Edit className={className} />;
   }
-  if (isSidebarProxy(content)) return <Radar className={iconClass} />;
-  if (isSidebarTerminal(content)) return <Terminal className={iconClass} />;
-  if (isSidebarWebSearch(content)) return <Search className={iconClass} />;
-  if (isSidebarNotes(content)) return <StickyNote className={iconClass} />;
-  if (isSidebarSharedFiles(content)) return <FileDown className={iconClass} />;
-  return <Edit className={iconClass} />;
+  if (isSidebarProxy(content)) return <Radar className={className} />;
+  if (isSidebarTerminal(content)) return <Terminal className={className} />;
+  if (isSidebarWebSearch(content)) return <Search className={className} />;
+  if (isSidebarNotes(content)) return <StickyNote className={className} />;
+  if (isSidebarSharedFiles(content)) return <FileDown className={className} />;
+  return <Edit className={className} />;
 }
 
 export function getToolName(content: SidebarContent): string {

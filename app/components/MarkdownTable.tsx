@@ -95,14 +95,18 @@ export function MarkdownTable({
   };
 
   return (
+    /* The aicss data-table frame: the toolbar band is part of a tinted frame
+       and the table itself sits INSET on its own lighter card, so the data
+       reads as the object and the chrome as its mat. */
     <div
       ref={wrapperRef}
-      className="my-4 flex flex-col gap-2 rounded-lg border border-border bg-sidebar p-2"
+      className="my-3 flex flex-col overflow-hidden rounded-lg border border-border bg-surface-2"
       data-streamdown="table-wrapper"
     >
-      <div className="flex items-center justify-end gap-1">
+      <div className="flex h-8 items-center justify-end gap-0.5 px-1.5">
         <button
-          className="cursor-pointer p-1 text-muted-foreground transition-all hover:text-foreground"
+          aria-label="Download table as CSV"
+          className="flex size-6 cursor-pointer items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-foreground/[0.06] hover:text-foreground focus-visible:outline-none"
           onClick={handleDownload}
           title="Download as CSV"
           type="button"
@@ -110,7 +114,8 @@ export function MarkdownTable({
           <Download size={14} />
         </button>
         <button
-          className="cursor-pointer p-1 text-muted-foreground transition-all hover:text-foreground"
+          aria-label={copied ? "Copied table" : "Copy table"}
+          className="flex size-6 cursor-pointer items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-foreground/[0.06] hover:text-foreground focus-visible:outline-none"
           onClick={handleCopy}
           title={copied ? "Copied!" : "Copy table"}
           type="button"
@@ -118,7 +123,7 @@ export function MarkdownTable({
           {copied ? <Check size={14} /> : <Copy size={14} />}
         </button>
       </div>
-      <div className="border-collapse overflow-x-auto overscroll-y-auto rounded-md border border-border bg-background">
+      <div className="mx-1.5 mb-1.5 overflow-x-auto overscroll-y-auto rounded-md border border-border/70 bg-background">
         <table
           className={`w-full divide-y divide-border ${className || ""}`}
           data-streamdown="table"

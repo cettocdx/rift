@@ -24,24 +24,32 @@ export function ModeOptionItem({
 }: ModeOptionItemProps) {
   return (
     <DropdownMenuItem
-      onClick={onClick}
-      className="cursor-pointer group font-mono"
+      onSelect={onClick}
+      className="group flex cursor-pointer items-center gap-2 rounded-[6px] px-2 py-1.5 text-popover-foreground focus:bg-accent focus:text-accent-foreground"
       data-testid={testId}
     >
-      <span className="text-primary mr-2 text-xs">▸</span>
-      <div className="flex flex-col flex-1">
+      <Icon
+        aria-hidden="true"
+        className="size-3.5 shrink-0 text-muted-foreground"
+        strokeWidth={1.7}
+      />
+      <div className="flex min-w-0 flex-1 flex-col">
         <div className="flex items-center gap-2">
-          <span className="font-medium uppercase tracking-wider text-xs">
-            {title}
-          </span>
-          {showLock && <Lock className="w-3 h-3 text-muted-foreground" />}
+          <span className="text-ui-label font-medium">{title}</span>
+          {showLock && (
+            <Lock
+              aria-hidden="true"
+              className="size-3 text-muted-foreground"
+              strokeWidth={1.7}
+            />
+          )}
           {showProBadge && (
-            <span className="text-[9px] uppercase tracking-widest text-primary/70 border border-primary/30 px-1">
+            <span className="rounded-[4px] border border-border bg-muted px-1 text-[9px] text-muted-foreground">
               PRO
             </span>
           )}
         </div>
-        <span className="text-[10px] text-muted-foreground/70 tracking-wide">
+        <span className="truncate text-ui-caption text-muted-foreground">
           {description}
         </span>
       </div>

@@ -1,5 +1,7 @@
 import Image from "next/image";
-import { Download, ZoomIn, ZoomOut } from "lucide-react";
+import { downloadFromUrl } from "@/lib/utils/file-download";
+import { toast } from "sonner";
+import { Download, X, ZoomIn, ZoomOut } from "lucide-react";
 import { useState, useEffect, useRef } from "react";
 
 interface ImageViewerProps {
@@ -8,6 +10,8 @@ interface ImageViewerProps {
   imageSrc: string;
   imageAlt: string;
   fileName?: string;
+  /** Resolve durable media at click time; URL-only callers keep direct downloads. */
+  onDownload?: (fileName: string) => Promise<void>;
 }
 
 export const ImageViewer = ({
@@ -16,9 +20,11 @@ export const ImageViewer = ({
   imageSrc,
   imageAlt,
   fileName,
+  onDownload,
 }: ImageViewerProps) => {
   const [isImageLoading, setIsImageLoading] = useState(true);
   const [zoom, setZoom] = useState(100);
+  const [downloading, setDownloading] = useState(false);
   const [pan, setPan] = useState({ x: 0, y: 0 });
   const [isDragging, setIsDragging] = useState(false);
   const dialogRef = useRef<HTMLDivElement>(null);
@@ -31,25 +37,31 @@ export const ImageViewer = ({
     panX: number;
     panY: number;
   } | null>(null);
+  const visible = Boolean(isOpen && imageSrc && imageSrc.trim() !== "");
 
   // Reset loading state when imageSrc changes
   useEffect(() => {
-    // eslint-disable-next-line react-hooks/set-state-in-effect
     setIsImageLoading(true);
     setZoom(100);
     setPan({ x: 0, y: 0 });
   }, [imageSrc]);
 
-  // Focus the dialog when it opens
+  // The modal owns its controls as well as the canvas. Return keyboard focus
+  // to the opener after the viewer is dismissed or unmounted.
   useEffect(() => {
-    if (isOpen && dialogRef.current) {
-      dialogRef.current.focus();
-    }
-  }, [isOpen]);
+    if (!visible || !dialogRef.current) return;
+    const previousFocus = document.activeElement;
+    dialogRef.current.focus();
+    return () => {
+      if (previousFocus instanceof HTMLElement && previousFocus.isConnected) {
+        previousFocus.focus();
+      }
+    };
+  }, [visible]);
 
   // Handle Escape key press
   useEffect(() => {
-    if (!isOpen) return;
+    if (!visible) return;
 
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === "Escape") {
@@ -61,10 +73,10 @@ export const ImageViewer = ({
     return () => {
       window.removeEventListener("keydown", handleKeyDown);
     };
-  }, [isOpen, onClose]);
+  }, [visible, onClose]);
 
   // Don't render if not open or no valid image source
-  if (!isOpen || !imageSrc || imageSrc.trim() === "") {
+  if (!visible) {
     return null;
   }
 
@@ -122,19 +134,20 @@ export const ImageViewer = ({
         .slice(0, 80) ||
       "image";
 
+    if (downloading) return;
+    setDownloading(true);
     try {
-      const response = await fetch(imageSrc);
-      const blob = await response.blob();
-      const blobUrl = URL.createObjectURL(blob);
-      const link = document.createElement("a");
-      link.href = blobUrl;
-      link.download = downloadName;
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
-      URL.revokeObjectURL(blobUrl);
-    } catch {
-      window.open(imageSrc, "_blank", "noopener,noreferrer");
+      if (onDownload) {
+        await onDownload(downloadName);
+      } else {
+        await downloadFromUrl({ url: imageSrc, filename: downloadName });
+      }
+    } catch (error) {
+      toast.error("Could not download image", {
+        description: error instanceof Error ? error.message : "Try again.",
+      });
+    } finally {
+      setDownloading(false);
     }
   };
 
@@ -229,53 +242,86 @@ export const ImageViewer = ({
     }
   };
 
+  const handleDialogKeyDown = (e: React.KeyboardEvent<HTMLDivElement>) => {
+    if (e.key !== "Tab" || e.defaultPrevented) return;
+    const dialog = e.currentTarget;
+    const controls = dialog.querySelectorAll<HTMLElement>(
+      'button:not([disabled]), a[href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])',
+    );
+    const first = controls[0];
+    const last = controls[controls.length - 1];
+    if (!first || !last) {
+      e.preventDefault();
+      dialog.focus();
+    } else if (
+      e.shiftKey &&
+      (document.activeElement === first || document.activeElement === dialog)
+    ) {
+      e.preventDefault();
+      last.focus();
+    } else if (
+      !e.shiftKey &&
+      (document.activeElement === last || document.activeElement === dialog)
+    ) {
+      e.preventDefault();
+      first.focus();
+    }
+  };
+
   return (
     <div
+      ref={dialogRef}
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="image-viewer-title"
+      aria-describedby="image-viewer-description"
       data-state="open"
-      className="radix-state-open:animate-show fixed inset-0 z-[100] flex items-center justify-center overflow-hidden bg-black/90 dark:bg-black/80"
+      className="fixed inset-0 z-[100] flex items-center justify-center overflow-hidden bg-[#0b0b0b]/95 focus:outline-hidden"
       style={{ pointerEvents: "auto" }}
       onClick={handleBackdropClick}
+      onKeyDown={handleDialogKeyDown}
       tabIndex={-1}
       data-testid="image-zoom-modal"
     >
-      <div className="absolute bottom-6 left-1/2 z-10 flex -translate-x-1/2 items-center gap-3 rounded-xl bg-black/65 py-1 pl-1 pr-3 text-white shadow-2xl backdrop-blur-2xl">
+      <div className="absolute bottom-5 left-1/2 z-10 flex -translate-x-1/2 items-center gap-2 rounded-md border border-white/[0.12] bg-[#181818] p-1 text-[#f0f0f0] shadow-lg">
         <button
           type="button"
-          className="flex size-7 cursor-pointer items-center justify-center rounded transition-colors hover:bg-white/10"
+          className="flex size-7 cursor-pointer items-center justify-center rounded-md text-[#f0f0f0]/70 transition-colors hover:bg-white/[0.08] hover:text-[#f0f0f0] focus-visible:outline-none"
           onClick={handleDownload}
+          disabled={downloading}
           aria-label="Download image"
         >
-          <Download className="h-5 w-5" aria-hidden="true" />
+          <Download className="size-3.5" aria-hidden="true" />
         </button>
-        <div className="h-4 w-px bg-white/25" />
+        <div className="h-4 w-px bg-white/[0.12]" />
         <div className="flex items-center gap-1.5">
           <button
             type="button"
-            className="flex size-7 items-center justify-center rounded transition-colors hover:bg-white/10 disabled:cursor-not-allowed disabled:opacity-40"
+            className="flex size-7 items-center justify-center rounded-md text-[#f0f0f0]/70 transition-colors hover:bg-white/[0.08] hover:text-[#f0f0f0] focus-visible:outline-none disabled:cursor-not-allowed disabled:opacity-40"
             onClick={handleZoomOut}
             disabled={zoom <= 25}
             aria-label="Zoom out"
           >
-            <ZoomOut className="h-5 w-5" aria-hidden="true" />
+            <ZoomOut className="size-3.5" aria-hidden="true" />
           </button>
-          <span className="min-w-10 text-center text-sm leading-5 text-white">
+          <span className="min-w-9 text-center text-[11px] tabular-nums text-[#f0f0f0]/70">
             {zoom}%
           </span>
           <button
             type="button"
-            className="flex size-7 items-center justify-center rounded transition-colors hover:bg-white/10 disabled:cursor-not-allowed disabled:opacity-40"
+            className="flex size-7 items-center justify-center rounded-md text-[#f0f0f0]/70 transition-colors hover:bg-white/[0.08] hover:text-[#f0f0f0] focus-visible:outline-none disabled:cursor-not-allowed disabled:opacity-40"
             onClick={handleZoomIn}
             disabled={zoom >= 300}
             aria-label="Zoom in"
           >
-            <ZoomIn className="h-5 w-5" aria-hidden="true" />
+            <ZoomIn className="size-3.5" aria-hidden="true" />
           </button>
         </div>
       </div>
 
       {/* Close Button */}
       <button
-        className="absolute end-4 top-4 z-10 hover:opacity-70 transition-opacity"
+        className="absolute end-3 top-3 z-10 flex size-7 items-center justify-center rounded-md border border-white/[0.12] bg-[#181818] text-[#f0f0f0]/70 transition-colors hover:bg-white/[0.08] hover:text-[#f0f0f0] focus-visible:outline-none"
         type="button"
         onClick={(e) => {
           e.stopPropagation();
@@ -284,34 +330,19 @@ export const ImageViewer = ({
         aria-label="Close image viewer"
         tabIndex={0}
       >
-        <svg
-          width="20"
-          height="20"
-          viewBox="0 0 20 20"
-          fill="currentColor"
-          xmlns="http://www.w3.org/2000/svg"
-          className="h-5 w-5 text-gray-100"
-        >
-          <path d="M14.2548 4.75488C14.5282 4.48152 14.9717 4.48152 15.2451 4.75488C15.5184 5.02825 15.5184 5.47175 15.2451 5.74512L10.9902 10L15.2451 14.2549L15.3349 14.3652C15.514 14.6369 15.4841 15.006 15.2451 15.2451C15.006 15.4842 14.6368 15.5141 14.3652 15.335L14.2548 15.2451L9.99995 10.9902L5.74506 15.2451C5.4717 15.5185 5.0282 15.5185 4.75483 15.2451C4.48146 14.9718 4.48146 14.5282 4.75483 14.2549L9.00971 10L4.75483 5.74512L4.66499 5.63477C4.48589 5.3631 4.51575 4.99396 4.75483 4.75488C4.99391 4.51581 5.36305 4.48594 5.63471 4.66504L5.74506 4.75488L9.99995 9.00977L14.2548 4.75488Z" />
-        </svg>
+        <X className="size-3.5" aria-hidden="true" />
       </button>
 
       {/* Image Container */}
       <div
-        ref={dialogRef}
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby="image-viewer-title"
-        aria-describedby="image-viewer-description"
         data-state="open"
-        className={`radix-state-open:animate-contentShow focus:outline-hidden relative flex h-full w-full items-center justify-center overflow-hidden ${
+        className={`relative flex h-full w-full items-center justify-center overflow-hidden ${
           zoom > 100
             ? isDragging
               ? "cursor-grabbing"
               : "cursor-grab"
             : "cursor-zoom-in"
         }`}
-        tabIndex={-1}
         style={{ pointerEvents: "auto" }}
         onWheel={handleWheel}
         onPointerDown={handlePointerDown}

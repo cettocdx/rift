@@ -6,6 +6,8 @@ import {
   safeCountTokens,
   sliceByTokens,
   truncateContent,
+  countMessagesTokens,
+  truncateMessagesToTokenLimit,
 } from "@/lib/token-utils";
 
 describe("getMaxTokensForSubscription", () => {
@@ -43,4 +45,38 @@ describe("special token sentinels", () => {
     expect(truncated).toContain("<|im_end|>");
     expect(truncated).not.toContain("<\\|");
   });
+});
+
+it("does not count opaque tool result signatures as conversation content or drop useful history", () => {
+  const bare: any = {
+    id: "reply",
+    role: "assistant",
+    parts: [
+      {
+        type: "tool-file",
+        toolCallId: "one",
+        state: "output-available",
+        input: { action: "read" },
+        output: "keep this evidence",
+      },
+    ],
+  };
+  const signed = JSON.parse(JSON.stringify(bare));
+  signed.parts[0].resultProviderMetadata = {
+    signature: "encrypted-provider-data".repeat(2000),
+  };
+  expect(countMessagesTokens([signed])).toBe(countMessagesTokens([bare]));
+  const user: any = {
+    id: "next",
+    role: "user",
+    parts: [{ type: "text", text: "continue" }],
+  };
+  expect(
+    truncateMessagesToTokenLimit(
+      [signed, user],
+      {},
+      countMessagesTokens([bare, user]),
+    ),
+  ).toEqual([signed, user]);
+  expect(signed.parts[0].resultProviderMetadata.signature).toHaveLength(46000);
 });

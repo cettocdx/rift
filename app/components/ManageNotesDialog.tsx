@@ -155,7 +155,7 @@ const ManageNotesDialogContent = () => {
                             <button
                               onClick={() => handleDeleteNote(note.note_id)}
                               aria-label="Remove note"
-                              className="text-muted-foreground hover:text-destructive transition-colors"
+                              className="text-muted-foreground hover:text-foreground transition-colors"
                             >
                               <Trash2 className="h-5 w-5" />
                             </button>
@@ -184,7 +184,7 @@ const ManageNotesDialogContent = () => {
             <Button
               onClick={handleDeleteAllNotes}
               variant="outline"
-              className="border-destructive text-destructive hover:bg-destructive/10"
+              className="border-border text-foreground/85 hover:bg-accent hover:text-foreground"
             >
               Delete all
             </Button>

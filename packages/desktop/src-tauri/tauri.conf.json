@@ -1,16 +1,16 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "RIFT",
-  "version": "0.0.0",
-  "identifier": "security.rift.desktop",
+  "version": "0.1.0",
+  "identifier": "app.riftsys.desktop",
   "build": {
-    "beforeDevCommand": "",
-    "devUrl": "http://localhost:3000",
+    "beforeDevCommand": "node scripts/build.js",
     "beforeBuildCommand": "node scripts/build.js",
     "frontendDist": "../src"
   },
   "app": {
     "withGlobalTauri": true,
+    "macOSPrivateApi": true,
     "windows": [
       {
         "title": "RIFT",
@@ -22,20 +22,26 @@
         "fullscreen": false,
         "center": true,
         "decorations": true,
-        "transparent": false,
-        "userAgent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.6 Safari/605.1.15 RIFT-Desktop/1.0",
+        "titleBarStyle": "Overlay",
+        "hiddenTitle": true,
+        "trafficLightPosition": {
+          "x": 18,
+          "y": 27
+        },
+        "transparent": true,
+        "userAgent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.6 Safari/605.1.15 RIFT-Desktop/0.1.0",
         "theme": "Dark",
         "dragDropEnabled": false
       }
     ],
     "security": {
-      "csp": "default-src 'self' http://localhost:* https://rift.security https://*.rift.security https://*.convex.cloud https://*.convex.dev https://auth.rift.security https://api.workos.com; script-src 'self' 'unsafe-inline' http://localhost:* https://rift.security https://*.rift.security https://*.convex.cloud; style-src 'self' 'unsafe-inline' http://localhost:* https://rift.security https://*.rift.security; img-src 'self' data: https: blob:; font-src 'self' data: https:; connect-src 'self' http://localhost:* ws://localhost:* http://127.0.0.1:* https://rift.security https://*.rift.security wss://*.rift.security https://*.convex.cloud wss://*.convex.cloud https://auth.rift.security https://api.workos.com https://*.posthog.com https://*.stripe.com https://api.trigger.dev https://*.trigger.dev wss://*.trigger.dev; frame-src 'self' https://*.stripe.com; media-src 'self' blob:;"
+      "csp": "default-src 'self' https://riftsys.app https://*.riftsys.app https://*.convex.cloud https://*.convex.dev https://api.workos.com; script-src 'self' 'unsafe-inline' https://riftsys.app https://*.riftsys.app https://*.convex.cloud; style-src 'self' 'unsafe-inline' https://riftsys.app https://*.riftsys.app; img-src 'self' data: https: blob:; font-src 'self' data: https:; connect-src 'self' https://riftsys.app https://*.riftsys.app wss://*.riftsys.app https://*.convex.cloud wss://*.convex.cloud https://api.workos.com https://*.posthog.com https://*.stripe.com https://api.trigger.dev https://*.trigger.dev wss://*.trigger.dev; frame-src 'self' https://*.stripe.com; media-src 'self' blob:;",
+      "capabilities": ["default"]
     }
   },
   "bundle": {
     "active": true,
     "targets": "all",
-    "createUpdaterArtifacts": "v1Compatible",
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",
@@ -44,20 +50,23 @@
       "icons/icon.ico",
       "icons/icon.png"
     ],
-    "resources": [],
+    "resources": {
+      "icons/Assets.car": "Assets.car"
+    },
     "externalBin": [],
-    "copyright": "Copyright 2024 RIFT",
+    "copyright": "Copyright 2026 RIFT",
     "category": "DeveloperTool",
-    "shortDescription": "AI-powered penetration testing assistant",
-    "longDescription": "RIFT is an AI-powered penetration testing assistant that helps security professionals identify vulnerabilities.",
+    "shortDescription": "AI workspace for software, media, and authorized security work",
+    "longDescription": "RIFT is a professional AI workspace for building software, creating media, and running authorized security assessments.",
     "macOS": {
       "entitlements": "entitlements.plist",
       "exceptionDomain": "",
       "frameworks": [],
       "providerShortName": null,
-      "signingIdentity": null,
+      "signingIdentity": "-",
       "hardenedRuntime": true,
-      "minimumSystemVersion": "10.15"
+      "minimumSystemVersion": "10.15",
+      "infoPlist": "Info.plist"
     },
     "windows": {
       "certificateThumbprint": null,
@@ -85,14 +94,6 @@
     }
   },
   "plugins": {
-    "updater": {
-      "active": true,
-      "endpoints": [
-        "https://github.com/rift-security/rift/releases/latest/download/latest.json"
-      ],
-      "dialog": true,
-      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDRBMzM3QTAyMDVDQzlBMUYKUldRZm1zd0ZBbm96U3VVSmRRMjYzNnNRSTJNNFdOaUl4cGR3bGxRZGpxTU02VjZUdGh2K0RnKy8K"
-    },
     "deep-link": {
       "mobile": [],
       "desktop": {

@@ -2,10 +2,18 @@ import "@testing-library/jest-dom";
 import { describe, it, expect, jest } from "@jest/globals";
 import React from "react";
 import { render, screen, fireEvent } from "@testing-library/react";
-import { FinishReasonNotice } from "../FinishReasonNotice";
+import {
+  FinishReasonNotice,
+  SUPPRESSED_FINISH_REASONS,
+} from "../FinishReasonNotice";
 import { DataStreamProvider, useDataStream } from "../DataStreamProvider";
 import { MAX_AUTO_CONTINUES } from "@/app/hooks/useAutoContinue";
-import type { ChatMode } from "@/types/chat";
+import * as stopConditions from "@/lib/chat/stop-conditions";
+import {
+  BUDGET_EXHAUSTION_FINISH_REASON,
+  DOOM_LOOP_FINISH_REASON,
+} from "@/lib/chat/stop-conditions";
+import type { ChatMode, ChatPurpose } from "@/types/chat";
 
 function DataStreamSetter({
   isAutoResuming,
@@ -35,6 +43,7 @@ function DataStreamSetter({
 interface RenderNoticeProps {
   finishReason?: string;
   mode?: ChatMode;
+  purpose?: ChatPurpose;
   onContinue?: () => void;
 }
 
@@ -98,6 +107,24 @@ describe("FinishReasonNotice", () => {
       );
       expect(container.innerHTML).toBe("");
     });
+
+    it.each(["timeout", "preemptive-timeout"])(
+      "never renders the time-limit notice for a Build agent (%s)",
+      (finishReason) => {
+        const { container } = renderNotice(
+          { finishReason, mode: "agent", purpose: "app" },
+          {
+            isAutoResuming: false,
+            autoContinueCount: MAX_AUTO_CONTINUES,
+          },
+        );
+
+        expect(container.innerHTML).toBe("");
+        expect(
+          screen.queryByText(/Reached the time limit for this turn/),
+        ).not.toBeInTheDocument();
+      },
+    );
 
     it("returns null for an unknown finishReason", () => {
       const { container } = renderNotice(
@@ -236,14 +263,150 @@ describe("FinishReasonNotice", () => {
         "bg-muted",
         "text-muted-foreground",
         "rounded-lg",
-        "px-3",
-        "py-2",
+        "px-2.5",
+        "py-1.5",
+        "text-[12px]",
         "border",
         "border-border",
       );
 
       const outerDiv = innerDiv?.parentElement;
       expect(outerDiv).toHaveClass("mt-2", "w-full");
+    });
+  });
+
+  describe("doom loop", () => {
+    const expectedText =
+      /The agent stopped because it kept repeating the same action without making progress/;
+
+    it.each([
+      { mode: "agent" as ChatMode, autoContinueCount: 0 },
+      { mode: "agent" as ChatMode, autoContinueCount: MAX_AUTO_CONTINUES },
+      { mode: "ask" as ChatMode, autoContinueCount: 0 },
+    ])(
+      "renders the notice in $mode mode with autoContinueCount=$autoContinueCount (a halted loop is never auto-continued)",
+      ({ mode, autoContinueCount }) => {
+        renderNotice(
+          { finishReason: DOOM_LOOP_FINISH_REASON, mode },
+          { isAutoResuming: false, autoContinueCount },
+        );
+        expect(screen.getByText(expectedText)).toBeInTheDocument();
+      },
+    );
+
+    it("still renders for a Build agent (only timeouts are hidden there)", () => {
+      renderNotice(
+        { finishReason: DOOM_LOOP_FINISH_REASON, mode: "agent", purpose: "app" },
+        { isAutoResuming: false, autoContinueCount: 0 },
+      );
+      expect(screen.getByText(expectedText)).toBeInTheDocument();
+    });
+
+    it("offers Continue and invokes it once", () => {
+      const onContinue = jest.fn();
+      renderNotice(
+        { finishReason: DOOM_LOOP_FINISH_REASON, mode: "agent", onContinue },
+        { isAutoResuming: false, autoContinueCount: 0 },
+      );
+      const button = screen.getByRole("button", { name: /continue/i });
+      fireEvent.click(button);
+      expect(onContinue).toHaveBeenCalledTimes(1);
+      expect(
+        screen.queryByRole("button", { name: /continue/i }),
+      ).not.toBeInTheDocument();
+    });
+
+    it("respects isAutoResuming", () => {
+      const { container } = renderNotice(
+        { finishReason: DOOM_LOOP_FINISH_REASON, mode: "agent" },
+        { isAutoResuming: true, autoContinueCount: 0 },
+      );
+      expect(container.innerHTML).toBe("");
+    });
+  });
+
+  describe("budget exhausted", () => {
+    const expectedText = /Stopped: your usage budget is exhausted/;
+
+    it.each([
+      { mode: "agent" as ChatMode, autoContinueCount: 0 },
+      { mode: "ask" as ChatMode, autoContinueCount: 0 },
+    ])("renders the notice in $mode mode", ({ mode, autoContinueCount }) => {
+      renderNotice(
+        { finishReason: BUDGET_EXHAUSTION_FINISH_REASON, mode },
+        { isAutoResuming: false, autoContinueCount },
+      );
+      expect(screen.getByText(expectedText)).toBeInTheDocument();
+    });
+
+    it("never offers Continue, even when onContinue is provided", () => {
+      const onContinue = jest.fn();
+      renderNotice(
+        { finishReason: BUDGET_EXHAUSTION_FINISH_REASON, mode: "agent", onContinue },
+        { isAutoResuming: false, autoContinueCount: 0 },
+      );
+      expect(
+        screen.queryByRole("button", { name: /continue/i }),
+      ).not.toBeInTheDocument();
+      expect(onContinue).not.toHaveBeenCalled();
+    });
+
+    it("links to the billing settings page instead", () => {
+      renderNotice(
+        { finishReason: BUDGET_EXHAUSTION_FINISH_REASON, mode: "agent" },
+        { isAutoResuming: false, autoContinueCount: 0 },
+      );
+      const link = screen.getByRole("link", { name: /add credits/i });
+      expect(link).toHaveAttribute("href", "/settings/billing");
+    });
+
+    it("respects isAutoResuming", () => {
+      const { container } = renderNotice(
+        { finishReason: BUDGET_EXHAUSTION_FINISH_REASON, mode: "agent" },
+        { isAutoResuming: true, autoContinueCount: 0 },
+      );
+      expect(container.innerHTML).toBe("");
+    });
+  });
+
+  describe("every stop condition has words", () => {
+    // Any `*_FINISH_REASON` the stop-conditions module exports must either
+    // render a notice or be listed in SUPPRESSED_FINISH_REASONS on purpose.
+    // Otherwise a newly added stop condition halts the agent and the user
+    // sees nothing, which is exactly what happened with doom-loop and budget.
+    const finishReasonConstants = Object.entries(stopConditions).filter(
+      (entry): entry is [string, string] =>
+        entry[0].endsWith("_FINISH_REASON") && typeof entry[1] === "string",
+    );
+
+    it("finds the constants it is meant to check", () => {
+      expect(finishReasonConstants.length).toBeGreaterThanOrEqual(4);
+    });
+
+    it.each(finishReasonConstants)(
+      "%s (%s) renders a notice or is explicitly suppressed",
+      (_name, finishReason) => {
+        const { container } = renderNotice(
+          // Ask mode with the auto-continue budget spent: no suppression
+          // rule applies, so a blank render means the reason is unhandled.
+          { finishReason, mode: "ask" },
+          { isAutoResuming: false, autoContinueCount: MAX_AUTO_CONTINUES },
+        );
+        const rendered = container.innerHTML !== "";
+        const suppressed = SUPPRESSED_FINISH_REASONS.includes(finishReason);
+        expect(rendered || suppressed).toBe(true);
+      },
+    );
+
+    it("does not list a reason as suppressed that also renders", () => {
+      for (const reason of SUPPRESSED_FINISH_REASONS) {
+        const { container, unmount } = renderNotice(
+          { finishReason: reason, mode: "ask" },
+          { isAutoResuming: false, autoContinueCount: MAX_AUTO_CONTINUES },
+        );
+        expect(container.innerHTML).toBe("");
+        unmount();
+      }
     });
   });
 });

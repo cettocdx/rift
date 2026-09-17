@@ -14,18 +14,20 @@ import {
 
 interface UseSidebarNavigationProps {
   messages: Message[];
+  toolExecutions?: readonly SidebarContent[];
   sidebarContent: SidebarContent | null;
   onNavigate?: (content: SidebarContent) => void;
 }
 
 export const useSidebarNavigation = ({
   messages,
+  toolExecutions: suppliedToolExecutions,
   sidebarContent,
   onNavigate,
 }: UseSidebarNavigationProps) => {
   const toolExecutions = useMemo(
-    () => extractAllSidebarContent(messages),
-    [messages],
+    () => suppliedToolExecutions ?? extractAllSidebarContent(messages),
+    [messages, suppliedToolExecutions],
   );
 
   const currentIndex = useMemo(() => {

@@ -67,4 +67,20 @@ describe("splitWorkedForParts", () => {
     expect(result.workParts).toEqual([tool]);
     expect(result.trailingTextParts).toEqual([text]);
   });
+
+  it("keeps generated media outside the collapsible work transcript", () => {
+    const reasoning = part("reasoning", { text: "Rendering frames" });
+    const video = part("tool-generate_video", {
+      state: "output-available",
+      output: { fileId: "file-video", mediaType: "video/mp4" },
+    });
+    const text = part("text", { text: "Your video is ready." });
+
+    const result = splitWorkedForParts([reasoning, video, text]);
+
+    expect(result.deliverableParts).toEqual([video]);
+    expect(result.workParts).toEqual([reasoning]);
+    expect(result.trailingTextParts).toEqual([text]);
+    expect(result.nonFileParts).not.toContain(video);
+  });
 });

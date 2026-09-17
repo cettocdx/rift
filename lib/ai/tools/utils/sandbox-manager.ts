@@ -1,3 +1,4 @@
+import { getSandboxContext } from "@/lib/ai/sandbox-context";
 import type { Sandbox } from "@e2b/code-interpreter";
 import type {
   SandboxBootInfo,
@@ -20,6 +21,8 @@ export class DefaultSandboxManager implements SandboxManager {
     private setSandboxCallback: (sandbox: Sandbox) => void,
     initialSandbox?: Sandbox | null,
     private onBoot?: (info: SandboxBootInfo) => void,
+    private sandboxNamespace?: string,
+    private origin = getSandboxContext(),
   ) {
     this.sandbox = initialSandbox || null;
   }
@@ -63,11 +66,13 @@ export class DefaultSandboxManager implements SandboxManager {
       const result = await ensureSandboxConnection(
         {
           userID: this.userID,
+          sandboxNamespace: this.sandboxNamespace,
           setSandbox: this.setSandboxCallback,
           onBoot: this.onBoot,
         },
         {
           initialSandbox: this.sandbox,
+          origin: this.origin,
         },
       );
       this.sandbox = result.sandbox;

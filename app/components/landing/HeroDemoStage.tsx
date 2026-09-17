@@ -17,7 +17,7 @@ export function HeroDemoStage({
           className="pointer-events-none absolute -inset-4 rounded-2xl opacity-50 blur-2xl motion-reduce:opacity-30"
           style={{
             background:
-              "radial-gradient(ellipse 70% 50% at 50% 20%, rgba(52,210,230,0.14), transparent 70%)",
+              "radial-gradient(ellipse 70% 50% at 50% 20%, rgba(217, 119, 87,0.14), transparent 70%)",
           }}
           aria-hidden
         />
@@ -39,7 +39,7 @@ export function HeroDemoStage({
         className="pointer-events-none absolute -inset-6 rounded-[32px] opacity-70 blur-3xl motion-reduce:opacity-40"
         style={{
           background:
-            "radial-gradient(ellipse 80% 60% at 50% 0%, rgba(52,210,230,0.18), transparent 70%)",
+            "radial-gradient(ellipse 80% 60% at 50% 0%, rgba(217, 119, 87,0.18), transparent 70%)",
         }}
         aria-hidden
       />

@@ -36,7 +36,7 @@ const OpenFileButton = ({ filePath }: { filePath: string }) => {
     <Tooltip>
       <TooltipTrigger asChild>
         <button
-          className="inline-flex items-center justify-center h-[36px] w-[36px] rounded-[15px] border border-border bg-muted/20 hover:bg-muted/40 transition-colors cursor-pointer text-muted-foreground hover:text-foreground"
+          className="inline-flex size-[30px] cursor-pointer items-center justify-center rounded-sm text-muted-foreground transition-colors hover:bg-foreground/[0.035] hover:text-foreground focus-visible:outline-none focus-visible:bg-muted"
           onClick={() => revealFileInDir(filePath)}
           aria-label="Reveal in Finder"
         >
@@ -73,10 +73,9 @@ export const FileToolsHandler = ({
   }, [message.parts, part.type, part.toolCallId]);
 
   // Compute sidebar content based on tool type and state
+  const { type, toolCallId, state, input, output } = part;
   const sidebarContent = useMemo((): SidebarFile | null => {
-    const { type, toolCallId, state, input, output } = part;
-
-    // write_file during streaming — show content as it streams in
+    // Show write_file content while it streams in.
     if (
       type === "tool-write_file" &&
       (state === "input-streaming" || state === "input-available")
@@ -95,7 +94,7 @@ export const FileToolsHandler = ({
       };
     }
 
-    // Output available — build content from result
+    // Build sidebar content from the available result.
     if (state !== "output-available") return null;
 
     if (type === "tool-read_file") {
@@ -183,14 +182,7 @@ export const FileToolsHandler = ({
     }
 
     return null;
-  }, [
-    part.type,
-    part.state,
-    part.toolCallId,
-    part.input,
-    part.output,
-    diffDataFromStream,
-  ]);
+  }, [type, state, toolCallId, input, output, diffDataFromStream]);
 
   const { handleOpenInSidebar, handleKeyDown } = useToolSidebar({
     toolCallId: part.toolCallId,

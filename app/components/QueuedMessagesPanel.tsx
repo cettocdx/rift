@@ -52,12 +52,12 @@ export const QueuedMessagesPanel = ({
   ];
 
   return (
-    <div className="mx-4 rounded-t-xl shadow-md border border-border border-b-0 bg-input-chat">
+    <div className="mb-1.5 overflow-hidden rounded-lg border border-border bg-input-chat">
       {/* Header */}
-      <div className="flex items-center px-4 transition-all duration-300 py-2">
+      <div className="flex min-h-8 items-center px-2.5 transition-colors">
         <button
           onClick={handleToggleExpand}
-          className="flex items-center gap-2 hover:opacity-80 transition-opacity cursor-pointer focus:outline-none rounded-md p-1 -m-1 flex-1"
+          className="flex flex-1 cursor-pointer items-center gap-1.5 rounded-md py-1 text-left transition-colors hover:text-foreground focus-visible:outline-none"
           aria-label={
             isExpanded ? "Collapse queued messages" : "Expand queued messages"
           }
@@ -70,12 +70,12 @@ export const QueuedMessagesPanel = ({
           }}
         >
           {isExpanded ? (
-            <ChevronDown className="w-4 h-4 text-muted-foreground" />
+            <ChevronDown className="size-3 text-muted-foreground" />
           ) : (
-            <ChevronRight className="w-4 h-4 text-muted-foreground" />
+            <ChevronRight className="size-3 text-muted-foreground" />
           )}
-          <div className="flex items-center gap-2">
-            <h3 className="text-muted-foreground text-sm font-medium">
+          <div className="flex items-center gap-1.5">
+            <h3 className="text-[12px] font-medium text-muted-foreground">
               {messages.length} Queued
             </h3>
           </div>
@@ -86,26 +86,26 @@ export const QueuedMessagesPanel = ({
           <DropdownMenuTrigger asChild>
             <Button
               variant="ghost"
-              size="sm"
-              className="h-7 w-7 p-0"
+              size="icon-xs"
+              className="size-6"
               aria-label="Queue settings"
             >
-              <MoreHorizontal className="w-4 h-4 text-muted-foreground" />
+              <MoreHorizontal className="size-3.5 text-muted-foreground" />
             </Button>
           </DropdownMenuTrigger>
-          <DropdownMenuContent align="end" className="w-56">
-            <div className="px-2 py-1.5 text-xs font-medium text-muted-foreground">
+          <DropdownMenuContent align="end" className="w-52">
+            <div className="px-2 py-1 text-[11px] font-medium text-muted-foreground">
               When to send follow-ups
             </div>
             {queueBehaviorOptions.map((option) => (
               <DropdownMenuItem
                 key={option.value}
                 onClick={() => onQueueBehaviorChange?.(option.value)}
-                className="flex items-center justify-between cursor-pointer"
+                className="flex cursor-pointer items-center justify-between text-xs"
               >
                 <span>{option.label}</span>
                 {queueBehavior === option.value && (
-                  <Check className="w-4 h-4" />
+                  <Check className="size-3.5" />
                 )}
               </DropdownMenuItem>
             ))}
@@ -115,19 +115,29 @@ export const QueuedMessagesPanel = ({
 
       {/* Message List - Collapsible */}
       {isExpanded && (
-        <div className="border-t border-border px-4 py-3 space-y-2 max-h-[200px] overflow-y-auto">
+        <div className="max-h-[180px] space-y-1.5 overflow-y-auto border-t border-border px-2.5 py-2">
           {messages.map((message) => (
             <div
               key={message.id}
-              className="flex items-start gap-2 transition-colors"
+              className="flex items-start gap-2 rounded-md px-1 py-0.5 transition-colors hover:bg-accent/40"
             >
               {/* Message preview */}
-              <div className="flex-1 min-w-0">
-                <div className="text-sm truncate text-foreground">
+              <div className="min-w-0 flex-1">
+                <div className="truncate text-[12px] leading-5 text-foreground/80">
                   {message.text}
                 </div>
+                {message.dispatchState && (
+                  <div
+                    role="status"
+                    className="text-ui-caption text-muted-foreground"
+                  >
+                    {message.dispatchState === "sending"
+                      ? "Sending…"
+                      : "Delivery unconfirmed. Check the conversation before sending again."}
+                  </div>
+                )}
                 {message.files && message.files.length > 0 && (
-                  <div className="text-xs text-muted-foreground mt-0.5">
+                  <div className="mt-0.5 text-[11px] text-muted-foreground">
                     {message.files.length} file
                     {message.files.length > 1 ? "s" : ""}
                   </div>
@@ -135,32 +145,36 @@ export const QueuedMessagesPanel = ({
               </div>
 
               {/* Actions */}
-              <div className="flex items-center gap-1 flex-shrink-0">
+              <div className="flex flex-shrink-0 items-center gap-0.5">
                 <Button
                   type="button"
-                  size="sm"
+                  size="xs"
                   variant="ghost"
                   onClick={() => onSendNow(message.id)}
-                  disabled={!isStreaming}
-                  className="h-7 px-2 text-xs"
+                  disabled={
+                    !isStreaming ||
+                    messages.some((item) => item.dispatchState != null)
+                  }
+                  className="px-2 text-[11px]"
                   title={
                     isStreaming
                       ? "Cancel current response and send this now"
                       : "Waiting for current response to complete"
                   }
                 >
-                  <ArrowUp className="w-3 h-3 mr-1" />
-                  Send Now
+                  <ArrowUp className="mr-1 size-3" />
+                  Send now
                 </Button>
                 <Button
                   type="button"
-                  size="sm"
+                  size="icon-xs"
                   variant="ghost"
                   onClick={() => onDelete(message.id)}
-                  className="h-7 w-7 p-0"
+                  disabled={message.dispatchState === "sending"}
+                  className="size-6"
                   title="Remove from queue"
                 >
-                  <Trash className="w-4 h-4" />
+                  <Trash className="size-3.5" />
                 </Button>
               </div>
             </div>

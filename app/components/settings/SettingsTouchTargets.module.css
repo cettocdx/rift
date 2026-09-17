@@ -1,0 +1,28 @@
+/* Settings owns this density change. Other workspaces and fine pointers keep
+   their existing controls; touch targets reserve real space without halos. */
+@media (pointer: coarse) {
+  .content
+    :where(
+      button:not([role="switch"]),
+      [data-slot="button"],
+      select,
+      [role="combobox"],
+      input:not([type="hidden"]):not([type="checkbox"]):not([type="radio"]):not(
+          [type="range"]
+        ):not([type="color"])
+    ) {
+    min-width: 44px;
+    min-height: 44px;
+    touch-action: manipulation;
+  }
+
+  /* WebKit native selects do not honor min-height reliably. */
+  .content select {
+    height: 44px;
+  }
+
+  /* Explicit dialog opt-in keeps the larger close button away from its title. */
+  .dialog :global([data-slot="dialog-header"]) {
+    padding-right: 40px;
+  }
+}

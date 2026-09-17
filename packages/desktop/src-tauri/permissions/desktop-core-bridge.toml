@@ -1,0 +1,13 @@
+[[permission]]
+identifier = "allow-desktop-core-bridge"
+description = "Allows authentication and explicitly bounded desktop helper commands."
+commands.allow = [
+  "get_dev_auth_port",
+  "prepare_desktop_auth_state",
+  "github_desktop_callback_scheme",
+  "get_local_file_metadata",
+  "read_local_file",
+  "get_desktop_platform_info",
+  "save_file_to_downloads",
+  "set_desktop_theme",
+]

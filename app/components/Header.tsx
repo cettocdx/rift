@@ -8,13 +8,12 @@ import { navigateToAuth } from "@/app/hooks/useTauri";
 import {
   Download,
   Terminal,
-  ShieldCheck,
+  SquareTerminal,
   FileText,
   Tag,
   type LucideIcon,
 } from "lucide-react";
-import { RiftPixelMark } from "@/components/icons/rift-pixel-mark";
-import { RiftWordmark } from "@/components/icons/rift-wordmark";
+import { RiftBrandLockup } from "@/components/icons/rift-brand-lockup";
 
 interface HeaderProps {
   chatTitle?: string;
@@ -23,7 +22,7 @@ interface HeaderProps {
 
 const NAV_ITEMS: { label: string; icon: LucideIcon; target: string }[] = [
   { label: "Product", icon: Terminal, target: "top" },
-  { label: "Security", icon: ShieldCheck, target: "security" },
+  { label: "Hack Workbench", icon: SquareTerminal, target: "security" },
   { label: "Docs", icon: FileText, target: "docs" },
   { label: "Pricing", icon: Tag, target: "pricing" },
 ];
@@ -49,10 +48,12 @@ const Header: React.FC<HeaderProps> = ({ chatTitle, hideDownload = false }) => {
     <header className="w-full px-6 max-sm:px-4 flex-shrink-0 terminal-header terminal-border">
       {/* Desktop header */}
       <div className="relative py-[10px] flex items-center justify-between max-md:hidden">
-        <div className="flex items-center gap-2">
-          <RiftPixelMark size={24} />
-          <RiftWordmark height={13} fill="#f5f5f2" />
-        </div>
+        <RiftBrandLockup
+          markSize={28}
+          textSize={14}
+          gap={8}
+          className="text-[#f5f5f2]"
+        />
 
         {chatTitle ? (
           <div className="absolute left-1/2 -translate-x-1/2 max-w-[40%] text-center">
@@ -123,10 +124,12 @@ const Header: React.FC<HeaderProps> = ({ chatTitle, hideDownload = false }) => {
 
       {/* Mobile header */}
       <div className="py-3 flex items-center justify-between md:hidden">
-        <div className="flex items-center gap-2">
-          <RiftPixelMark size={22} />
-          <RiftWordmark height={12} fill="#f5f5f2" />
-        </div>
+        <RiftBrandLockup
+          markSize={26}
+          textSize={13}
+          gap={8}
+          className="text-[#f5f5f2]"
+        />
         {!loading && !user && (
           <div className="flex items-center gap-2">
             <Button

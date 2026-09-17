@@ -68,6 +68,29 @@ describe("createDesktopTransferToken", () => {
     );
   });
 
+  it("supports the Vercel KV environment variable names", async () => {
+    const upstashUrl = process.env.UPSTASH_REDIS_REST_URL;
+    const upstashToken = process.env.UPSTASH_REDIS_REST_TOKEN;
+    delete process.env.UPSTASH_REDIS_REST_URL;
+    delete process.env.UPSTASH_REDIS_REST_TOKEN;
+    process.env.KV_REST_API_URL = "https://fake-kv.upstash.io";
+    process.env.KV_REST_API_TOKEN = "fake-kv-token";
+
+    try {
+      await createDesktopTransferToken("sealed-session-data");
+      expect(mockRedis.set).toHaveBeenCalledWith(
+        expect.stringContaining("desktop-auth-transfer:"),
+        expect.any(Object),
+        { ex: 300 },
+      );
+    } finally {
+      process.env.UPSTASH_REDIS_REST_URL = upstashUrl;
+      process.env.UPSTASH_REDIS_REST_TOKEN = upstashToken;
+      delete process.env.KV_REST_API_URL;
+      delete process.env.KV_REST_API_TOKEN;
+    }
+  });
+
   it("stores the optional return path with the transfer token", async () => {
     await createDesktopTransferToken("sealed-session-data", {
       returnPath: "/#pricing",

@@ -14,6 +14,9 @@ jest.mock("@/convex/_generated/api", () => ({
 }));
 
 jest.mock("@/lib/db/convex-client", () => ({
+  ...jest.requireActual<typeof import("@/lib/db/convex-client")>(
+    "@/lib/db/convex-client",
+  ),
   getConvexClient: () => ({
     query: mockQuery,
   }),

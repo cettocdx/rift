@@ -82,6 +82,16 @@ export async function retryWithBackoff<T>(
     } catch (error) {
       lastError = error;
 
+      // Cancellation can happen while the operation is settling. Do not turn
+      // it into a transient failure or sleep before noticing Stop.
+      if (signal?.aborted)
+        throw new DOMException("Operation aborted", "AbortError");
+      if (
+        (error instanceof DOMException || error instanceof Error) &&
+        error.name === "AbortError"
+      )
+        throw error;
+
       // Check if this is a permanent error (sandbox terminated/not found)
       if (isPermanentError(error)) {
         logger(
@@ -115,22 +125,18 @@ export async function retryWithBackoff<T>(
 
       // Wait before retrying (abort-aware)
       await new Promise<void>((resolve, reject) => {
-        const timeout = setTimeout(resolve, delayMs);
-        if (signal) {
-          const onAbort = () => {
-            clearTimeout(timeout);
-            retryLogger(
-              `Retry aborted during backoff delay (attempt ${attempt + 1}/${maxRetries}, delayMs: ${delayMs}, reason: signal_aborted_during_delay)`,
-            );
-            reject(new DOMException("Operation aborted", "AbortError"));
-          };
-          signal.addEventListener("abort", onAbort, { once: true });
-          // Clean up listener if timeout completes normally
-          setTimeout(
-            () => signal.removeEventListener("abort", onAbort),
-            delayMs + 1,
-          );
-        }
+        const onAbort = () => {
+          clearTimeout(timeout);
+          signal?.removeEventListener("abort", onAbort);
+          reject(new DOMException("Operation aborted", "AbortError"));
+        };
+        const timeout = setTimeout(() => {
+          signal?.removeEventListener("abort", onAbort);
+          resolve();
+        }, delayMs);
+        signal?.addEventListener("abort", onAbort, { once: true });
+        // Covers an abort between the failed operation/logger and listener setup.
+        if (signal?.aborted) onAbort();
       });
     }
   }

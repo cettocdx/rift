@@ -1,18 +1,22 @@
 "use client";
 
 import { useState } from "react";
+import { mockBillingQueryArgs } from "@/lib/billing/mock-billing";
 import { useQuery, useMutation, useAction } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import { formatTokens } from "@/lib/billing/token-display";
+import { getFreeRequestLimit } from "@/lib/rate-limit/free-config";
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
 import { toast } from "sonner";
 import {
+  AddOnCreditsDialog,
   TurnOffExtraUsageDialog,
-  BuyExtraUsageDialog,
   AdjustSpendingLimitDialog,
   AutoReloadDialog,
 } from "@/app/components/extra-usage";
+import { Coins } from "lucide-react";
+import { cn } from "@/lib/utils";
 
 const ExtraUsageSection = () => {
   // User customization for extra usage enabled flag
@@ -24,27 +28,33 @@ const ExtraUsageSection = () => {
   );
 
   // Extra usage settings (balance and auto-reload config)
-  const extraUsageSettings = useQuery(api.extraUsage.getExtraUsageSettings);
+  const extraUsageSettings = useQuery(
+    api.extraUsage.getExtraUsageSettings,
+    mockBillingQueryArgs(),
+  );
   const updateExtraUsageSettings = useMutation(
     api.extraUsage.updateExtraUsageSettings,
   );
 
-  // Convex actions for Stripe operations
+  // Convex actions. Card payments + subscriptions now go through LemonSqueezy
+  // (merchant of record, handles VAT). getPaymentStatus is still used to gate
+  // auto-reload (which uses the saved Stripe card).
   const getPaymentStatus = useAction(api.extraUsageActions.getPaymentStatus);
-  const createPurchaseSession = useAction(
-    api.extraUsageActions.createPurchaseSession,
+  const createLemonsqueezySubscription = useAction(
+    api.extraUsageActions.createLemonsqueezySubscription,
   );
+  const activeSubscription = useQuery(api.subscriptions.getActiveSubscription);
 
   // Loading states
   const [isTogglingExtraUsage, setIsTogglingExtraUsage] = useState(false);
-  const [isPurchasing, setIsPurchasing] = useState(false);
+  const [isUpgrading, setIsUpgrading] = useState<null | "pro" | "ultra">(null);
   const [isSavingSettings, setIsSavingSettings] = useState(false);
 
   // Dialog states
   const [showTurnOffDialog, setShowTurnOffDialog] = useState(false);
-  const [showBuyDialog, setShowBuyDialog] = useState(false);
   const [showSpendingLimitDialog, setShowSpendingLimitDialog] = useState(false);
   const [showAutoReloadDialog, setShowAutoReloadDialog] = useState(false);
+  const [showAddOnCreditsDialog, setShowAddOnCreditsDialog] = useState(false);
 
   // Extra usage toggle handler
   const handleToggleExtraUsage = async (enabled: boolean) => {
@@ -94,25 +104,24 @@ const ExtraUsageSection = () => {
     }
   };
 
-  // Purchase credits (redirects to Stripe Checkout with saved cards shown)
-  const handlePurchaseCredits = async (amountDollars: number) => {
-    setIsPurchasing(true);
+  // Subscribe to / upgrade a plan (Pro or Max → "ultra") via LemonSqueezy.
+  const handleUpgrade = async (tier: "pro" | "ultra") => {
+    setIsUpgrading(tier);
     try {
-      const result = await createPurchaseSession({
-        amountDollars,
+      const result = await createLemonsqueezySubscription({
+        tier,
         baseUrl: window.location.origin,
       });
-
       if (result.url) {
         window.location.href = result.url;
       } else {
-        toast.error(result.error || "Failed to create checkout session");
+        toast.error(result.error || "Could not start checkout");
+        setIsUpgrading(null);
       }
     } catch (error) {
-      console.error("Failed to purchase credits:", error);
-      toast.error("Failed to purchase credits");
-    } finally {
-      setIsPurchasing(false);
+      console.error("Failed to start subscription checkout:", error);
+      toast.error("Could not start checkout");
+      setIsUpgrading(null);
     }
   };
 
@@ -172,7 +181,6 @@ const ExtraUsageSection = () => {
     }
   };
 
-  const balanceDollars = extraUsageSettings?.balanceDollars ?? 0;
   const balancePoints = extraUsageSettings?.balancePoints ?? 0;
   const autoReloadEnabled = extraUsageSettings?.autoReloadEnabled ?? false;
   const autoReloadDisabledReason = extraUsageSettings?.autoReloadDisabledReason;
@@ -184,8 +192,75 @@ const ExtraUsageSection = () => {
   const getUsageColorClass = (percentage: number): string => {
     if (percentage >= 90) return "bg-red-500";
     if (percentage >= 70) return "bg-orange-500";
-    return "bg-blue-500";
+    return "bg-primary";
   };
+
+  const isLoading =
+    userCustomization === undefined ||
+    extraUsageSettings === undefined ||
+    activeSubscription === undefined;
+
+  if (isLoading) {
+    return (
+      <section
+        data-testid="extra-usage-loading"
+        role="status"
+        aria-label="Loading usage and billing settings"
+        aria-busy="true"
+        className="space-y-4"
+      >
+        <span className="sr-only">Loading usage and billing settings</span>
+        <div className="space-y-2 border-b border-border pb-5">
+          <div className="h-3 w-16 animate-pulse rounded bg-muted motion-reduce:animate-none" />
+          <div className="h-3 w-3/4 animate-pulse rounded bg-muted motion-reduce:animate-none" />
+          <div className="grid gap-3 pt-2 sm:grid-cols-3">
+            {[0, 1, 2].map((item) => (
+              <div
+                key={item}
+                aria-hidden
+                className="h-32 animate-pulse rounded-md border border-border bg-muted/35 motion-reduce:animate-none"
+              />
+            ))}
+          </div>
+        </div>
+        <div className="h-10 animate-pulse rounded-md bg-muted/35 motion-reduce:animate-none" />
+      </section>
+    );
+  }
+
+  const currentTier: "free" | "pro" | "ultra" = activeSubscription
+    ? activeSubscription.tier === "ultra"
+      ? "ultra"
+      : "pro"
+    : "free";
+  const canPurchaseAddOns =
+    activeSubscription?.tier === "pro" || activeSubscription?.tier === "ultra";
+  const includedCredits = extraUsageSettings?.includedCredits;
+  const includedCreditsAreExhausted = includedCredits?.remaining === 0;
+  const includedCreditsAreLow = Boolean(
+    includedCredits &&
+    includedCredits.total > 0 &&
+    includedCredits.remaining / includedCredits.total <= 0.1,
+  );
+  const creditsAreExhausted =
+    canPurchaseAddOns && includedCreditsAreExhausted && balancePoints === 0;
+  const creditsAreLow =
+    canPurchaseAddOns &&
+    !creditsAreExhausted &&
+    includedCreditsAreLow &&
+    balancePoints <= 50_000;
+  const addOnTitle = creditsAreExhausted
+    ? "Credits exhausted"
+    : creditsAreLow
+      ? "Credits running low"
+      : "Add-on credits";
+  const addOnDescription = !canPurchaseAddOns
+    ? "One-time credit packs become available after you activate Pro or Max."
+    : creditsAreExhausted
+      ? "Add credits now to keep Build and Studio running without waiting for the monthly reset."
+      : creditsAreLow
+        ? "Top up before active model and tool runs reach your remaining balance."
+        : "Add one-time credits on top of your monthly allowance. They never expire.";
 
   return (
     <>
@@ -193,6 +268,249 @@ const ExtraUsageSection = () => {
         data-testid="extra-usage-section"
         className="flex flex-col gap-6"
       >
+        {/* Plans — subscribe/upgrade via LemonSqueezy */}
+        {(() => {
+          const PLANS = [
+            {
+              tier: "free" as const,
+              name: "Free",
+              price: "$0",
+              cadence: "",
+              features: [
+                `${getFreeRequestLimit()} questions per day`,
+                "1 full agent run each month",
+                "Build and Studio access",
+                "Isolated cloud sandbox",
+              ],
+            },
+            {
+              tier: "pro" as const,
+              name: "Pro",
+              price: "$39",
+              cadence: "/mo",
+              features: [
+                "500,000 credits every month",
+                "All Build and Studio models",
+                "Unlimited chats & projects",
+                "Priority sandboxes",
+              ],
+            },
+            {
+              tier: "ultra" as const,
+              name: "Max",
+              price: "$129",
+              cadence: "/mo",
+              features: [
+                "Exclusive Hack Workbench access",
+                "1,800,000 credits every month",
+                "Personal API keys",
+                "Highest limits & priority",
+                "Early access to new tools",
+              ],
+            },
+          ];
+          const rank = { free: 0, pro: 1, ultra: 2 } as const;
+          return (
+            <div className="w-full flex flex-col gap-3 border-b border-border pb-6">
+              <div className="flex flex-col gap-0.5">
+                <p className="text-sm font-medium">Plan</p>
+                <p className="text-sm text-muted-foreground">
+                  {currentTier === "free"
+                    ? "You're on the free plan. Upgrade for monthly Build and Studio credits; Hack Workbench is exclusive to Max."
+                    : `You're on ${currentTier === "ultra" ? "Max" : "Pro"}. Thanks for supporting RIFT.`}
+                </p>
+              </div>
+              <div className="grid gap-3 sm:grid-cols-3">
+                {PLANS.map((plan) => {
+                  const isCurrent = plan.tier === currentTier;
+                  const isUpgrade = rank[plan.tier] > rank[currentTier];
+                  const featured = plan.tier === "pro";
+                  return (
+                    <div
+                      key={plan.tier}
+                      className={`relative flex flex-col rounded-xl border p-4 ${
+                        isCurrent
+                          ? "border-primary/60 bg-primary/[0.06]"
+                          : featured
+                            ? "border-primary/30 bg-card"
+                            : "border-border bg-card"
+                      }`}
+                    >
+                      {isCurrent && (
+                        <span className="absolute -top-2 left-4 rounded-full bg-primary px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-primary-foreground">
+                          Current
+                        </span>
+                      )}
+                      <div className="flex items-baseline justify-between">
+                        <span className="text-sm font-semibold">
+                          {plan.name}
+                        </span>
+                        <span className="text-sm text-muted-foreground">
+                          <span className="font-semibold text-foreground">
+                            {plan.price}
+                          </span>
+                          {plan.cadence}
+                        </span>
+                      </div>
+                      <ul className="mt-3 flex flex-1 flex-col gap-1.5">
+                        {plan.features.map((f) => (
+                          <li
+                            key={f}
+                            className="flex items-start gap-1.5 text-[12.5px] text-muted-foreground"
+                          >
+                            <span className="mt-1.5 size-1 shrink-0 rounded-full bg-primary" />
+                            {f}
+                          </li>
+                        ))}
+                      </ul>
+                      {plan.tier !== "free" && isUpgrade && (
+                        <Button
+                          variant={featured ? "default" : "outline"}
+                          size="sm"
+                          className="mt-4"
+                          disabled={isUpgrading !== null}
+                          onClick={() => handleUpgrade(plan.tier)}
+                          aria-label={`Upgrade to ${plan.name}`}
+                        >
+                          {isUpgrading === plan.tier
+                            ? "Redirecting…"
+                            : currentTier === "free"
+                              ? `Upgrade to ${plan.name}`
+                              : `Switch to ${plan.name}`}
+                        </Button>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          );
+        })()}
+
+        {/* The monthly allowance, shown.
+            This number was computed and then only ever used to decide whether
+            to colour a warning — so the page told you a plan "includes
+            1,800,000 credits a month" and never once said how many of them you
+            still had. */}
+        {includedCredits ? (
+          <section
+            aria-labelledby="billing-included-credits-heading"
+            className="rounded-lg border border-border/80 bg-background p-4"
+          >
+            <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
+              <h3
+                id="billing-included-credits-heading"
+                className="text-[14px] font-semibold text-foreground"
+              >
+                Included credits
+              </h3>
+              <p
+                data-testid="included-credits-remaining"
+                className="text-[13px] tabular-nums text-foreground"
+              >
+                {formatTokens(includedCredits.remaining)}
+                <span className="text-muted-foreground">
+                  {" "}
+                  of {formatTokens(includedCredits.total)} left
+                </span>
+              </p>
+            </div>
+            <div
+              role="progressbar"
+              aria-valuemin={0}
+              aria-valuemax={includedCredits.total}
+              aria-valuenow={includedCredits.remaining}
+              aria-label="Included credits remaining"
+              className="mt-3 h-1.5 w-full overflow-hidden rounded-full bg-muted"
+            >
+              <div
+                className={cn(
+                  "h-full rounded-full transition-[width] duration-500",
+                  includedCreditsAreExhausted
+                    ? "bg-destructive"
+                    : includedCreditsAreLow
+                      ? "bg-foreground/60"
+                      : "bg-foreground",
+                )}
+                style={{
+                  width: `${
+                    includedCredits.total > 0
+                      ? Math.max(
+                          0,
+                          Math.min(
+                            100,
+                            (includedCredits.remaining /
+                              includedCredits.total) *
+                              100,
+                          ),
+                        )
+                      : 0
+                  }%`,
+                }}
+              />
+            </div>
+            <p className="mt-2 text-[12px] leading-4 text-muted-foreground">
+              {formatTokens(includedCredits.used)} used this cycle. Resets with
+              your monthly allowance; add-on credits below never expire.
+            </p>
+          </section>
+        ) : null}
+
+        <section
+          aria-labelledby="billing-add-on-credits-heading"
+          className={cn(
+            "flex flex-col gap-4 rounded-lg border p-4 sm:flex-row sm:items-center sm:justify-between",
+            creditsAreExhausted
+              ? "border-destructive/35 bg-destructive/[0.07]"
+              : creditsAreLow
+                ? "border-foreground/20 bg-muted/35"
+                : "border-border/80 bg-card/[0.16]",
+          )}
+        >
+          <div className="flex min-w-0 items-start gap-3">
+            <span className="flex size-9 shrink-0 items-center justify-center rounded-lg border border-border/70 bg-background/60">
+              <Coins
+                className={cn(
+                  "size-4",
+                  creditsAreExhausted
+                    ? "text-destructive"
+                    : "text-muted-foreground",
+                )}
+                aria-hidden="true"
+              />
+            </span>
+            <div className="min-w-0">
+              <h3
+                id="billing-add-on-credits-heading"
+                className="text-[14px] font-semibold text-foreground"
+              >
+                {addOnTitle}
+              </h3>
+              <p className="mt-1 max-w-xl text-[13px] leading-5 text-muted-foreground">
+                {addOnDescription}
+              </p>
+              <p className="mt-1.5 text-[12px] tabular-nums text-foreground/80">
+                Add-on balance: {formatTokens(balancePoints)} credits
+              </p>
+            </div>
+          </div>
+          <Button
+            type="button"
+            size="sm"
+            variant={creditsAreExhausted ? "default" : "outline"}
+            className="shrink-0 whitespace-nowrap active:translate-y-px"
+            disabled={!canPurchaseAddOns}
+            title={
+              canPurchaseAddOns
+                ? undefined
+                : "Add-on credits require an active Pro or Max plan"
+            }
+            onClick={() => setShowAddOnCreditsDialog(true)}
+          >
+            {canPurchaseAddOns ? "Add credits" : "Pro or Max required"}
+          </Button>
+        </section>
+
         {/* Toggle Row */}
         <div className="w-full min-w-0 flex flex-row gap-x-8 gap-y-3 justify-between items-center">
           <div className="w-full min-w-0 flex flex-row gap-4 items-center">
@@ -247,9 +565,9 @@ const ExtraUsageSection = () => {
                     <div className="flex-1">
                       <div className="relative h-2 w-full overflow-hidden rounded-full bg-muted">
                         <div
-                          className={`h-full transition-all duration-500 ${getUsageColorClass((monthlySpentDollars / effectiveCapDollars) * 100)}`}
+                          className={`h-full w-full origin-left transition-transform duration-500 ease-linear motion-reduce:transition-none ${getUsageColorClass((monthlySpentDollars / effectiveCapDollars) * 100)}`}
                           style={{
-                            width: `${Math.min(100, (monthlySpentDollars / effectiveCapDollars) * 100)}%`,
+                            transform: `scaleX(${Math.min(100, (monthlySpentDollars / effectiveCapDollars) * 100) / 100})`,
                           }}
                         />
                       </div>
@@ -307,8 +625,8 @@ const ExtraUsageSection = () => {
                     onClick={() => setShowAutoReloadDialog(true)}
                     className={
                       autoReloadEnabled
-                        ? "text-green-500 underline hover:text-green-400"
-                        : "text-red-500 underline hover:text-red-400"
+                        ? "text-success underline hover:text-success/80"
+                        : "text-destructive underline hover:text-destructive/80"
                     }
                     aria-label="Configure auto-reload"
                     tabIndex={0}
@@ -319,7 +637,7 @@ const ExtraUsageSection = () => {
                 {!autoReloadEnabled && autoReloadDisabledReason && (
                   <div
                     role="alert"
-                    className="mt-2 rounded-md border border-red-500/30 bg-red-500/10 px-3 py-2 text-sm text-red-500"
+                    className="mt-2 rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive"
                   >
                     Auto-reload was turned off because your card kept failing
                     {`: ${autoReloadDisabledReason}`}. Update your payment
@@ -327,17 +645,6 @@ const ExtraUsageSection = () => {
                   </div>
                 )}
               </div>
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => setShowBuyDialog(true)}
-                disabled={isPurchasing}
-                className="min-w-[5rem]"
-                aria-label="Buy tokens"
-                tabIndex={0}
-              >
-                Buy tokens
-              </Button>
             </div>
           </>
         )}
@@ -349,13 +656,6 @@ const ExtraUsageSection = () => {
         onOpenChange={setShowTurnOffDialog}
         onConfirm={handleConfirmTurnOff}
         isLoading={isTogglingExtraUsage}
-      />
-
-      <BuyExtraUsageDialog
-        open={showBuyDialog}
-        onOpenChange={setShowBuyDialog}
-        onPurchase={handlePurchaseCredits}
-        isLoading={isPurchasing}
       />
 
       <AdjustSpendingLimitDialog
@@ -380,6 +680,11 @@ const ExtraUsageSection = () => {
         currentAmountDollars={
           extraUsageSettings?.autoReloadAmountDollars ?? null
         }
+      />
+
+      <AddOnCreditsDialog
+        open={showAddOnCreditsDialog}
+        onOpenChange={setShowAddOnCreditsDialog}
       />
     </>
   );

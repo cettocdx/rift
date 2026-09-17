@@ -219,7 +219,12 @@ const transformTerminalToolPart = (
 ): BaseToolPart => {
   const stdout = terminalDataMap.get(terminalPart.toolCallId) || "";
 
-  // Shell tool returns { output: string } directly, not nested in result
+  // Shell tool returns { output: string } directly, not nested in result.
+  // The command was interrupted, not completed: mark it aborted rather than
+  // inventing a terminated-process result. A synthetic exit code reads as a
+  // real one to every consumer downstream -- the row, the model context, the
+  // compaction summary -- so an interruption gets recorded as a genuine
+  // failure that never happened. `aborted` says only what is true.
   if (terminalPart.type === "tool-shell") {
     return {
       type: "tool-shell",
@@ -227,9 +232,8 @@ const transformTerminalToolPart = (
       state: "output-available",
       input: terminalPart.input,
       output: {
-        output:
-          stdout ||
-          (stdout.length === 0 ? "Command was stopped/aborted by user" : ""),
+        output: stdout,
+        aborted: true,
       },
     };
   }
@@ -241,10 +245,10 @@ const transformTerminalToolPart = (
     input: terminalPart.input,
     output: {
       result: {
-        exitCode: 130, // Standard exit code for SIGINT (interrupted)
-        stdout: stdout,
-        stderr:
-          stdout.length === 0 ? "Command was stopped/aborted by user" : "",
+        // No exitCode: the process did not report one. It was stopped before
+        // it could.
+        output: stdout,
+        aborted: true,
       },
     },
   };

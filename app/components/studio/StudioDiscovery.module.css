@@ -1,0 +1,51 @@
+.title {
+  font-size: var(--rift-type-title, calc(var(--rift-ui-font-size, 13px) + 5px));
+  line-height: 1.35;
+}
+
+.body {
+  font-size: var(--rift-type-body, var(--rift-ui-font-size, 13px));
+  line-height: 1.5;
+}
+
+.label {
+  font-size: var(--rift-type-label, calc(var(--rift-ui-font-size, 13px) - 1px));
+  line-height: 1.5;
+}
+
+.caption {
+  font-size: var(
+    --rift-type-caption,
+    calc(var(--rift-ui-font-size, 13px) - 2px)
+  );
+  line-height: 1.5;
+}
+
+/* Shared by discovery and every Studio loading boundary. */
+.stageGrid {
+  display: grid;
+  min-width: 0;
+}
+
+.referenceStage {
+  position: relative;
+  min-height: 300px;
+  overflow: hidden;
+}
+
+@media (min-width: 768px) {
+  .stageGrid {
+    grid-template-columns: minmax(0, 1fr) 260px;
+  }
+}
+
+/* Keep a useful amount of the model name when UI text is enlarged. */
+.modelCard {
+  width: max(176px, 13.5em);
+  font-size: var(--rift-type-body, var(--rift-ui-font-size, 13px));
+}
+
+.skeleton {
+  border-radius: 5px;
+  background: var(--muted);
+}

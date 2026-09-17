@@ -26,6 +26,7 @@ jest.mock("../_generated/api", () => ({
     fileStorage: {
       getUserStorageUsage: "internal.fileStorage.getUserStorageUsage",
       createPendingS3File: "internal.fileStorage.createPendingS3File",
+      generateConvexUploadUrl: "internal.fileStorage.generateConvexUploadUrl",
     },
   },
 }));
@@ -48,6 +49,15 @@ describe("s3Actions", () => {
       limit: 400,
       reset: Date.now() + 5 * 60 * 60 * 1000,
     });
+
+    // Most tests in this suite exercise the S3 branch. `s3Utils` is fully
+    // mocked, so its configuration probe otherwise returns `undefined` and
+    // sends the action through the Convex-storage fallback instead.
+    const { isS3Configured } = await import("../s3Utils");
+    const mockIsS3Configured = isS3Configured as jest.MockedFunction<
+      typeof isS3Configured
+    >;
+    mockIsS3Configured.mockReturnValue(true);
 
     // Setup environment variables
     process.env.AWS_S3_ACCESS_KEY_ID = "test-access-key";
@@ -94,6 +104,7 @@ describe("s3Actions", () => {
       });
 
       expect(result).toEqual({
+        backend: "s3",
         uploadUrl: "https://s3.amazonaws.com/test-upload-url",
         s3Key: "users/user123/123-uuid-test.pdf",
         rateLimit: {
@@ -127,10 +138,14 @@ describe("s3Actions", () => {
       );
     });
 
-    it("should reject free users before generating an upload URL", async () => {
+    it("should allow signed-in free users to generate an upload URL", async () => {
       const { generateS3UploadUrl } = await import("../s3Utils");
       const mockGenerateS3UploadUrl =
         generateS3UploadUrl as jest.MockedFunction<typeof generateS3UploadUrl>;
+      mockGenerateS3UploadUrl.mockResolvedValue({
+        uploadUrl: "https://s3.amazonaws.com/test-upload-url",
+        s3Key: "users/free-user/123-uuid-test.pdf",
+      });
       const { generateS3UploadUrlAction } = await import("../s3Actions");
 
       const mockCtx: any = {
@@ -141,22 +156,32 @@ describe("s3Actions", () => {
             entitlements: [],
           }),
         },
-        runQuery: jest.fn<any>(),
+        runQuery: jest.fn<any>().mockResolvedValue({
+          usedBytes: 0,
+          maxBytes: 10 * 1024 * 1024 * 1024,
+          availableBytes: 10 * 1024 * 1024 * 1024,
+        }),
+        runMutation: jest.fn<any>().mockResolvedValue("file_123"),
       };
 
-      await expect(
-        generateS3UploadUrlAction.handler(mockCtx, {
-          fileName: "test.pdf",
-          contentType: "application/pdf",
-          size: 1024,
-        }),
-      ).rejects.toMatchObject({
-        data: expect.objectContaining({ code: "PAID_PLAN_REQUIRED" }),
+      const result = await generateS3UploadUrlAction.handler(mockCtx, {
+        fileName: "test.pdf",
+        contentType: "application/pdf",
+        size: 1024,
       });
 
-      expect(mockCtx.runQuery).not.toHaveBeenCalled();
-      expect(mockCheckFileUploadRateLimit).not.toHaveBeenCalled();
-      expect(mockGenerateS3UploadUrl).not.toHaveBeenCalled();
+      expect(result).toMatchObject({
+        backend: "s3",
+        uploadUrl: "https://s3.amazonaws.com/test-upload-url",
+        s3Key: "users/free-user/123-uuid-test.pdf",
+      });
+      expect(mockCtx.runQuery).toHaveBeenCalled();
+      expect(mockCheckFileUploadRateLimit).toHaveBeenCalledWith(
+        "free-user",
+        true,
+        { entitlements: [] },
+      );
+      expect(mockGenerateS3UploadUrl).toHaveBeenCalled();
     });
 
     it("should reject missing size before generating an upload URL", async () => {
@@ -475,6 +500,7 @@ describe("s3Actions", () => {
       });
 
       expect(result).toEqual({
+        backend: "s3",
         uploadUrl: "https://s3.amazonaws.com/test-upload-url",
         s3Key: "users/user123/123-uuid-test.pdf",
         rateLimit: undefined,
@@ -1803,6 +1829,89 @@ describe("s3Actions", () => {
       });
 
       expect(result).toEqual([null]);
+    });
+  });
+
+  describe("generateSandboxUploadUrlAction", () => {
+    // The agent's sandbox uploader used to call the raw S3 helper, which throws
+    // without AWS credentials. That bypassed the fallback every other upload
+    // path gets and made `file` view previews fail outright on a deployment
+    // that never configured S3 -- a configuration the product supports.
+    const args = {
+      serviceKey: "svc",
+      userId: "user123",
+      fileName: "shot.png",
+      contentType: "image/png",
+      size: 2048,
+    };
+
+    it("falls back to Convex storage when S3 is not configured", async () => {
+      const { isS3Configured } = await import("../s3Utils");
+      (isS3Configured as jest.MockedFunction<typeof isS3Configured>)
+        .mockReturnValue(false);
+
+      const { generateSandboxUploadUrlAction } = await import("../s3Actions");
+      const ctx = {
+        runMutation: jest
+          .fn<any>()
+          .mockResolvedValue("https://convex.example/upload"),
+      };
+
+      const result = await (generateSandboxUploadUrlAction as any).handler(
+        ctx,
+        args,
+      );
+
+      expect(result).toEqual({
+        backend: "convex",
+        uploadUrl: "https://convex.example/upload",
+      });
+      expect(ctx.runMutation).toHaveBeenCalledWith(
+        "internal.fileStorage.generateConvexUploadUrl",
+        {},
+      );
+    });
+
+    it("uses S3 when it is configured", async () => {
+      const { generateS3UploadUrl } = await import("../s3Utils");
+      (
+        generateS3UploadUrl as jest.MockedFunction<typeof generateS3UploadUrl>
+      ).mockResolvedValue({
+        uploadUrl: "https://s3.example/upload",
+        s3Key: "users/user123/shot.png",
+      });
+
+      const { generateSandboxUploadUrlAction } = await import("../s3Actions");
+      const ctx = { runMutation: jest.fn<any>().mockResolvedValue(undefined) };
+
+      const result = await (generateSandboxUploadUrlAction as any).handler(
+        ctx,
+        args,
+      );
+
+      expect(result).toEqual({
+        backend: "s3",
+        uploadUrl: "https://s3.example/upload",
+        s3Key: "users/user123/shot.png",
+      });
+    });
+
+    it("rejects a caller without the service key", async () => {
+      const { validateServiceKey } = await import("../lib/utils");
+      (
+        validateServiceKey as jest.MockedFunction<typeof validateServiceKey>
+      ).mockImplementation(() => {
+        throw new Error("Unauthorized: Invalid service key");
+      });
+
+      const { generateSandboxUploadUrlAction } = await import("../s3Actions");
+
+      await expect(
+        (generateSandboxUploadUrlAction as any).handler(
+          { runMutation: jest.fn() },
+          args,
+        ),
+      ).rejects.toThrow(/Invalid service key/);
     });
   });
 });

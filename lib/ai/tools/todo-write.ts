@@ -4,9 +4,15 @@ import type { ToolContext, Todo } from "@/types";
 
 export const createTodoWrite = (context: ToolContext) => {
   const { todoManager, assistantMessageId } = context;
+  const isBuild = context.purpose === "app";
+  const buildDescription = `Publish and maintain the observable execution plan for a complex Build request.
+
+Use this for work with three or more meaningful implementation or verification steps. Each todo content value is rendered as a public progress label, so write a specific named action of roughly 2-7 words, such as "Mapping the existing navigation", "Implementing the responsive shell", or "Verifying keyboard and theme states". Never use generic labels such as "Working", "Step 1", "Phase 2", "Do task", or private chain-of-thought. Keep exactly one item in_progress. Mark it completed as soon as its observable outcome is done, then start the next applicable item. Include final type/test/build and rendered-flow verification when the task changes a frontend. Replace the plan when scope changes; merge only status or content updates into the current plan. Do not end the run while an applicable item is pending or in progress.`;
 
   return tool({
-    description: `Use this tool to create and manage a structured task list for your penetration testing session. This helps track progress, organize complex security assessments, and ensure thorough coverage.
+    description: isBuild
+      ? buildDescription
+      : `Use this tool to create and manage a structured task list for your penetration testing session. This helps track progress, organize complex security assessments, and ensure thorough coverage.
 
 Note: Other than when first creating todos, don't tell the user you're updating todos, just do it.
 
@@ -142,7 +148,12 @@ When in doubt, use this tool. Systematic task management ensures comprehensive s
             id: z.string().describe("Unique identifier for the todo item"),
             content: z
               .string()
-              .describe("The description/content of the todo item"),
+              .optional()
+              .describe(
+                isBuild
+                  ? "A concise, public, named Build action (roughly 2-7 words), not private reasoning or a generic numbered step."
+                  : "The description/content of the todo item",
+              ),
             status: z
               .enum(["pending", "in_progress", "completed", "cancelled"])
               .describe("The current status of the todo item"),
@@ -163,6 +174,18 @@ When in doubt, use this tool. Systematic task management ensures comprehensive s
       }>;
     }) => {
       try {
+        if (merge) {
+          const existingIds = new Set(
+            todoManager.getAllTodos().map((todo) => todo.id),
+          );
+          for (const todo of todos) {
+            if (!existingIds.has(todo.id) && !todo.content?.trim()) {
+              throw new Error(
+                `New todo ${todo.id} is missing required content field`,
+              );
+            }
+          }
+        }
         // Runtime validation for non-merge operations
         if (!merge) {
           for (let i = 0; i < todos.length; i++) {

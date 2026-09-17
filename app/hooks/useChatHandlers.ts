@@ -1,19 +1,23 @@
+import { createDispatchReceiptMetadata } from "@/lib/chat/dispatch-receipt";
+import {
+  needsWorkReconciliation,
+  RECONCILE_WORK_REQUEST,
+} from "@/lib/chat/recovery-request";
 import { RefObject, useEffect, useRef } from "react";
 import { useMutation } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import { useGlobalState } from "../contexts/GlobalState";
+import { onLaunchOperation } from "@/lib/utils/launch-operation";
+import { onSubmitChatMessage } from "@/lib/utils/submit-message";
 import { useInputApi } from "../contexts/InputContext";
 import { useLatestRef } from "@/app/hooks/useLatestRef";
 import { isTauriEnvironment } from "@/app/hooks/useTauri";
 import { shouldUseAgentLongForAgent } from "@/lib/chat/agent-routing";
 import { isAgentMode } from "@/lib/utils/mode-helpers";
-import type { ChatMessage, ChatStatus } from "@/types";
+import type { ChatMessage, ChatMode, ChatStatus } from "@/types";
 import { Id } from "@/convex/_generated/dataModel";
-import {
-  countInputTokens,
-  getMaxTokensForSubscription,
-  getMaxFileTokens,
-} from "@/lib/token-utils";
+import { countInputTokens } from "@/lib/client-token-estimate";
+import { getMaxFileTokens, getMessageTokenBudget } from "@/lib/token-limits";
 import { toast } from "sonner";
 import { removeTodosBySourceMessages } from "@/lib/utils/todo-utils";
 import { useDataStreamDispatch } from "@/app/components/DataStreamProvider";
@@ -27,11 +31,18 @@ import {
   getMaxFilesLimitForMode,
 } from "@/lib/utils/file-utils";
 import { hasRestageableLocalDesktopAttachments } from "@/lib/utils/local-attachment-messages";
+import { resolveMediaRequest } from "@/lib/ai/media-intent";
+import { resolveChatModeForPurpose } from "@/types/chat";
+import { prepareWorkingFileRequest } from "@/lib/composer/working-file-request";
+import { readWorkingFileRequestContext } from "@/lib/composer/working-file-store";
 
 interface UseChatHandlersProps {
   chatId: string;
   messages: ChatMessage[];
-  sendMessage: (message?: any, options?: { body?: any }) => void;
+  sendMessage: (
+    message?: any,
+    options?: { body?: any; metadata?: unknown },
+  ) => void | Promise<void>;
   stop: () => void;
   regenerate: (options?: { body?: any }) => void;
   setMessages: (
@@ -43,6 +54,7 @@ interface UseChatHandlersProps {
   hasManuallyStoppedRef: RefObject<boolean>;
   onStopCallback?: () => void;
   resetAutoContinueCount?: () => void;
+  retryError?: Error;
 }
 
 export const useChatHandlers = ({
@@ -58,24 +70,30 @@ export const useChatHandlers = ({
   hasManuallyStoppedRef,
   onStopCallback,
   resetAutoContinueCount,
+  retryError,
 }: UseChatHandlersProps) => {
   const { setIsAutoResuming } = useDataStreamDispatch();
   const { inputRef, clearInput } = useInputApi();
   const {
     uploadedFiles,
     chatMode,
+    setChatMode,
     clearUploadedFiles,
     todos,
     setTodos,
     isUploadingFiles,
     subscription,
+    hasPaidContext,
     temporaryChatsEnabled,
     queueMessage,
-    messageQueue,
-    removeQueuedMessage,
+    claimQueuedMessage,
     queueBehavior,
     sandboxPreference,
     selectedModel,
+    setSelectedModel,
+    chatPurpose,
+    desktopBridgeActive,
+    isSelectedSandboxAvailable,
   } = useGlobalState();
 
   // Avoid stale closure on temporary flag
@@ -91,6 +109,34 @@ export const useChatHandlers = ({
   const chatModeRef = useLatestRef(chatMode);
   const sandboxPreferenceRef = useLatestRef(sandboxPreference);
   const subscriptionRef = useLatestRef(subscription);
+  const submissionInFlightRef = useRef(false);
+
+  // The legacy operation event is deliberately rejected by the normal chat
+  // transport. Hack Workbench owns its own Max-gated command entry and request
+  // route, so Build and Studio cannot recreate pentest execution through a
+  // palette event (or a forged browser CustomEvent).
+  useEffect(
+    () =>
+      onLaunchOperation(() => {
+        toast.error("Security operations require Hack Workbench", {
+          description:
+            "Open Hack Workbench to run authorized pentest operations.",
+        });
+      }),
+    [],
+  );
+
+  // Programmatic message submit (e.g. Plan-mode question cards): send `text`
+  // as a normal user message in the CURRENT chat mode — no operation badge,
+  // no mode switch. Ref keeps the send config fresh for the once-subscribed
+  // listener.
+  const submitMessageRef = useRef<(text: string) => Promise<boolean>>(
+    async () => false,
+  );
+  useEffect(
+    () => onSubmitChatMessage((text) => submitMessageRef.current(text)),
+    [],
+  );
 
   const isSendableUploadedFile = (file: (typeof uploadedFiles)[number]) =>
     file.uploaded &&
@@ -114,25 +160,49 @@ export const useChatHandlers = ({
     api.tempStreams.cancelTempStreamFromClient,
   );
 
-  // Mirrors the transport routing rule in app/components/chat.tsx. Persistent
-  // chats only; temporary chats use the legacy Redis pub/sub cancel path.
+  // Mirrors the transport routing rule in app/components/chat.tsx. Both
+  // persistent and temporary Agent chats run through Trigger.dev; temporary
+  // chats are resolved server-side through authenticated Trigger tags.
   const shouldCancelTriggerRun = () =>
-    !temporaryChatsEnabledRef.current &&
     shouldUseAgentLongForAgent({
       mode: chatModeRef.current,
       subscription: subscriptionRef.current,
       isTauri: isTauriEnvironment(),
     });
 
-  const cancelTriggerRun = () => {
-    if (!shouldCancelTriggerRun()) return;
-    fetch("/api/agent-long/cancel", {
+  const cancelTriggerRun = async (): Promise<{ chatMissing?: boolean }> => {
+    if (!shouldCancelTriggerRun()) return {};
+    const response = await fetch("/api/agent-long/cancel", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ chatId }),
-    }).catch((error) => {
-      console.error("Failed to cancel trigger.dev run:", error);
+      body: JSON.stringify({
+        chatId,
+        temporary: temporaryChatsEnabledRef.current,
+        allowMissingChat: !isExistingChat,
+      }),
     });
+    if (!response.ok) {
+      throw new Error(`Agent cancellation failed (${response.status})`);
+    }
+    // HTTP success alone does not acknowledge durable cancellation. Unknown
+    // or malformed receipts must preserve the pending replacement request.
+    const result = (await response.json().catch(() => null)) as {
+      canceled?: unknown;
+      reason?: unknown;
+      chatMissing?: unknown;
+    } | null;
+    if (
+      !result ||
+      typeof result !== "object" ||
+      Array.isArray(result) ||
+      !(
+        result.canceled === true ||
+        (result.canceled === false && result.reason === "no_active_run")
+      )
+    ) {
+      throw new Error("Agent cancellation not confirmed");
+    }
+    return { chatMissing: result?.chatMissing === true };
   };
 
   /**
@@ -146,8 +216,17 @@ export const useChatHandlers = ({
     // Stop the stream immediately (client-side abort)
     stop();
 
+    // Also stop the durable server-side run. Several actions (regenerate,
+    // retry, edit, and send-now) share this helper, so keeping cancellation
+    // here prevents an old Trigger.dev run from continuing beside its
+    // replacement and mutating the same workspace concurrently.
+    const triggerCancellationPromise = cancelTriggerRun();
+
     // Early return if no messages to process
-    if (messages.length === 0) return messages;
+    if (messages.length === 0) {
+      await triggerCancellationPromise;
+      return messages;
+    }
 
     // Normalize messages to mark incomplete tools as interrupted/completed
     const { messages: normalizedMessages, hasChanges } =
@@ -200,12 +279,16 @@ export const useChatHandlers = ({
               mode: lastMessage.metadata?.mode ?? chatModeRef.current,
               generationStartedAt,
               generationTimeMs,
+              // Durable marker so this turn stays recognizable as stopped after
+              // the chat's transient canceled_at is cleared by the next run.
+              stopReason: "user",
             }).catch((error) => {
               console.error("Failed to save message on stop:", error);
             })
           : Promise.resolve();
 
       await Promise.all([
+        triggerCancellationPromise,
         cancelStreamMutation({
           chatId,
           skipSave: options?.skipSave || undefined,
@@ -216,182 +299,299 @@ export const useChatHandlers = ({
       ]);
     } else {
       // Temporary chats: signal cancel via temp stream coordination
-      await cancelTempStreamMutation({ chatId }).catch(() => {});
+      await Promise.all([
+        triggerCancellationPromise,
+        cancelTempStreamMutation({ chatId }).catch(() => {}),
+      ]);
     }
 
     return normalizedMessages;
   };
 
-  const handleSubmit = async (e: React.FormEvent) => {
+  const handleSubmit = async (
+    e: React.FormEvent,
+    submission?: {
+      input?: string;
+      mode?: ChatMode;
+      isolated?: boolean;
+      source?: "console" | "programmatic";
+      isCurrent?: () => boolean;
+    },
+  ): Promise<boolean> => {
     e.preventDefault();
-
-    // Read the latest composer text from the ref so this handler does not have
-    // to subscribe to the reactive input value (which would re-render chat.tsx
-    // on every keystroke).
-    const input = inputRef.current;
-
-    setIsAutoResuming(false);
-
-    // Reset manual stop flag when user submits a new message
-    hasManuallyStoppedRef.current = false;
-    resetAutoContinueCount?.();
-
-    // Prevent submission if files are still uploading
-    if (isUploadingFiles) {
-      return;
+    if (submissionInFlightRef.current || submission?.isCurrent?.() === false) {
+      return false;
     }
-    // Allow submission if there's text input or uploaded files
-    const hasValidFiles = uploadedFiles.some(isSendableUploadedFile);
-    if (input.trim() || hasValidFiles) {
-      const maxFilesLimit = getMaxFilesLimitForMode(chatMode);
-      if (uploadedFiles.length > maxFilesLimit) {
-        toast.error("Cannot send files in this mode", {
-          description: `Maximum ${maxFilesLimit} files allowed. Please remove some files or switch modes.`,
-        });
-        return;
-      }
+    submissionInFlightRef.current = true;
+    try {
+      // Read the latest composer text from the ref so this handler does not have
+      // to subscribe to the reactive input value (which would re-render chat.tsx
+      // on every keystroke).
+      const input = submission?.input ?? inputRef.current;
+      // Scratch agent tests are text-only submissions. The user's composer
+      // draft can remain open across routes and must not be sent or cleared.
+      const consoleSubmission = submission?.source === "console";
+      const programmaticSubmission = submission?.source === "programmatic";
+      const isolated =
+        !consoleSubmission &&
+        !programmaticSubmission &&
+        submission?.isolated === true;
+      const preserveComposer =
+        isolated || consoleSubmission || programmaticSubmission;
+      const submissionFiles = preserveComposer ? [] : uploadedFiles;
 
-      const currentChatMode = chatModeRef.current;
-      const hasLocalDesktopFiles = uploadedFiles.some(
-        (file) => file.storage === "local-desktop",
-      );
+      // Check the original-file capability before dispatch or clearing anything.
+      // A live relay alone is insufficient: another folder may keep it connected
+      // after this chat's selected file was revoked.
       if (
-        hasLocalDesktopFiles &&
-        (!isAgentMode(currentChatMode) ||
-          sandboxPreferenceRef.current !== "desktop")
+        !isolated &&
+        chatPurpose === "app" &&
+        readWorkingFileRequestContext(chatId)
       ) {
-        toast.error("Local attachments require desktop Agent mode", {
-          description:
-            "Switch back to Agent mode with the desktop sandbox or reattach the file for upload.",
-        });
-        return;
+        try {
+          await prepareWorkingFileRequest(chatId, desktopBridgeActive);
+        } catch (error) {
+          toast.error(
+            error instanceof Error
+              ? error.message
+              : "Reconnect your working file before sending.",
+          );
+          return false;
+        }
       }
 
-      // If streaming in Agent mode, check queue behavior
-      if (status === "streaming") {
-        const validFiles = uploadedFiles
-          .filter(isSendableUploadedFile)
-          .map(createFileMessagePartFromUploadedFile)
-          .filter((part): part is NonNullable<typeof part> => part !== null);
+      if (submission?.isCurrent?.() === false) return false;
 
-        if (queueBehavior === "queue") {
-          // Queue the message - will auto-send after current response completes
-          queueMessage(input, validFiles);
+      setIsAutoResuming(false);
+
+      // Reset manual stop flag when user submits a new message
+      hasManuallyStoppedRef.current = false;
+      resetAutoContinueCount?.();
+
+      // Prevent submission if files are still uploading
+      if (!preserveComposer && isUploadingFiles) {
+        return false;
+      }
+      // Allow submission if there's text input or uploaded files
+      const hasValidFiles = submissionFiles.some(isSendableUploadedFile);
+      if (input.trim() || hasValidFiles) {
+        const mediaRequest = resolveMediaRequest({
+          purpose: chatPurpose,
+          prompt: input,
+          selectedModel,
+        });
+        const requestedMode = submission?.mode ?? chatModeRef.current;
+        const currentChatMode = resolveChatModeForPurpose({
+          purpose: chatPurpose,
+          selectedModel: mediaRequest.selectedModel,
+          fallbackMode: requestedMode,
+        });
+        if (mediaRequest.selectionChanged) {
+          setSelectedModel(mediaRequest.selectedModel);
+        }
+        if (currentChatMode !== chatModeRef.current) {
+          setChatMode(currentChatMode);
+        }
+        if (
+          isAgentMode(currentChatMode) &&
+          sandboxPreferenceRef.current !== "e2b" &&
+          isSelectedSandboxAvailable === false
+        ) {
+          toast.error("The selected computer is disconnected", {
+            description:
+              "Reconnect that computer or choose another execution target. Your draft is kept.",
+          });
+          return false;
+        }
+
+        const maxFilesLimit = getMaxFilesLimitForMode(currentChatMode);
+        if (submissionFiles.length > maxFilesLimit) {
+          toast.error("Cannot send files in this mode", {
+            description: `Maximum ${maxFilesLimit} files allowed. Please remove some files or switch modes.`,
+          });
+          return false;
+        }
+
+        const hasLocalDesktopFiles = submissionFiles.some(
+          (file) => file.storage === "local-desktop",
+        );
+        if (
+          hasLocalDesktopFiles &&
+          (!isAgentMode(currentChatMode) ||
+            sandboxPreferenceRef.current !== "desktop")
+        ) {
+          toast.error("Local attachments require desktop Agent mode", {
+            description:
+              "Switch back to Agent mode with the desktop sandbox or reattach the file for upload.",
+          });
+          return false;
+        }
+
+        // Check token limit before sending based on user plan
+        const tokenCount = countInputTokens(input, submissionFiles);
+        const maxTokens = getMessageTokenBudget(subscription, {
+          mode: currentChatMode,
+          model: mediaRequest.selectedModel,
+          purpose: chatPurpose,
+          hasPaidContext,
+        });
+
+        // Additional validation for Ask mode: ensure files don't exceed Ask mode token limits
+        // This prevents uploading files in Agent mode then switching to Ask mode to send them
+        if (currentChatMode === "ask" && submissionFiles.length > 0) {
+          const fileTokens = submissionFiles.reduce(
+            (total, file) => total + (file.tokens || 0),
+            0,
+          );
+          const maxFileTokens = getMaxFileTokens(subscription);
+          if (fileTokens > maxFileTokens) {
+            toast.error("Cannot send files in Ask mode", {
+              description: `Files exceed Ask mode token limit (${fileTokens.toLocaleString()}/${maxFileTokens.toLocaleString()} tokens). Tip: Switch to Agent mode or remove large files.`,
+            });
+            return false;
+          }
+        }
+
+        if (tokenCount > maxTokens) {
+          const hasFiles = submissionFiles.length > 0;
+          const planText = subscription !== "free" ? "" : " (Free plan limit)";
+          toast.error("Message is too long", {
+            description: `Your message is too large (${tokenCount.toLocaleString()} tokens). Please make it shorter${hasFiles ? " or remove some files" : ""}${planText}.`,
+          });
+          return false;
+        }
+
+        // If streaming in Agent mode, check queue behavior
+        if (
+          status === "streaming" ||
+          (status === "submitted" &&
+            (consoleSubmission ||
+              programmaticSubmission ||
+              queueBehavior === "queue"))
+        ) {
+          const validFiles = submissionFiles
+            .filter(isSendableUploadedFile)
+            .map(createFileMessagePartFromUploadedFile)
+            .filter((part): part is NonNullable<typeof part> => part !== null);
+
+          if (queueBehavior === "queue") {
+            // Queue the message - will auto-send after current response completes
+            const queued = queueMessage(input, validFiles);
+            if (!queued.accepted) return false;
+            if (!preserveComposer && inputRef.current === input) {
+              clearInput();
+              clearUploadedFiles();
+            }
+            return true;
+          } else if (queueBehavior === "stop-and-send") {
+            // A local abort is insufficient: do not overlap workspace tasks
+            // when the durable cancellation acknowledgement is unknown.
+            try {
+              await stopActiveStream();
+            } catch (error) {
+              hasManuallyStoppedRef.current = true;
+              console.error(
+                "Stop-and-send: durable cancel did not confirm",
+                error,
+              );
+              toast.error("The previous task could not be stopped", {
+                description:
+                  "Your draft and attachments are kept. Confirm the task has stopped before trying again.",
+              });
+              return false;
+            }
+            if (submission?.isCurrent?.() === false) return false;
+            // Continue to send the new message immediately below (don't return)
+          }
+        }
+        try {
+          // Get file objects from uploaded files - URLs are already resolved in global state
+          const validFiles = submissionFiles
+            .filter(isSendableUploadedFile)
+            .map(createFileMessagePartFromUploadedFile)
+            .filter((part): part is NonNullable<typeof part> => part !== null);
+
+          // Question cards need transport acceptance before locking their answer.
+          // The SDK promise lasts for the full stream, so use its local receipt.
+          let settleReceipt: ((accepted: boolean) => void) | undefined;
+          const receipt = programmaticSubmission
+            ? new Promise<boolean>((resolve) => {
+                settleReceipt = resolve;
+              })
+            : undefined;
+          const receiptMetadata = receipt
+            ? createDispatchReceiptMetadata({
+                accepted: () => settleReceipt?.(true),
+                failed: () => settleReceipt?.(false),
+              })
+            : undefined;
+          const sending = sendMessage(
+            {
+              text: input.trim() || undefined,
+              files: validFiles.length > 0 ? validFiles : undefined,
+              metadata: { createdAt: Date.now() },
+            },
+            {
+              ...(receipt ? { metadata: receiptMetadata } : {}),
+              body: {
+                mode: currentChatMode,
+                todos,
+                temporary: temporaryChatsEnabled,
+                sandboxPreference,
+
+                selectedModel: mediaRequest.selectedModel,
+              },
+            },
+          );
+          if (receipt) {
+            // A rejected SDK call (or completion without acceptance) is failure.
+            // Void-returning senders may still deliver an asynchronous receipt.
+            if (sending) {
+              void Promise.resolve(sending).then(
+                () => settleReceipt?.(false),
+                () => settleReceipt?.(false),
+              );
+            }
+            if (!(await receipt)) return false;
+          } else {
+            void Promise.resolve(sending).catch((error) => {
+              console.error("Failed to submit message:", error);
+            });
+          }
+        } catch (error) {
+          if (
+            error instanceof Error &&
+            error.name === "RetainedChatBusyError"
+          ) {
+            toast.info(error.message);
+            return false;
+          }
+          // Never retry by sending a second text-only turn: the first dispatch
+          // may already have reached the transport before throwing.
+          console.error("Failed to submit message:", error);
+          toast.error("Your message could not be sent. Please try again.");
+          return false;
+        }
+
+        if (!preserveComposer && inputRef.current === input) {
           clearInput();
           clearUploadedFiles();
-          return;
-        } else if (queueBehavior === "stop-and-send") {
-          // Immediately stop current stream and send right away
-          stop();
-
-          // Cancel the trigger.dev run for agent-long streams so the prior
-          // run stops burning compute instead of finishing in the background.
-          cancelTriggerRun();
-
-          // Cancel the stream in database and save current message state
-          if (!temporaryChatsEnabledRef.current) {
-            cancelStreamMutation({ chatId }).catch((error) => {
-              console.error("Failed to cancel stream:", error);
-            });
-
-            const lastMessage = messages[messages.length - 1];
-            if (lastMessage && lastMessage.role === "assistant") {
-              saveAssistantMessage({
-                id: lastMessage.id,
-                chatId,
-                role: lastMessage.role,
-                parts: lastMessage.parts,
-              }).catch((error) => {
-                console.error("Failed to save message on stop:", error);
-              });
-            }
-          } else {
-            // Temporary chats: signal cancel via temp stream coordination
-            cancelTempStreamMutation({ chatId }).catch(() => {});
-          }
-          // Continue to send the new message immediately below (don't return)
         }
+        return true;
       }
-      // Check token limit before sending based on user plan
-      const tokenCount = countInputTokens(input, uploadedFiles);
-      const maxTokens = getMaxTokensForSubscription(subscription, {
-        mode: currentChatMode,
-      });
-
-      // Additional validation for Ask mode: ensure files don't exceed Ask mode token limits
-      // This prevents uploading files in Agent mode then switching to Ask mode to send them
-      if (currentChatMode === "ask" && uploadedFiles.length > 0) {
-        const fileTokens = uploadedFiles.reduce(
-          (total, file) => total + (file.tokens || 0),
-          0,
-        );
-        const maxFileTokens = getMaxFileTokens(subscription);
-        if (fileTokens > maxFileTokens) {
-          toast.error("Cannot send files in Ask mode", {
-            description: `Files exceed Ask mode token limit (${fileTokens.toLocaleString()}/${maxFileTokens.toLocaleString()} tokens). Tip: Switch to Agent mode or remove large files.`,
-          });
-          return;
-        }
-      }
-
-      if (tokenCount > maxTokens) {
-        const hasFiles = uploadedFiles.length > 0;
-        const planText = subscription !== "free" ? "" : " (Free plan limit)";
-        toast.error("Message is too long", {
-          description: `Your message is too large (${tokenCount.toLocaleString()} tokens). Please make it shorter${hasFiles ? " or remove some files" : ""}${planText}.`,
-        });
-        return;
-      }
-      if (!isExistingChat && !temporaryChatsEnabledRef.current) {
-        window.history.replaceState({}, "", `/c/${chatId}`);
-      }
-
-      try {
-        // Get file objects from uploaded files - URLs are already resolved in global state
-        const validFiles = uploadedFiles
-          .filter(isSendableUploadedFile)
-          .map(createFileMessagePartFromUploadedFile)
-          .filter((part): part is NonNullable<typeof part> => part !== null);
-
-        sendMessage(
-          {
-            text: input.trim() || undefined,
-            files: validFiles.length > 0 ? validFiles : undefined,
-            metadata: { createdAt: Date.now() },
-          },
-          {
-            body: {
-              mode: currentChatMode,
-              todos,
-              temporary: temporaryChatsEnabled,
-              sandboxPreference,
-
-              selectedModel,
-            },
-          },
-        );
-      } catch (error) {
-        console.error("Failed to process files:", error);
-        // Fallback to text-only message if file processing fails
-        sendMessage(
-          { text: input, metadata: { createdAt: Date.now() } },
-          {
-            body: {
-              mode: currentChatMode,
-              todos,
-              temporary: temporaryChatsEnabled,
-              sandboxPreference,
-
-              selectedModel,
-            },
-          },
-        );
-      }
-
-      clearInput();
-      clearUploadedFiles();
+      return false;
+    } finally {
+      submissionInFlightRef.current = false;
     }
   };
+
+  useEffect(() => {
+    submitMessageRef.current = (text) =>
+      handleSubmit({ preventDefault() {} } as React.FormEvent, {
+        input: text,
+        source: "programmatic",
+      });
+  });
 
   const handleStop = async () => {
     setIsAutoResuming(false);
@@ -402,15 +602,36 @@ export const useChatHandlers = ({
     // Clear any active status indicators immediately
     onStopCallback?.();
 
-    // Fire the trigger.dev cancel in parallel with stopActiveStream so the
-    // Trigger.dev API round-trip overlaps the Convex cancel/save instead of
-    // sequencing after it.
-    cancelTriggerRun();
-
     try {
       await stopActiveStream();
     } catch (error) {
-      console.error("Error in handleStop:", error);
+      // The local stream is already aborted, so the UI looks stopped. If the
+      // durable server-side cancel did not confirm, the run may still be
+      // executing -- say so instead of swallowing it.
+      toast.error("Stop may not have reached the server", {
+        description:
+          "The run could still be finishing on the server. Reload if it keeps going.",
+      });
+    }
+  };
+
+  const prepareReplacement = async (): Promise<
+    false | { chatMissing?: boolean }
+  > => {
+    try {
+      if (status === "streaming") {
+        await stopActiveStream({ skipSave: true });
+      } else {
+        // A disconnected reader can still have a live durable run.
+        return await cancelTriggerRun();
+      }
+      return {};
+    } catch {
+      toast.error("Couldn't confirm the previous run has stopped", {
+        description:
+          "Your messages are saved. Try again before starting another run.",
+      });
+      return false;
     }
   };
 
@@ -419,9 +640,7 @@ export const useChatHandlers = ({
     resetAutoContinueCount?.();
 
     // Stop any active stream first to prevent message order issues and wasted tokens
-    if (status === "streaming") {
-      await stopActiveStream({ skipSave: true });
-    }
+    if (!(await prepareReplacement())) return;
 
     // Remove todos from all assistant messages in the auto-continue chain.
     const chainAssistantIds = getAutoContinueChainAssistantIds(messages);
@@ -480,13 +699,34 @@ export const useChatHandlers = ({
     }
   };
 
-  const handleRetry = async () => {
+  const retryInFlight = useRef(false);
+  const handleRetryAttempt = async () => {
     setIsAutoResuming(false);
     resetAutoContinueCount?.();
 
     // Stop any active stream first to prevent message order issues and wasted tokens
-    if (status === "streaming") {
-      await stopActiveStream({ skipSave: true });
+    const cancellation = await prepareReplacement();
+    if (!cancellation) return;
+    const retryDraft = cancellation.chatMissing === true;
+
+    if (chatPurpose === "app" && needsWorkReconciliation(retryError)) {
+      hasManuallyStoppedRef.current = false;
+      // Deliberately visible, with a new request id. Keep all saved tool
+      // evidence and do not mark this as an automatic continuation/replay.
+      await sendMessage(
+        { text: RECONCILE_WORK_REQUEST },
+        {
+          body: {
+            mode: chatModeRef.current,
+            todos,
+            temporary: temporaryChatsEnabled,
+            sandboxPreference,
+            selectedModel,
+            purpose: chatPurpose,
+          },
+        },
+      );
+      return;
     }
 
     const cleanedTodos = removeTodosBySourceMessages(
@@ -498,12 +738,12 @@ export const useChatHandlers = ({
     if (cleanedTodos !== todos) setTodos(cleanedTodos);
     if (!temporaryChatsEnabled) {
       // For persisted chats, backend fetches from database - explicitly send no messages
-      regenerate({
+      await regenerate({
         body: {
           mode: chatModeRef.current,
-          messages: [],
+          messages: retryDraft ? getMessagesUpToLastRealUser(messages) : [],
           todos: cleanedTodos,
-          regenerate: true,
+          regenerate: !retryDraft,
           temporary: false,
           sandboxPreference,
           selectedModel,
@@ -521,7 +761,7 @@ export const useChatHandlers = ({
         ? messages.slice(0, -1)
         : messages;
 
-      regenerate({
+      await regenerate({
         body: {
           mode: chatModeRef.current,
           messages: messagesToSend,
@@ -536,6 +776,16 @@ export const useChatHandlers = ({
     }
   };
 
+  const handleRetry = async () => {
+    if (retryInFlight.current) return;
+    retryInFlight.current = true;
+    try {
+      await handleRetryAttempt();
+    } finally {
+      retryInFlight.current = false;
+    }
+  };
+
   const handleEditMessage = async (
     messageId: string,
     newContent: string,
@@ -544,9 +794,7 @@ export const useChatHandlers = ({
     setIsAutoResuming(false);
 
     // Stop any active stream first to prevent message order issues and wasted tokens
-    if (status === "streaming") {
-      await stopActiveStream({ skipSave: true });
-    }
+    if (!(await prepareReplacement())) return;
 
     // Find the edited message index to identify subsequent messages
     const editedMessageIndex = messages.findIndex((m) => m.id === messageId);
@@ -708,56 +956,54 @@ export const useChatHandlers = ({
   };
 
   const handleSendNow = async (messageId: string) => {
-    const message = messageQueue.find((m) => m.id === messageId);
-    if (!message) return;
-
-    // Set flag to prevent auto-processing from interfering
+    if (isSendingNowRef.current) return;
+    const attempt = claimQueuedMessage(messageId);
+    if (!attempt) return;
+    const message = attempt.message;
     isSendingNowRef.current = true;
-
-    // Reset manual stop flag when using Send Now
     hasManuallyStoppedRef.current = false;
-
+    let dispatched = false;
     try {
-      // Remove the message from queue FIRST (before stopping)
-      removeQueuedMessage(messageId);
-
-      // Stop the stream using the shared helper
       setIsAutoResuming(false);
       await stopActiveStream();
-
-      // Send the queued message immediately
-      const validFiles = message.files || [];
-      const messagePayload: any = {};
-
-      // Only add text if it exists
-      if (message.text) {
-        messagePayload.text = message.text;
+      if (!attempt.isCurrent()) {
+        attempt.restore();
+        return;
       }
-
-      // Only add files if they exist
-      if (validFiles.length > 0) {
-        messagePayload.files = validFiles;
-      }
-
-      messagePayload.metadata = { createdAt: message.timestamp };
-
-      sendMessage(messagePayload, {
-        body: {
-          mode: chatModeRef.current,
-          todos,
-          temporary: temporaryChatsEnabled,
-          sandboxPreference,
-
-          selectedModel,
+      dispatched = true;
+      const sending = sendMessage(
+        {
+          id: message.id,
+          role: "user",
+          parts: [
+            ...(message.files ?? []),
+            { type: "text", text: message.text },
+          ],
+          metadata: { createdAt: message.timestamp },
         },
+        {
+          metadata: createDispatchReceiptMetadata(attempt),
+          body: {
+            mode: chatModeRef.current,
+            todos,
+            temporary: temporaryChatsEnabled,
+            sandboxPreference,
+            selectedModel,
+            purpose: chatPurpose,
+          },
+        },
+      );
+      void Promise.resolve(sending).then(attempt.failed, attempt.failed);
+    } catch {
+      hasManuallyStoppedRef.current = true;
+      if (dispatched) attempt.failed();
+      else attempt.restore();
+      toast.error("The queued message could not be sent", {
+        description:
+          "Check the conversation before trying again. Your queued message is saved.",
       });
-    } catch (error) {
-      console.error("Failed to send queued message:", error);
     } finally {
-      // Clear flag after a brief delay to allow status to change
-      setTimeout(() => {
-        isSendingNowRef.current = false;
-      }, 200);
+      isSendingNowRef.current = false;
     }
   };
 

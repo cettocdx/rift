@@ -1,8 +1,19 @@
+import {
+  readHackHttpExecution,
+  type HackHttpExecutionBinding,
+} from "@/lib/hack/http-execution";
 import type { NextRequest } from "next/server";
-import { createUIMessageStream, JsonToSseTransformStream } from "ai";
+import {
+  createUIMessageStream,
+  JsonToSseTransformStream,
+  UI_MESSAGE_STREAM_HEADERS,
+} from "ai";
 import { ChatSDKError } from "@/lib/errors";
 import type { ChatMessage } from "@/types/chat";
+import { coerceChatPurpose } from "@/types/chat";
 import { getStreamContext } from "@/lib/api/chat-handler";
+import { getUserIDAndPro } from "@/lib/auth/get-user-id";
+import { assertHackWorkbenchAccess } from "@/lib/auth/premium-access";
 import { ConvexHttpClient } from "convex/browser";
 import { api } from "@/convex/_generated/api";
 import {
@@ -10,8 +21,23 @@ import {
   createPreemptiveTimeout,
 } from "@/lib/utils/stream-cancellation";
 import { phLogger } from "@/lib/posthog/server";
+import { readStreamChunkWithAbort } from "@/lib/api/read-stream-chunk-with-abort";
 
 export const maxDuration = 800;
+
+function pendingExecution(execution: HackHttpExecutionBinding) {
+  return new Response(
+    "Assessment stream attachment is temporarily unavailable",
+    {
+      status: 503,
+      headers: {
+        "x-rift-execution-id": execution.executionId,
+        "x-rift-reconnect": "pending",
+        "Retry-After": "1",
+      },
+    },
+  );
+}
 
 export async function GET(
   req: NextRequest,
@@ -21,19 +47,17 @@ export async function GET(
 
   const streamContext = getStreamContext();
 
-  if (!streamContext) {
-    return new Response(null, { status: 204 });
-  }
-
   if (!chatId) {
     return new ChatSDKError("bad_request:api").toResponse();
   }
 
   // Authenticate user
   let userId: string;
+  let subscription: Awaited<ReturnType<typeof getUserIDAndPro>>["subscription"];
   try {
-    const { getUserID } = await import("@/lib/auth/get-user-id");
-    userId = await getUserID(req);
+    const access = await getUserIDAndPro(req);
+    userId = access.userId;
+    subscription = access.subscription;
   } catch (error) {
     return new ChatSDKError("unauthorized:chat").toResponse();
   }
@@ -60,8 +84,46 @@ export async function GET(
     return new ChatSDKError("forbidden:chat").toResponse();
   }
 
+  // Reconnect/replay is part of Hack Workbench access, not a generic chat
+  // read path. Re-check the current Max entitlement here so a copied stream
+  // URL or a subscription downgrade cannot bypass the Max page and POST
+  // gates. Legacy chats without a purpose intentionally coerce to security.
+  if (coerceChatPurpose(chat.purpose) === "security") {
+    try {
+      assertHackWorkbenchAccess(subscription);
+    } catch (error) {
+      if (error instanceof ChatSDKError) return error.toResponse();
+      throw error;
+    }
+  }
+
   const recentStreamId: string | undefined = chat.active_stream_id;
   const isTemporary = chat.temporary === true;
+  let execution: HackHttpExecutionBinding | undefined;
+  if (recentStreamId && chat.active_http_execution_id === recentStreamId) {
+    const binding = { userId, chatId, executionId: recentStreamId };
+    try {
+      if (!(await readHackHttpExecution(binding))) {
+        return pendingExecution(binding);
+      }
+      execution = binding;
+    } catch {
+      return pendingExecution(binding);
+    }
+  }
+  if (!streamContext && execution) return pendingExecution(execution);
+  // Legacy active producers have no exact terminal proof for safe replay.
+  if (!streamContext && recentStreamId)
+    return new Response(null, { status: 204 });
+  const executionHeaders = execution
+    ? { "x-rift-execution-id": execution.executionId }
+    : undefined;
+
+  const streamHeaders = {
+    ...UI_MESSAGE_STREAM_HEADERS,
+    "cache-control": "private, no-store",
+    ...executionHeaders,
+  };
 
   const emptyDataStream = createUIMessageStream<ChatMessage>({
     execute: () => {},
@@ -72,16 +134,29 @@ export async function GET(
   // replay instead of hitting the ack-timeout (~5s) again.
   const clearStaleActiveStream = async () => {
     try {
+      // A missing Redis acknowledgment is not evidence that the producer died.
+      // Keep its exact mapping so Stop still targets the admitted execution.
+      if (execution) {
+        const status = await readHackHttpExecution(execution);
+        if (
+          !status ||
+          status.phase === "admitted" ||
+          status.phase === "running"
+        )
+          return;
+      }
+      if (!recentStreamId) return;
       await convex.mutation(api.chatStreams.prepareForNewStream, {
         serviceKey,
         chatId,
+        expectedStreamId: recentStreamId,
       });
     } catch {
       // Best-effort — the next reconnect will re-attempt cleanup.
     }
   };
 
-  if (recentStreamId) {
+  if (recentStreamId && streamContext) {
     let stream: ReadableStream | null = null;
     let resumableThrew = false;
     try {
@@ -105,14 +180,23 @@ export async function GET(
       // expired), `resumableStream` invokes the no-op fallback, which emits
       // only the SSE `[DONE]` terminator. Returning that to the client renders
       // an empty assistant message — fall through to the replay branch instead.
-      const first = await reader.read();
+      let first: ReadableStreamReadResult<unknown>;
+      try {
+        first = await readStreamChunkWithAbort(reader, req.signal);
+      } catch (error) {
+        await reader.cancel().catch(() => {});
+        if (error instanceof DOMException && error.name === "AbortError") {
+          return new Response(null, { status: 204 });
+        }
+        throw error;
+      }
       const firstText = first.done
         ? ""
         : typeof first.value === "string"
           ? first.value
           : new TextDecoder().decode(first.value as Uint8Array);
       const isNoopStream =
-        first.done || /^\s*data:\s*\[DONE\]\s*$/m.test(firstText.trim());
+        first.done || /^\s*data:\s*\[DONE\]\s*$/.test(firstText.trim());
 
       if (isNoopStream) {
         reader.releaseLock();
@@ -133,22 +217,78 @@ export async function GET(
         });
 
         // Abort on client disconnect (tab close, network error, etc.)
-        req.signal.addEventListener("abort", () => abortController.abort(), {
-          once: true,
-        });
+        const abortOnClientDisconnect = () => abortController.abort();
+        if (req.signal.aborted) {
+          abortOnClientDisconnect();
+        } else {
+          req.signal.addEventListener("abort", abortOnClientDisconnect, {
+            once: true,
+          });
+        }
 
         // Abort on explicit stop button click (via Redis pub/sub or polling)
         const cancellationSubscriber = await createCancellationSubscriber({
           chatId,
           isTemporary,
+          execution,
           abortController,
           onStop: () => {},
         });
 
         let pendingFirstDelivered = false;
+        /**
+         * A stream can only be settled once.
+         *
+         * `pull` runs again after a failure, and the transport can abort while
+         * an error is already in flight — so `close()` was reachable on a
+         * controller that `error()` had already terminated. The browser turns
+         * that into "Cannot close an errored readable stream", which surfaces
+         * to the operator as the agent connection dropping mid-run.
+         */
+        let settled = false;
+        let cleanupPromise: Promise<void> | undefined;
+        const cleanup = (cancelReader: boolean) => {
+          if (cleanupPromise) return cleanupPromise;
+
+          cleanupPromise = (async () => {
+            preemptiveTimeout.clear();
+            req.signal.removeEventListener("abort", abortOnClientDisconnect);
+            await cancellationSubscriber.stop().catch(() => {});
+            if (cancelReader) {
+              await reader.cancel().catch(() => {});
+            }
+          })();
+          return cleanupPromise;
+        };
+
+        // The request can disconnect between the first-chunk peek and
+        // subscriber setup. Do not return a live body with no consumer.
+        if (abortController.signal.aborted) {
+          await cleanup(true);
+          return new Response(null, { status: 204 });
+        }
 
         const abortableStream = new ReadableStream({
           async pull(controller) {
+            const settleClosed = () => {
+              if (settled) return;
+              settled = true;
+              try {
+                controller.close();
+              } catch {
+                // Already errored or cancelled by the consumer.
+              }
+            };
+            const settleErrored = (error: unknown) => {
+              if (settled) return;
+              settled = true;
+              try {
+                controller.error(error);
+              } catch {
+                // Already settled by the consumer cancelling the body.
+              }
+            };
+            if (settled) return;
             try {
               if (!pendingFirstDelivered) {
                 pendingFirstDelivered = true;
@@ -156,28 +296,14 @@ export async function GET(
                 return;
               }
 
-              // Create a promise that rejects on abort
-              const abortPromise = new Promise<never>((_, reject) => {
-                if (abortController.signal.aborted) {
-                  reject(new DOMException("Aborted", "AbortError"));
-                  return;
-                }
-                abortController.signal.addEventListener(
-                  "abort",
-                  () => reject(new DOMException("Aborted", "AbortError")),
-                  { once: true },
-                );
-              });
-
-              // Race between read and abort
-              const { done, value } = await Promise.race([
-                reader.read(),
-                abortPromise,
-              ]);
+              const { done, value } = await readStreamChunkWithAbort(
+                reader,
+                abortController.signal,
+              );
 
               if (done) {
-                preemptiveTimeout.clear();
-                controller.close();
+                await cleanup(false);
+                settleClosed();
               } else {
                 controller.enqueue(value);
               }
@@ -196,12 +322,11 @@ export async function GET(
                 });
               }
 
-              preemptiveTimeout.clear();
-
               if (
                 error instanceof DOMException &&
                 error.name === "AbortError"
               ) {
+                await cleanup(true);
                 if (isPreemptive) {
                   phLogger.info("Stream route closing controller after abort", {
                     userId,
@@ -210,9 +335,10 @@ export async function GET(
                   });
                   await phLogger.flush();
                 }
-                controller.close();
+                settleClosed();
               } else {
-                controller.error(error);
+                await cleanup(true);
+                settleErrored(error);
               }
             }
           },
@@ -221,9 +347,7 @@ export async function GET(
             if (isPreemptive) {
               phLogger.info("Stream route cancel called", { userId, chatId });
             }
-            preemptiveTimeout.clear();
-            reader.cancel();
-            cancellationSubscriber.stop();
+            await cleanup(true);
             if (isPreemptive) {
               // Await so the serverless runtime doesn't tear down before flush.
               await phLogger.flush();
@@ -231,12 +355,32 @@ export async function GET(
           },
         });
 
-        return new Response(abortableStream, { status: 200 });
+        return new Response(abortableStream, {
+          status: 200,
+          headers: streamHeaders,
+        });
       }
     }
   }
 
-  // Fallback: if no resumable stream, attempt to replay the most recent assistant message
+  // A missing subscriber attachment does not complete its producer. Replaying
+  // the previous turn here would make recovery settle with the wrong answer.
+  if (execution) {
+    try {
+      const status = await readHackHttpExecution(execution);
+      if (
+        !status ||
+        status.phase === "admitted" ||
+        status.phase === "running"
+      ) {
+        return pendingExecution(execution);
+      }
+    } catch {
+      return pendingExecution(execution);
+    }
+  }
+
+  // Fallback: only a settled producer may replay its most recent assistant message.
   try {
     const mostRecentMessage = await convex.query(
       api.messages.getLastAssistantMessage,
@@ -255,8 +399,10 @@ export async function GET(
         await clearStaleActiveStream();
       }
       return new Response(
-        emptyDataStream.pipeThrough(new JsonToSseTransformStream()),
-        { status: 200 },
+        emptyDataStream
+          .pipeThrough(new JsonToSseTransformStream())
+          .pipeThrough(new TextEncoderStream()),
+        { status: 200, headers: streamHeaders },
       );
     }
 
@@ -271,13 +417,23 @@ export async function GET(
     });
 
     return new Response(
-      restoredStream.pipeThrough(new JsonToSseTransformStream()),
-      { status: 200 },
+      restoredStream
+        .pipeThrough(new JsonToSseTransformStream())
+        .pipeThrough(new TextEncoderStream()),
+      { status: 200, headers: streamHeaders },
     );
   } catch {
-    return new Response(
-      emptyDataStream.pipeThrough(new JsonToSseTransformStream()),
-      { status: 200 },
-    );
+    // An unavailable saved answer is not an empty successful completion.
+    // Bind the retry to this authenticated chat, without inventing an active
+    // execution identity or submitting the user's task again.
+    return new Response("Saved response is temporarily unavailable", {
+      status: 503,
+      headers: {
+        "cache-control": "private, no-store",
+        "x-rift-reconnect": "replay-pending",
+        "x-rift-chat-id": chatId,
+        "Retry-After": "1",
+      },
+    });
   }
 }

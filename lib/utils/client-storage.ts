@@ -1,7 +1,11 @@
 import {
+  BUILD_MODELS,
   coerceSelectedModel,
+  isBuildReasoningEffortSupported,
   isChatMode,
+  type BuildModelId,
   type ChatMode,
+  type ReasoningEffort,
   type SelectedModel,
 } from "@/types/chat";
 
@@ -21,6 +25,11 @@ export const NULL_THREAD_DRAFT_ID = "null_thread";
 export const CHAT_MODE_STORAGE_KEY = "chat_mode";
 const HAS_AUTHENTICATED_BEFORE_STORAGE_KEY = "rift_has_authed_before";
 const SELECTED_MODEL_STORAGE_KEY = "selected_model";
+export const BUILD_REASONING_EFFORTS_STORAGE_KEY = "build_reasoning_efforts";
+
+export type BuildReasoningEffortPreferences = Partial<
+  Record<BuildModelId, ReasoningEffort>
+>;
 
 const isBrowser = (): boolean => typeof window !== "undefined";
 
@@ -46,6 +55,7 @@ export const writeDraftStore = (store: ConversationDraftStore): void => {
       CONVERSATION_DRAFTS_STORAGE_KEY,
       JSON.stringify({ drafts: store.drafts, userId: store.userId }),
     );
+    window.dispatchEvent(new Event("rift:drafts-changed"));
   } catch {
     // ignore
   }
@@ -143,6 +153,60 @@ export const writeSelectedModel = (model: SelectedModel): void => {
   }
 };
 
+/**
+ * Read only model/effort pairs that are still present in the Build catalog.
+ * Invalid and stale values are dropped instead of silently migrating one
+ * model's preference onto another model with different capabilities.
+ */
+export const readBuildReasoningEfforts =
+  (): BuildReasoningEffortPreferences => {
+    if (!isBrowser()) return {};
+    try {
+      const raw = window.localStorage.getItem(
+        BUILD_REASONING_EFFORTS_STORAGE_KEY,
+      );
+      if (!raw) return {};
+      const parsed = JSON.parse(raw) as unknown;
+      if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+        return {};
+      }
+
+      const record = parsed as Record<string, unknown>;
+      const preferences: BuildReasoningEffortPreferences = {};
+      for (const model of BUILD_MODELS) {
+        const effort = record[model.id];
+        if (isBuildReasoningEffortSupported(model.id, effort)) {
+          preferences[model.id] = effort;
+        }
+      }
+      return preferences;
+    } catch {
+      return {};
+    }
+  };
+
+/** Persist a sanitized per-Build-model effort map. */
+export const writeBuildReasoningEfforts = (
+  preferences: BuildReasoningEffortPreferences,
+): void => {
+  if (!isBrowser()) return;
+  try {
+    const safePreferences: BuildReasoningEffortPreferences = {};
+    for (const model of BUILD_MODELS) {
+      const effort = preferences[model.id];
+      if (isBuildReasoningEffortSupported(model.id, effort)) {
+        safePreferences[model.id] = effort;
+      }
+    }
+    window.localStorage.setItem(
+      BUILD_REASONING_EFFORTS_STORAGE_KEY,
+      JSON.stringify(safePreferences),
+    );
+  } catch {
+    // ignore
+  }
+};
+
 /** Remove the persisted model preference (and any legacy per-mode keys) — e.g. on logout. */
 export const clearSelectedModelFromStorage = (): void => {
   if (!isBrowser()) return;
@@ -150,6 +214,7 @@ export const clearSelectedModelFromStorage = (): void => {
     window.localStorage.removeItem(SELECTED_MODEL_STORAGE_KEY);
     window.localStorage.removeItem(`${SELECTED_MODEL_STORAGE_KEY}_ask`);
     window.localStorage.removeItem(`${SELECTED_MODEL_STORAGE_KEY}_agent`);
+    window.localStorage.removeItem(BUILD_REASONING_EFFORTS_STORAGE_KEY);
   } catch {
     // ignore
   }
@@ -198,7 +263,12 @@ export const setUserIdInDrafts = (userId: string): void => {
   writeDraftStore({ ...store, userId });
 };
 
+// Invalidate pending composer saves when sign-out clears local drafts.
+let draftEpoch = 0;
+export const getDraftEpoch = (): number => draftEpoch;
+
 export const clearAllDrafts = (): void => {
+  draftEpoch += 1;
   if (!isBrowser()) return;
   try {
     window.localStorage.removeItem(CONVERSATION_DRAFTS_STORAGE_KEY);

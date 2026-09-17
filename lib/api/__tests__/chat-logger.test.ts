@@ -336,7 +336,7 @@ describe("createChatLogger provider stream termination", () => {
       chatLogger.recordProviderError(err, {
         mode: "agent",
         model: "agent-model",
-        requestedModelSlug: "moonshotai/kimi-k2.6:exacto",
+        requestedModelSlug: "moonshotai/kimi-k3",
       });
       chatLogger.emitUnexpectedError(err);
 
@@ -494,7 +494,7 @@ describe("createChatLogger provider stream timeout", () => {
       chatLogger.recordProviderError(err, {
         mode: "agent",
         model: "agent-model",
-        requestedModelSlug: "moonshotai/kimi-k2.6:exacto",
+        requestedModelSlug: "moonshotai/kimi-k3",
       });
       chatLogger.emitUnexpectedError(err);
 
@@ -551,4 +551,35 @@ describe("createChatLogger provider stream timeout", () => {
       logSpy.mockRestore();
     }
   });
+});
+
+it("preserves the dedicated Hack endpoint in durable wide-event analytics", () => {
+  const { phLogger } = require("@/lib/posthog/server");
+  const event = jest
+    .spyOn(phLogger, "event")
+    .mockImplementation(() => undefined);
+  const log = jest.spyOn(console, "log").mockImplementation(() => undefined);
+  try {
+    const logger = createChatLogger({
+      chatId: "hack-chat",
+      endpoint: "/api/hack-long",
+    });
+    logger.setUser({ id: "owner", subscription: "ultra" });
+    logger.emitSuccess({
+      finishReason: "stop",
+      wasAborted: false,
+      wasPreemptiveTimeout: false,
+      hadSummarization: false,
+    });
+    expect(event).toHaveBeenCalledWith(
+      "rift-agent_run_wide",
+      expect.objectContaining({
+        endpoint: "/api/hack-long",
+        chat_id: "hack-chat",
+      }),
+    );
+  } finally {
+    event.mockRestore();
+    log.mockRestore();
+  }
 });

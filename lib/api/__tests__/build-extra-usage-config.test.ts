@@ -238,15 +238,41 @@ describe("buildExtraUsageConfig — team users", () => {
 });
 
 describe("buildExtraUsageConfig — individual paid users (pro / pro-plus / ultra)", () => {
-  it("returns undefined when personal extra_usage_enabled is off", async () => {
+  it("returns undefined when extra_usage is off and the balance is empty", async () => {
+    mockGetUserBalance.mockResolvedValue({
+      balanceDollars: 0,
+      balancePoints: 0,
+      enabled: false,
+      autoReloadEnabled: false,
+    });
     const config = await buildExtraUsageConfig({
       userId: USER_ID,
       subscription: "pro",
       userCustomization: { extra_usage_enabled: false } as any,
     });
     expect(config).toBeUndefined();
-    expect(mockGetUserBalance).not.toHaveBeenCalled();
     expect(mockGetTeamState).not.toHaveBeenCalled();
+  });
+
+  it("spends the balance even when extra_usage_enabled is off (tokens are the opt-in)", async () => {
+    // Token-only model: buying tokens never flips the legacy toggle, so a user
+    // with a balance must still be able to spend it — and must not be locked.
+    mockGetUserBalance.mockResolvedValue({
+      balanceDollars: 218,
+      balancePoints: 2_180_000,
+      enabled: false,
+      autoReloadEnabled: false,
+    });
+    const config = await buildExtraUsageConfig({
+      userId: USER_ID,
+      subscription: "pro",
+      userCustomization: { extra_usage_enabled: false } as any,
+    });
+    expect(config).toMatchObject({
+      enabled: true,
+      hasBalance: true,
+      balanceDollars: 218,
+    });
   });
 
   it("reads personal balance when extra_usage_enabled is on", async () => {
@@ -285,5 +311,52 @@ describe("buildExtraUsageConfig — individual paid users (pro / pro-plus / ultr
       hasBalance: true,
       autoReloadEnabled: false,
     });
+  });
+});
+
+describe("request-scoped balance snapshot", () => {
+  const requestBalance = {
+    balanceDollars: 5,
+    balancePoints: 50000,
+    enabled: true,
+    autoReloadEnabled: false,
+    includedTotalPoints: 0,
+    includedRemainingPoints: 0,
+    debtPoints: 0,
+    legacyRedisMigrated: true,
+  };
+  it.each(["free", "pro"] as const)(
+    "reuses the authenticated %s snapshot without another network read",
+    async (subscription) => {
+      const config = await buildExtraUsageConfig({
+        userId: USER_ID,
+        subscription,
+        userCustomization: null,
+        requestBalance,
+      });
+      expect(config).toMatchObject({ hasBalance: true, balanceDollars: 5 });
+      expect(mockGetUserBalance).not.toHaveBeenCalled();
+    },
+  );
+  it("does not retry a failed balance read or invent spendable funds", async () => {
+    const config = await buildExtraUsageConfig({
+      userId: USER_ID,
+      subscription: "free",
+      userCustomization: null,
+      requestBalance: null,
+    });
+    expect(config).toBeUndefined();
+    expect(mockGetUserBalance).not.toHaveBeenCalled();
+  });
+  it("still checks team funding rather than using a personal snapshot", async () => {
+    mockGetTeamState.mockResolvedValue(null);
+    await buildExtraUsageConfig({
+      userId: USER_ID,
+      subscription: "team",
+      organizationId: ORG_ID,
+      userCustomization: null,
+      requestBalance,
+    });
+    expect(mockGetTeamState).toHaveBeenCalledWith(ORG_ID, USER_ID);
   });
 });

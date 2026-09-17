@@ -28,6 +28,10 @@ export const __resetAuth = () => {
 
 export const useQuery = () => viewerValue;
 
+// Dynamic query groups start unresolved unless a focused test supplies data.
+const pendingQueries: Record<string, undefined> = {};
+export const useQueries = () => pendingQueries;
+
 export const useAction = () => mockAction;
 
 export const useConvexAuth = () => authState;

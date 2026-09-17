@@ -96,14 +96,14 @@ export const TodoPanel = ({ status, placement = "chat" }: TodoPanelProps) => {
         ? `${stats.total} To-dos`
         : `${stats.done} of ${stats.total} To-dos`;
 
-  const headerCounter = currentTodo
-    ? `${currentTodoIndex + 1} / ${stats.total}`
-    : null;
+  // Both the transcript and composer show resolved tasks, not the position
+  // of the active task (which could read 6/6 before anything was finished).
+  const headerCounter = `${stats.done} / ${stats.total}`;
 
   const panelClassName =
     placement === "sidebar"
-      ? "rounded-xl shadow-md border border-border bg-input-chat overflow-hidden"
-      : "mx-4 rounded-t-xl shadow-md border border-border border-b-0 bg-input-chat";
+      ? "overflow-hidden rounded-lg border border-border bg-input-chat"
+      : "mb-1.5 overflow-hidden rounded-lg border border-border bg-input-chat";
 
   const listMaxHeightClass =
     placement === "sidebar"
@@ -115,7 +115,7 @@ export const TodoPanel = ({ status, placement = "chat" }: TodoPanelProps) => {
       {/* Header */}
       <button
         onClick={handleToggleExpand}
-        className="flex items-center w-full gap-2 pl-3 pr-4 py-2 hover:opacity-80 transition-opacity cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+        className="flex min-h-8 w-full cursor-pointer items-center gap-1.5 px-2.5 py-1 text-left transition-colors hover:bg-accent/50 focus-visible:outline-none focus-visible:bg-muted"
         aria-label={isExpanded ? "Collapse todos" : "Expand todos"}
       >
         {!isExpanded && currentTodo && currentTodoDisplayStatus ? (
@@ -124,27 +124,27 @@ export const TodoPanel = ({ status, placement = "chat" }: TodoPanelProps) => {
           </span>
         ) : null}
         <h3
-          className="text-muted-foreground text-sm font-medium truncate text-left flex-1 min-w-0"
+          className="min-w-0 flex-1 truncate text-left text-[12px] font-medium text-muted-foreground"
           title={headerText}
         >
           {headerText}
         </h3>
         {headerCounter && (
-          <span className="text-xs text-muted-foreground flex-shrink-0">
+          <span title="Resolved tasks (completed or cancelled)" className="flex-shrink-0 text-[11px] text-muted-foreground">
             {headerCounter}
           </span>
         )}
         {isExpanded ? (
-          <ChevronDown className="w-4 h-4 text-muted-foreground flex-shrink-0" />
+          <ChevronDown className="size-3 flex-shrink-0 text-muted-foreground" />
         ) : (
-          <ChevronUp className="w-4 h-4 text-muted-foreground flex-shrink-0" />
+          <ChevronUp className="size-3 flex-shrink-0 text-muted-foreground" />
         )}
       </button>
 
       {/* Todo List - Collapsible */}
       {isExpanded && (
         <div
-          className={`border-t border-border px-4 py-3 space-y-2 overflow-y-auto ${listMaxHeightClass}`}
+          className={`space-y-1.5 overflow-y-auto border-t border-border px-2.5 py-2 ${listMaxHeightClass}`}
         >
           {uniqueTodos.map((todo) => (
             <SharedTodoItem key={todo.id} todo={todo} isPaused={isPaused} />

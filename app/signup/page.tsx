@@ -1,5 +1,5 @@
 import type { Metadata } from "next";
-import ZauthPageShell from "@/app/components/ZauthPageShell";
+import MinimalAuthShell from "@/app/components/MinimalAuthShell";
 import AuthForm from "@/app/components/AuthForm";
 
 export const metadata: Metadata = {
@@ -9,8 +9,8 @@ export const metadata: Metadata = {
 
 export default function SignupPage() {
   return (
-    <ZauthPageShell header={false} center>
+    <MinimalAuthShell>
       <AuthForm flow="signUp" />
-    </ZauthPageShell>
+    </MinimalAuthShell>
   );
 }

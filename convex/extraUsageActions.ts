@@ -5,6 +5,10 @@ import { api, internal } from "./_generated/api";
 import { v } from "convex/values";
 import Stripe from "stripe";
 import { convexLogger } from "./lib/logger";
+import {
+  getIncludedCreditsForTier,
+  usesAccountCreditLedger,
+} from "../lib/billing/included-credits";
 
 // =============================================================================
 // SDK Initialization (lazy, cached)
@@ -301,26 +305,116 @@ export const getPaymentStatus = action({
   },
 });
 
-/**
- * Create a Stripe Checkout session for purchasing extra usage credits.
- * Accepts any positive dollar amount (minimum $15, maximum $999,999).
- *
- * Note: baseUrl is passed from the client for redirect URLs only.
- * This is safe because:
- * 1. These URLs are only used for redirects after payment
- * 2. The actual payment confirmation happens via secure webhooks
- * 3. A malicious user can only redirect themselves to a different site
- */
-/**
- * Create a NowPayments hosted crypto invoice for a token top-up.
- *
- * Pay-as-you-go, no account/customer object needed (crypto). Returns the hosted
- * `invoice_url` to redirect to. Crediting is async: NowPayments POSTs an IPN to
- * `/api/extra-usage/nowpayments-ipn` when the payment reaches `finished`, which
- * is where `addCredits` runs. The dollar amount and (server-derived) bonus are
- * recovered on the IPN from `price_amount` + `order_id`.
- */
-export const createCryptoInvoice = action({
+// =============================================================================
+// LemonSqueezy (card + subscription — merchant of record, handles VAT/tax)
+// Crypto stays on NowPayments; LemonSqueezy is the card path. Checkout is a
+// hosted page; the user_id rides along in checkout_data.custom so the webhook
+// can attribute the subscription/credit back to the RIFT user.
+// =============================================================================
+
+/** Create a LemonSqueezy hosted checkout, returning its URL (or null). */
+async function createLsCheckout(opts: {
+  variantId: string;
+  email?: string;
+  custom: Record<string, string>;
+  redirectUrl: string;
+  customPriceCents?: number;
+}): Promise<string | null> {
+  const apiKey = process.env.LEMONSQUEEZY_API_KEY;
+  const storeId = process.env.LEMONSQUEEZY_STORE_ID;
+  if (!apiKey || !storeId) return null;
+
+  const attributes: Record<string, unknown> = {
+    checkout_data: {
+      ...(opts.email ? { email: opts.email } : {}),
+      custom: opts.custom,
+    },
+    product_options: { redirect_url: opts.redirectUrl },
+  };
+  if (typeof opts.customPriceCents === "number") {
+    attributes.custom_price = opts.customPriceCents;
+  }
+
+  const res = await fetch("https://api.lemonsqueezy.com/v1/checkouts", {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${apiKey}`,
+      Accept: "application/vnd.api+json",
+      "Content-Type": "application/vnd.api+json",
+    },
+    body: JSON.stringify({
+      data: {
+        type: "checkouts",
+        attributes,
+        relationships: {
+          store: { data: { type: "stores", id: String(storeId) } },
+          variant: { data: { type: "variants", id: String(opts.variantId) } },
+        },
+      },
+    }),
+  });
+
+  if (!res.ok) {
+    const detail = await res.text();
+    convexLogger.error("lemonsqueezy_checkout_failed", {
+      status: res.status,
+      detail: detail.slice(0, 500),
+    });
+    return null;
+  }
+  const data = (await res.json()) as {
+    data?: { attributes?: { url?: string } };
+  };
+  return data?.data?.attributes?.url ?? null;
+}
+
+/** Subscribe to RIFT Pro ($39) or RIFT Max ($129 → "ultra") via LemonSqueezy. */
+export const createLemonsqueezySubscription = action({
+  args: {
+    tier: v.union(v.literal("pro"), v.literal("ultra")),
+    baseUrl: v.string(),
+  },
+  returns: v.object({
+    url: v.union(v.string(), v.null()),
+    error: v.optional(v.string()),
+  }),
+  handler: async (ctx, args) => {
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity) return { url: null, error: "Not authenticated" };
+    const userId = identity.subject.split("|")[0];
+    if (!args.baseUrl || !args.baseUrl.startsWith("http")) {
+      return { url: null, error: "Invalid base URL" };
+    }
+
+    const variantId =
+      args.tier === "ultra"
+        ? process.env.LEMONSQUEEZY_MAX_VARIANT_ID
+        : process.env.LEMONSQUEEZY_PRO_VARIANT_ID;
+    if (!variantId) {
+      return { url: null, error: "Subscriptions are not configured." };
+    }
+
+    try {
+      const url = await createLsCheckout({
+        variantId,
+        email: (identity.email as string | undefined) ?? undefined,
+        custom: { user_id: userId, kind: "subscription", tier: args.tier },
+        redirectUrl: `${args.baseUrl}/?sub=success`,
+      });
+      if (!url) return { url: null, error: "Could not start checkout." };
+      return { url };
+    } catch (error) {
+      convexLogger.error("lemonsqueezy_subscription_error", {
+        user_id: userId,
+        error: error instanceof Error ? error.message : "Unknown error",
+      });
+      return { url: null, error: "Could not start checkout." };
+    }
+  },
+});
+
+/** One-time token top-up via LemonSqueezy card checkout (custom price). */
+export const createLemonsqueezyTopup = action({
   args: {
     amountDollars: v.number(),
     baseUrl: v.string(),
@@ -331,10 +425,22 @@ export const createCryptoInvoice = action({
   }),
   handler: async (ctx, args) => {
     const identity = await ctx.auth.getUserIdentity();
-    if (!identity) {
-      return { url: null, error: "Not authenticated" };
-    }
+    if (!identity) return { url: null, error: "Not authenticated" };
     const userId = identity.subject.split("|")[0];
+
+    // Add-on credits are a paid-plan perk: only active Pro/Max subscribers may
+    // top up. Free users must pick a plan first. Enforced server-side so the UI
+    // gate cannot be bypassed (e.g. calling the action directly).
+    const activeSub = await ctx.runQuery(
+      api.subscriptions.getActiveSubscription,
+      {},
+    );
+    if (!activeSub || !usesAccountCreditLedger(activeSub.tier)) {
+      return {
+        url: null,
+        error: "Add-on credits require an active Pro or Max plan.",
+      };
+    }
 
     if (!Number.isInteger(args.amountDollars)) {
       return { url: null, error: "Amount must be a whole dollar value" };
@@ -349,67 +455,35 @@ export const createCryptoInvoice = action({
       return { url: null, error: "Invalid base URL" };
     }
 
-    const apiKey = process.env.NOWPAYMENTS_API_KEY;
-    if (!apiKey) {
-      return {
-        url: null,
-        error: "Crypto payments are not configured. Please try again later.",
-      };
+    const variantId = process.env.LEMONSQUEEZY_CREDITS_VARIANT_ID;
+    if (!variantId) {
+      return { url: null, error: "Top-ups are not configured." };
     }
 
-    // order_id carries the userId so the IPN can attribute the credit. A random
-    // suffix keeps it unique per attempt. The bonus is NOT trusted from here —
-    // the IPN recomputes it server-side from the paid price_amount.
-    const orderId = `${userId}::${identity.subject.slice(-6)}-${args.amountDollars}`;
-
+    // Bonus is recomputed server-side at webhook time; passing it along is only
+    // a hint. The webhook recomputes from the paid amount (never trusts client).
+    const bonusPoints = bonusPointsForDollars(args.amountDollars);
     try {
-      const res = await fetch("https://api.nowpayments.io/v1/invoice", {
-        method: "POST",
-        headers: {
-          "x-api-key": apiKey,
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          price_amount: args.amountDollars,
-          price_currency: "usd",
-          order_id: orderId,
-          order_description: `RIFT tokens — $${args.amountDollars}`,
-          ipn_callback_url: `${args.baseUrl}/api/extra-usage/nowpayments-ipn`,
-          success_url: `${args.baseUrl}/?tokens-pending=1`,
-          cancel_url: args.baseUrl,
-        }),
-      });
-
-      if (!res.ok) {
-        const detail = await res.text();
-        convexLogger.error("nowpayments_invoice_failed", {
+      const url = await createLsCheckout({
+        variantId,
+        email: (identity.email as string | undefined) ?? undefined,
+        custom: {
           user_id: userId,
-          amount_dollars: args.amountDollars,
-          status: res.status,
-          detail: detail.slice(0, 500),
-        });
-        return { url: null, error: "Could not start crypto checkout." };
-      }
-
-      const data = (await res.json()) as { invoice_url?: string; id?: string };
-      if (!data.invoice_url) {
-        return { url: null, error: "Could not start crypto checkout." };
-      }
-
-      convexLogger.info("nowpayments_invoice_created", {
-        user_id: userId,
-        amount_dollars: args.amountDollars,
-        invoice_id: data.id,
+          kind: "extra_usage_purchase",
+          amount_dollars: String(args.amountDollars),
+          bonus_points: String(bonusPoints),
+        },
+        redirectUrl: `${args.baseUrl}/?tokens-pending=1`,
+        customPriceCents: args.amountDollars * 100,
       });
-
-      return { url: data.invoice_url };
+      if (!url) return { url: null, error: "Could not start checkout." };
+      return { url };
     } catch (error) {
-      convexLogger.error("nowpayments_invoice_error", {
+      convexLogger.error("lemonsqueezy_topup_error", {
         user_id: userId,
-        amount_dollars: args.amountDollars,
         error: error instanceof Error ? error.message : "Unknown error",
       });
-      return { url: null, error: "Could not start crypto checkout." };
+      return { url: null, error: "Could not start checkout." };
     }
   },
 });
@@ -613,12 +687,21 @@ export const deductWithAutoReload = action({
     serviceKey: v.string(),
     userId: v.string(),
     amountPoints: v.number(),
+    subscription: v.optional(v.union(v.literal("pro"), v.literal("ultra"))),
+    allowAutoReload: v.optional(v.boolean()),
+    allowDebt: v.optional(v.boolean()),
   },
   returns: v.object({
     success: v.boolean(),
     newBalanceDollars: v.number(),
     insufficientFunds: v.boolean(),
     monthlyCapExceeded: v.boolean(),
+    includedPointsDeducted: v.number(),
+    purchasedPointsDeducted: v.number(),
+    includedTotalPoints: v.number(),
+    includedRemainingPoints: v.number(),
+    includedResetAt: v.optional(v.string()),
+    debtPoints: v.number(),
     autoReloadTriggered: v.boolean(),
     autoReloadResult: v.optional(
       v.object({
@@ -640,6 +723,13 @@ export const deductWithAutoReload = action({
         newBalanceDollars: 0,
         insufficientFunds: false,
         monthlyCapExceeded: false,
+        includedPointsDeducted: 0,
+        purchasedPointsDeducted: 0,
+        includedTotalPoints: getIncludedCreditsForTier(args.subscription ?? ""),
+        includedRemainingPoints: getIncludedCreditsForTier(
+          args.subscription ?? "",
+        ),
+        debtPoints: 0,
         autoReloadTriggered: false,
       };
     }
@@ -653,9 +743,14 @@ export const deductWithAutoReload = action({
       autoReloadThresholdDollars?: number;
       autoReloadThresholdPoints?: number;
       autoReloadAmountDollars?: number;
+      includedTotalPoints: number;
+      includedRemainingPoints: number;
+      includedResetAt?: string;
+      debtPoints: number;
     } = await ctx.runQuery(api.extraUsage.getExtraUsageBalanceForBackend, {
       serviceKey: args.serviceKey,
       userId: args.userId,
+      subscription: args.subscription,
     });
 
     // Use points for threshold comparison (more precise)
@@ -668,14 +763,21 @@ export const deductWithAutoReload = action({
 
     // Check auto-reload conditions individually for debugging
     // Auto-reload triggers when balance drops to/below threshold, not when balance can't cover request
+    const purchasedRequired =
+      Math.max(0, args.amountPoints - settings.includedRemainingPoints) +
+      settings.debtPoints;
+    const projectedBalance = settings.balancePoints - purchasedRequired;
     const autoReloadConditions = {
-      auto_reload_enabled: settings.autoReloadEnabled,
-      balance_at_or_below_threshold: settings.balancePoints <= thresholdPoints,
+      auto_reload_enabled:
+        settings.autoReloadEnabled && args.allowAutoReload === true,
+      purchased_credits_required: purchasedRequired > 0,
+      balance_at_or_below_threshold: projectedBalance <= thresholdPoints,
       reload_amount_configured: reloadAmount > 0,
     };
 
     const allConditionsMet =
       autoReloadConditions.auto_reload_enabled &&
+      autoReloadConditions.purchased_credits_required &&
       autoReloadConditions.balance_at_or_below_threshold &&
       autoReloadConditions.reload_amount_configured;
 
@@ -708,13 +810,16 @@ export const deductWithAutoReload = action({
                 reason: "no_default_payment_method",
               };
             } else {
-              // Calculate how much to charge to reach target balance
-              // reloadAmount is the TARGET balance, not the amount to add
+              // Charge enough to cover the purchased portion of this request
+              // (and any prior true-up debt), then leave the configured target
+              // balance available for subsequent work.
               const currentBalanceDollars = settings.balanceDollars;
               const targetBalanceDollars = reloadAmount;
               const amountToCharge = Math.max(
                 0,
-                targetBalanceDollars - currentBalanceDollars,
+                purchasedRequired / POINTS_PER_DOLLAR +
+                  targetBalanceDollars -
+                  currentBalanceDollars,
               );
 
               // Minimum charge of $1 to avoid tiny transactions
@@ -802,10 +907,20 @@ export const deductWithAutoReload = action({
       newBalanceDollars: number;
       insufficientFunds: boolean;
       monthlyCapExceeded: boolean;
+      includedPointsDeducted: number;
+      purchasedPointsDeducted: number;
+      includedTotalPoints: number;
+      includedRemainingPoints: number;
+      debtPoints: number;
     } = await ctx.runMutation(api.extraUsage.deductPoints, {
       serviceKey: args.serviceKey,
       userId: args.userId,
       amountPoints: args.amountPoints,
+      includedAllowancePoints:
+        args.subscription !== undefined
+          ? getIncludedCreditsForTier(args.subscription)
+          : undefined,
+      allowDebt: args.allowDebt,
     });
 
     convexLogger.info("deduct_with_auto_reload", {
@@ -826,6 +941,12 @@ export const deductWithAutoReload = action({
       newBalanceDollars: deductResult.newBalanceDollars,
       insufficientFunds: deductResult.insufficientFunds,
       monthlyCapExceeded: deductResult.monthlyCapExceeded,
+      includedPointsDeducted: deductResult.includedPointsDeducted,
+      purchasedPointsDeducted: deductResult.purchasedPointsDeducted,
+      includedTotalPoints: deductResult.includedTotalPoints,
+      includedRemainingPoints: deductResult.includedRemainingPoints,
+      includedResetAt: settings.includedResetAt,
+      debtPoints: deductResult.debtPoints,
       autoReloadTriggered,
       autoReloadResult,
     };

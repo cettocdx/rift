@@ -103,13 +103,30 @@ export class TodoManager {
   /**
    * Merge base todos (from client/request) with current manager todos (tool-updated)
    * and tag only newly generated/updated todos with the provided assistantMessageId.
+   *
+   * A replaced plan must STAY replaced. `setTodos(merge=false)` deliberately
+   * purges assistant-sourced todos so the agent can throw out its old plan and
+   * write a new one — and this method used to seed unconditionally from `base`,
+   * which is the persisted chat.todos and still contains everything just
+   * purged. The purge was undone on the way out, so chat.todos became a
+   * monotonically growing union across every run of the chat: a real run was
+   * observed carrying 18 items, several stuck "in_progress" from runs that had
+   * died hours earlier, all of it fed back to the agent as its current plan.
+   *
+   * Manual todos (no sourceMessageId) are still carried across runs untouched —
+   * that is the behaviour setTodos already promises by only purging tagged
+   * ones, and the reason this cannot simply ignore `base`.
    */
   mergeWith(baseTodos: Todo[] | undefined, assistantMessageId: string): Todo[] {
     const base: Todo[] = Array.isArray(baseTodos) ? baseTodos : [];
     const baseIdSet = new Set(base.map((t) => t.id));
+    const liveIdSet = new Set(this.todos.map((t) => t.id));
 
     const idToTodo: Record<string, Todo> = {};
     for (const t of base) {
+      const purgedByNewPlan =
+        this.hasCreatedPlanThisRun && !!t.sourceMessageId && !liveIdSet.has(t.id);
+      if (purgedByNewPlan) continue;
       idToTodo[t.id] = t;
     }
 

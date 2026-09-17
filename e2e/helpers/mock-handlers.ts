@@ -24,7 +24,7 @@ export async function setupMocks(
 
   // Mock AI API calls to prevent rate limiting and costs
   if (config.mockAI) {
-    await page.route("**/api/chat", async (route: Route) => {
+    await page.route(/\/api\/(?:chat|hack-chat)$/, async (route: Route) => {
       await route.fulfill({
         status: 200,
         contentType: "application/json",

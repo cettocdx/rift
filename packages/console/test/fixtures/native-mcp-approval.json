@@ -1,0 +1,32 @@
+[
+  {
+    "method": "mcpServer/elicitation/request",
+    "id": 0,
+    "params": {
+      "threadId": "01a0a4a7-5063-7542-a5fb-6267b8cafc07",
+      "turnId": "01a0a4a7-5323-7622-bda8-f178b2050930",
+      "serverName": "fixture",
+      "mode": "form",
+      "_meta": {
+        "codex_approval_kind": "mcp_tool_call",
+        "persist": ["session", "always"],
+        "tool_description": "Return a local test marker.",
+        "tool_params": {
+          "text": "MCP_NATIVE_OK"
+        },
+        "tool_params_display": [
+          {
+            "name": "text",
+            "value": "MCP_NATIVE_OK",
+            "display_name": "text"
+          }
+        ]
+      },
+      "message": "Allow the fixture MCP server to run tool \"echo\"?",
+      "requestedSchema": {
+        "type": "object",
+        "properties": {}
+      }
+    }
+  }
+]

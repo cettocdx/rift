@@ -1,0 +1,10 @@
+# Current release status — 2026-09-10
+
+- Startup target under four seconds remains open. Latest three-sample greeting median is 7.224 seconds, not the older 9–11 second range. See ../2026-09-10-startup-speed/report.md for controlled inputs and limitations.
+- Canonical desktop configuration is packages/desktop/src-tauri/tauri.conf.json. Root src-tauri is explicitly legacy development, bundle.active=false. Ten desktop contract tests passed.
+- Built using APP_URL=https://riftsys.app/login pnpm exec tauri build --bundles app from packages/desktop. Successful ARM64 bundle: packages/desktop/src-tauri/target/release/bundle/macos/RIFT.app. CFBundleIdentifier app.riftsys.desktop. Generated launch target confirmed https://riftsys.app/login. codesign --verify --deep --strict passed. Signature is ad-hoc, no TeamIdentifier. Apple signing/notarization is still outstanding; no public release or install was performed.
+- Five focused ownership/sandbox/run-lease suites passed (41 tests). These are bounded regression checks, not proof of complete multi-tenant security. Twelve retired proxy tests passed. The OpenCode proxy returns 410 by default, but retained modules/schema readers still require a compatibility migration before deletion.
+- GlobalState has 1,196 lines, chat 2,338, HackerMode 4,045. Decomposition and whole-app invalidation profiling remain open. Line count alone does not prove a performance defect.
+- Working-tree inventory captured 694 status entries; untracked directories may represent multiple files. See working-tree.json for source HEAD, branch and grouped paths. This is an inventory, not an approved release source snapshot. Hundreds of preexisting changes were not blanket-committed or discarded. Clean-checkout build/reproducibility and source review remain release blockers.
+
+No claim is made that all report items are resolved. Production-mode native build success is distinct from a signed/notarized distribution and from end-to-end functional qualification against the hosted frontend.

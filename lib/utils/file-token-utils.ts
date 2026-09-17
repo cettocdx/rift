@@ -1,13 +1,14 @@
 import "server-only";
 
 import { api } from "@/convex/_generated/api";
-import { getConvexClient } from "@/lib/db/convex-client";
+import { getConvexClient, getConvexServiceKey } from "@/lib/db/convex-client";
 import { UIMessagePart, UIMessage } from "ai";
 import { Id } from "@/convex/_generated/dataModel";
 import {
   truncateMessagesToTokenLimit,
-  getMaxTokensForSubscription,
+  getMessageTokenBudget,
 } from "@/lib/token-utils";
+import type { ContextLimitOptions } from "@/lib/token-limits";
 import type { SubscriptionTier } from "@/types";
 import type { FileMessagePart } from "@/types/file";
 import { logger } from "@/lib/logger";
@@ -19,16 +20,47 @@ import { stringifyRedactedError } from "@/lib/utils/error-redaction";
 export const isFilePart = (part: any): part is FileMessagePart =>
   part && typeof part === "object" && part.type === "file";
 
+const getReferencedFileId = (part: unknown): Id<"files"> | null => {
+  if (!part || typeof part !== "object") return null;
+
+  const candidate = part as {
+    type?: unknown;
+    fileId?: unknown;
+    output?: unknown;
+  };
+  if (candidate.type === "file" && typeof candidate.fileId === "string") {
+    return candidate.fileId as Id<"files">;
+  }
+
+  // Generated media keeps its durable file reference inside the tool output.
+  // Treat it like a first-class attachment so message persistence protects the
+  // blob from orphan cleanup even if request-scoped metadata delivery fails.
+  if (
+    (candidate.type === "tool-generate_image" ||
+      candidate.type === "tool-generate_video") &&
+    candidate.output &&
+    typeof candidate.output === "object" &&
+    typeof (candidate.output as { fileId?: unknown }).fileId === "string"
+  ) {
+    return (candidate.output as { fileId: string }).fileId as Id<"files">;
+  }
+
+  return null;
+};
+
 /**
  * Extracts file IDs from message parts
  */
 export const extractFileIdsFromParts = (
   parts: UIMessagePart<any, any>[],
 ): Id<"files">[] =>
-  parts
-    .filter(isFilePart)
-    .map((part: any) => part.fileId as Id<"files">)
-    .filter(Boolean);
+  Array.from(
+    new Set(
+      parts
+        .map(getReferencedFileId)
+        .filter((fileId): fileId is Id<"files"> => fileId !== null),
+    ),
+  );
 
 /**
  * Fetches token counts for given file IDs from storage
@@ -52,7 +84,7 @@ export const getFileTokensByIds = async (
     const tokens = await getConvexClient().query(
       api.fileStorage.getFileTokensByFileIds,
       {
-        serviceKey: process.env.CONVEX_SERVICE_ROLE_KEY!,
+        serviceKey: getConvexServiceKey()!,
         userId,
         fileIds,
       },
@@ -81,7 +113,12 @@ export const extractAllFileIdsFromMessages = (
   const fileIds = new Set<Id<"files">>();
   messages.forEach((msg) => {
     if (msg.parts) {
-      extractFileIdsFromParts(msg.parts).forEach((id) => fileIds.add(id));
+      extractFileIdsFromParts(
+        msg.parts.filter(
+          (part) =>
+            !(part.type === "file" && (part as any).isRunArchive === true),
+        ),
+      ).forEach((id) => fileIds.add(id));
     }
   });
   return Array.from(fileIds);
@@ -98,11 +135,12 @@ export const truncateMessagesWithFileTokens = async (
   skipFileTokens: boolean = false,
   mode?: import("@/types").ChatMode,
   userId?: string,
+  context?: ContextLimitOptions,
 ): Promise<{
   messages: UIMessage[];
   fileTokens: Record<Id<"files">, number>;
 }> => {
-  const maxTokens = getMaxTokensForSubscription(subscription, { mode });
+  const maxTokens = getMessageTokenBudget(subscription, { ...context, mode });
   const fileTokens = skipFileTokens
     ? {}
     : userId
@@ -126,8 +164,9 @@ export const truncateMessagesWithPrecomputedTokens = async (
   subscription: SubscriptionTier = "pro",
   precomputedFileTokens?: Record<Id<"files">, number>,
   userId?: string,
+  context?: ContextLimitOptions,
 ): Promise<UIMessage[]> => {
-  const maxTokens = getMaxTokensForSubscription(subscription);
+  const maxTokens = getMessageTokenBudget(subscription, context);
   const fileTokens =
     precomputedFileTokens ||
     (userId

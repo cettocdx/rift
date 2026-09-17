@@ -1,0 +1,74 @@
+{
+  "measurement": "OpenTUI native test renderer at production targetFps=60; visual-idle includes scheduler wait, excludes PTY/display/model",
+  "historyEntries": 1000,
+  "historyLinesPerEntry": 30,
+  "liveLines": 1000,
+  "results": [
+    {
+      "width": 80,
+      "height": 24,
+      "samples": 90,
+      "inputSamples": 10,
+      "inputAndVisualIdleMs": {
+        "p50": 16.364916999999878,
+        "p95": 17.47541700000005,
+        "max": 17.47541700000005
+      },
+      "draftPreserved": true,
+      "updateMs": {
+        "p50": 2.7374580000000606,
+        "p95": 4.032165999999961,
+        "max": 5.786583999999948
+      },
+      "updateAndVisualIdleMs": {
+        "p50": 35.446957999999995,
+        "p95": 37.690665999999965,
+        "max": 38.36266599999999
+      }
+    },
+    {
+      "width": 126,
+      "height": 46,
+      "samples": 90,
+      "inputSamples": 10,
+      "inputAndVisualIdleMs": {
+        "p50": 17.047708000000057,
+        "p95": 17.526624999999513,
+        "max": 17.526624999999513
+      },
+      "draftPreserved": true,
+      "updateMs": {
+        "p50": 2.7531669999998485,
+        "p95": 3.8560420000003433,
+        "max": 5.233791999999994
+      },
+      "updateAndVisualIdleMs": {
+        "p50": 35.3067089999995,
+        "p95": 38.110459000000446,
+        "max": 39.43933300000026
+      }
+    },
+    {
+      "width": 180,
+      "height": 60,
+      "samples": 90,
+      "inputSamples": 10,
+      "inputAndVisualIdleMs": {
+        "p50": 16.309917000000496,
+        "p95": 16.79741599999943,
+        "max": 16.79741599999943
+      },
+      "draftPreserved": true,
+      "updateMs": {
+        "p50": 2.7595410000012635,
+        "p95": 4.5457079999996495,
+        "max": 8.241792000000714
+      },
+      "updateAndVisualIdleMs": {
+        "p50": 35.48808300000019,
+        "p95": 37.03075000000172,
+        "max": 38.18670899999961
+      }
+    }
+  ]
+}

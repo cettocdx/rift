@@ -1,0 +1,13 @@
+# Live harness cost follow-up
+
+The first harness batch (5bcdff7) passed 650 suites and 6,132 tests, with one skipped. A production preview build was started on port 3020 only after a fresh Trigger inventory showed zero active agent-long runs. The installed `/Applications/RIFT UI Preview.app` was reloaded successfully. This remains the local preview and development worker, not a production backend deployment.
+
+Six persisted live runs on worker 20260911.30 completed and satisfied the scenario checks, with no duplicate observed events: two greetings, two explanations without tools and two exact read-only terminal commands with matching successful output and final sentinels. Greeting first text took 4,918–7,173 ms, explanation 7,582–8,542 ms, terminal 13,329–17,011 ms. Terminal first text includes tool execution when the model starts with a tool call. Two samples per scenario do not establish an SLO, nor demonstrate a latency improvement over previous workloads. The four-second startup target remains unmet.
+
+The first greeting had no sandbox-boot event but still reported 6,952 provider input tokens versus 746 locally counted system tokens. Inspection of the owner's enabled skill definitions found thousands of tokens in Build-specific presets including game controls, Three.js, UI design and the managed bot roster. These were appended even to a context-free greeting. No prompt contents or credentials are included here; the allowlisted token inventory is `/tmp/rift-harness-skill-token-audit.json`.
+
+The follow-up excludes unchanged catalog Build presets and the managed roster only when the existing conservative standalone-greeting classifier succeeds. It retains every all-purpose skill, unknown custom skill and edited preset. Real tasks, projects, active bot profiles, explicit skill requests, attachments and continuations keep existing selection. This does not disable skills persistently or replace the selected model with a canned reply.
+
+The regression failed before the selector change, and tests preserve real-work, custom-instruction and non-Build behavior. Live follow-up is needed to quantify actual provider input and cost changes; no general task savings are inferred. Source research remains in `/Users/cetto/RIFT-Reports/2026-09-11-harness-primary-research.md`. Remaining priorities include complete operation receipts, consistent summary totals, failed-leg spend versus customer waivers, and startup-stage latency.
+
+Evidence: `/tmp/rift-harness-mixed-live.json`, `/tmp/rift-harness-batch-release-verification.json`, `/tmp/rift-greeting-skills-red.log`, `/tmp/rift-greeting-skills-green.log`.

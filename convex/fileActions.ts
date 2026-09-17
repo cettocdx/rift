@@ -40,10 +40,7 @@ import {
   MAX_GENERATED_FILE_SIZE_BYTES,
   S3_USER_FILES_PREFIX,
 } from "../lib/constants/s3";
-import {
-  hasPaidEntitlement,
-  parseEntitlements,
-} from "../lib/auth/entitlements";
+import { parseEntitlements } from "../lib/auth/entitlements";
 
 const FILE_UPLOAD_WINDOW = "5 h";
 
@@ -656,9 +653,20 @@ export const saveFile = action({
     size: v.number(),
     serviceKey: v.optional(v.string()),
     userId: v.optional(v.string()),
+    uploadEntitlements: v.optional(v.array(v.string())),
     skipTokenValidation: v.optional(v.boolean()),
     mode: v.optional(
       v.union(v.literal("ask"), v.literal("agent"), v.literal("agent-long")),
+    ),
+    generation: v.optional(
+      v.object({
+        prompt: v.string(),
+        model: v.string(),
+        surface: v.optional(v.string()),
+        settings: v.optional(v.any()),
+        costDollars: v.optional(v.number()),
+        runId: v.optional(v.string()),
+      }),
     ),
   },
   returns: v.object({
@@ -693,7 +701,7 @@ export const saveFile = action({
         });
       }
       actingUserId = args.userId;
-      entitlements = ["ultra-plan"]; // Max limit for service flows
+      entitlements = args.uploadEntitlements ?? ["ultra-plan"]; // Trusted console upload uses its actual account tier.
     } else {
       // User-authenticated flow
       const user = await ctx.auth.getUserIdentity();
@@ -725,13 +733,9 @@ export const saveFile = action({
     const shouldSkipTokenValidation =
       args.skipTokenValidation || isAgentUploadMode;
 
-    // Check if paid tier (free tier cannot upload)
-    if (!hasPaidEntitlement(entitlements)) {
-      throw new ConvexError({
-        code: "PAID_PLAN_REQUIRED",
-        message: "Paid plan required for file uploads",
-      });
-    }
+    // File uploads are available to every signed-in user (the composer's attach
+    // button advertises this — no plan gate), matching the s3Actions upload flow.
+    // Rate limits below still apply per entitlement tier.
 
     // Check file upload rate limit (peek mode - verify limit not exceeded)
     // Token was already consumed at URL generation step
@@ -1116,6 +1120,7 @@ export const saveFile = action({
       size: verifiedSize,
       fileTokenSize: tokenSize,
       content: fileContent,
+      generation: args.generation,
     })) as Id<"files">;
 
     // Return the file URL, database file ID, and token count
@@ -1136,7 +1141,10 @@ export const saveFile = action({
  */
 export const saveSandboxGeneratedFile = action({
   args: {
-    s3Key: v.string(),
+    // Exactly one of these is set, depending on where the bytes were uploaded.
+    // S3 is optional product-wide; without it uploads land in Convex storage.
+    s3Key: v.optional(v.string()),
+    storageId: v.optional(v.id("_storage")),
     name: v.string(),
     mediaType: v.string(),
     size: v.number(),
@@ -1155,6 +1163,9 @@ export const saveSandboxGeneratedFile = action({
 
     const cleanupUploadedObject = async (stage: string) => {
       try {
+        // Only S3 objects are cleaned up here. An orphaned Convex storage blob
+        // is collected by Convex itself, and there is no S3 key to delete.
+        if (!args.s3Key) return;
         await ctx.scheduler.runAfter(
           0,
           internal.s3Cleanup.deleteS3ObjectAction,
@@ -1193,10 +1204,21 @@ export const saveSandboxGeneratedFile = action({
       });
     }
 
+    if (!args.s3Key && !args.storageId) {
+      throw new ConvexError({
+        code: "GENERATED_FILE_SAVE_FAILED",
+        message: `Failed to save generated file ${args.name}: no storage reference was supplied.`,
+      });
+    }
+
     try {
-      const fileUrl = await generateS3DownloadUrl(args.s3Key);
+      const fileUrl = args.s3Key
+        ? await generateS3DownloadUrl(args.s3Key)
+        : ((await ctx.storage.getUrl(args.storageId!)) ?? "");
       const fileId = (await ctx.runMutation(internal.fileStorage.saveFileToDb, {
-        s3Key: args.s3Key,
+        ...(args.s3Key
+          ? { s3Key: args.s3Key }
+          : { storageId: args.storageId! }),
         userId: args.userId,
         name: args.name,
         mediaType: args.mediaType,

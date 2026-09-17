@@ -25,6 +25,14 @@ import {
  *     It never changes identity, so components that only need to read the value
  *     at submit time (chat.tsx, useChatHandlers) can subscribe without
  *     re-rendering on every keystroke — they read `inputRef.current` instead.
+ *   - `InputHasTextContext`: the one derived fact the composer chrome actually
+ *     needs — is there anything to send. It is a boolean, so React's `Object.is`
+ *     check stops propagation on every keystroke that does not flip it: typing
+ *     the 2nd through 200th character re-renders nothing outside the textarea.
+ *     The send button used to receive the whole string as a prop from
+ *     `ChatInput`, which had to subscribe to the value to pass it down — one
+ *     subscription at the top of the tree that re-rendered the toolbar and its
+ *     six selectors on every character, undoing most of what this split buys.
  */
 
 interface InputApi {
@@ -35,6 +43,7 @@ interface InputApi {
 }
 
 const InputValueContext = createContext<string>("");
+const InputHasTextContext = createContext<boolean>(false);
 const InputApiContext = createContext<InputApi | null>(null);
 
 export function InputProvider({ children }: { children: ReactNode }) {
@@ -56,10 +65,14 @@ export function InputProvider({ children }: { children: ReactNode }) {
     [setInput, clearInput],
   );
 
+  const hasText = input.trim().length > 0;
+
   return (
     <InputApiContext.Provider value={api}>
       <InputValueContext.Provider value={input}>
-        {children}
+        <InputHasTextContext.Provider value={hasText}>
+          {children}
+        </InputHasTextContext.Provider>
       </InputValueContext.Provider>
     </InputApiContext.Provider>
   );
@@ -68,6 +81,14 @@ export function InputProvider({ children }: { children: ReactNode }) {
 /** Subscribe to the reactive composer value (re-renders on every keystroke). */
 export function useInputValue(): string {
   return useContext(InputValueContext);
+}
+
+/**
+ * Subscribe to whether the composer holds anything sendable. Re-renders only
+ * when that flips — not on every keystroke.
+ */
+export function useInputHasText(): boolean {
+  return useContext(InputHasTextContext);
 }
 
 /** Stable setters + ref. Does NOT re-render when the value changes. */

@@ -5,9 +5,11 @@ import type { TodoManager } from "@/lib/ai/tools/utils/todo-manager";
 import { FileAccumulator } from "@/lib/ai/tools/utils/file-accumulator";
 import type { BackgroundProcessTracker } from "@/lib/ai/tools/utils/background-process-tracker";
 import type { PtySessionManager } from "@/lib/ai/tools/utils/pty-session-manager";
-import type { ChatMode, SubscriptionTier } from "./chat";
+import type { ChatMode, ChatPurpose, SubscriptionTier } from "./chat";
 import type { CentrifugoSandbox } from "@/lib/ai/tools/utils/centrifugo-sandbox";
 import type { SandboxFallbackInfo } from "@/lib/ai/tools/utils/hybrid-sandbox-manager";
+import type { CustomAgentProfileConfig } from "@/lib/ai/agents/pet-roster";
+import type { RunRecorder } from "@/lib/ai/runs/run-recorder";
 
 // Union type for E2B Sandbox and local CentrifugoSandbox
 export type AnySandbox = Sandbox | CentrifugoSandbox;
@@ -88,6 +90,8 @@ export interface CaidoReadyInfo {
 
 export interface SandboxContext {
   userID: string;
+  /** Optional opaque workspace identity used for project-scoped E2B reuse. */
+  sandboxNamespace?: string;
   setSandbox: (sandbox: Sandbox) => void;
   /** Called once when ensureSandboxConnection actually does work (creates or reconnects). */
   onBoot?: (info: SandboxBootInfo) => void;
@@ -112,10 +116,42 @@ export interface ToolContext {
   /** Manages interactive PTY sessions for `run_terminal_cmd` interactive actions. */
   ptySessionManager: PtySessionManager;
   mode: ChatMode;
+  /** Active product surface; used to scope Build-only runtime guarantees. */
+  purpose: ChatPurpose;
+  /**
+   * Owner-checked custom profile selected by an exact latest-request mention.
+   * This is server derived and may only narrow the surrounding runtime.
+   */
+  activeAgentProfile?: CustomAgentProfileConfig;
+  /**
+   * Records what this run does as it happens -- an ordered event log plus the
+   * evidence those events point at. Optional: recording is a record OF the
+   * work, never a precondition FOR it, so every tool must still function when
+   * this is absent.
+   */
+  runRecorder?: RunRecorder;
   /** Configured model key for this request, used for model-aware tool capabilities. */
   modelName?: string;
   /** Returns the currently active stream model, including provider fallback legs. */
   getCurrentModelName?: () => string | undefined;
+  /** User-picked image model (OpenRouter id) for generate_image; falls back to the default. */
+  imageModel?: string;
+  /** Validated explicit Studio controls override model-authored choices. */
+  studioSettings?: import("@/lib/console/workspaces-contract").StudioSettings;
+  /** User-picked video model (OpenRouter id) for generate_video; falls back to the default. */
+  videoModel?: string;
+  /**
+   * Public HTTPS image URLs resolved from owner-checked files attached to the
+   * current user turn. Media tools consume these directly so the language
+   * model never has to echo a signed storage URL into tool arguments.
+   */
+  mediaReferenceUrls?: readonly string[];
+  /** Connected GitHub token — wired into the sandbox git credentials so the agent can clone/push repos. */
+  githubToken?: string;
+  /** Connected GitHub username, for git config. */
+  githubUsername?: string;
+  /** Server-prepared checkout for this cloud run. Shared only by its tools. */
+  projectWorkingDirectory?: string;
   subscription?: SubscriptionTier;
   isE2BSandbox: IsE2BSandboxFn;
   guardrailsConfig?: string;

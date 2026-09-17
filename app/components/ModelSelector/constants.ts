@@ -16,14 +16,13 @@ export const ASK_MODEL_OPTIONS: ModelOption[] = [
     id: "rift-standard",
     label: "⬡ Recon",
     description: "Baseline intelligence for reconnaissance",
-    poweredBy:
-      "DeepSeek V4 Flash · switches to Gemini 3 Flash for images & PDFs",
+    poweredBy: "xAI Grok 4.3",
   },
   {
     id: "rift-pro",
     label: "⬢ Strike",
     description: "Advanced capability for complex operations",
-    poweredBy: "Moonshot Kimi K2.7 Code",
+    poweredBy: "xAI Grok 4.3",
   },
   {
     id: "rift-max",
@@ -38,14 +37,14 @@ export const AGENT_MODEL_OPTIONS: ModelOption[] = [
     id: "rift-standard",
     label: "⬡ Recon",
     description: "Autonomous reconnaissance & enumeration",
-    poweredBy: "Moonshot Kimi K2.6",
+    poweredBy: "xAI Grok 4.3",
     thinking: true,
   },
   {
     id: "rift-pro",
     label: "⬢ Strike",
     description: "Advanced autonomous exploitation & testing",
-    poweredBy: "Moonshot Kimi K2.7 Code",
+    poweredBy: "xAI Grok 4.3",
     thinking: true,
   },
   {

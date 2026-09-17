@@ -1,0 +1,46 @@
+{
+  "source": "RIFT-Logo-Package-11",
+  "artwork": "User-approved unmodified SVG originals",
+  "files": [
+    {
+      "file": "Rift-AppIcon-Dark.svg",
+      "sha256": "c65988e55b5b307e8e750d1777b7dbde7d0b6c0d7cbba72ed3cc87c8eae84b91"
+    },
+    {
+      "file": "Rift-AppIcon-Light.svg",
+      "sha256": "4262fbb686d91853a3923d80ec7b726d0c9c70fbb89f2f656f89e4042ff8d2ad"
+    },
+    {
+      "file": "Rift-Horizontal-Black.svg",
+      "sha256": "0c0c01b0ce5579e1dc8f0c35e80fb5d889cba054a177fa287b1ef1935b906f86"
+    },
+    {
+      "file": "Rift-Horizontal-White.svg",
+      "sha256": "7ea081f6ed02ecdaaa2f7fbd27b73baceb63f5e960aacd223c765e0221ca930e"
+    },
+    {
+      "file": "Rift-Stacked-Black.svg",
+      "sha256": "00e3d3061ed8856e6da749428664a85259135013ab54e16a36e2ace17f06e7d4"
+    },
+    {
+      "file": "Rift-Stacked-White.svg",
+      "sha256": "a01f41e5af38580deeb83272e8588d6752854df253d972cf9f39d1cdccfd5d6f"
+    },
+    {
+      "file": "Rift-Symbol-Black.svg",
+      "sha256": "75f8339b5524cd74d6534277630c887d2151b46d1a893d21ff725762abeef5ba"
+    },
+    {
+      "file": "Rift-Symbol-White.svg",
+      "sha256": "fcca25b7c506ad1cd5635a8d7bae2d88e4e7fb07c492f954f3bbbc31dce54de7"
+    },
+    {
+      "file": "Rift-Wordmark-Black.svg",
+      "sha256": "3de203b49c2afb757139e07ee4e78273df42dd0b92d571d96155232d010b51d8"
+    },
+    {
+      "file": "Rift-Wordmark-White.svg",
+      "sha256": "9ad8141487634a57cde63ad5fb7fac04b5b55088f7e1befcef13cce2b721c043"
+    }
+  ]
+}

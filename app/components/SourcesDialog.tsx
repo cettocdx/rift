@@ -1,5 +1,5 @@
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
-import Image from "next/image";
+import { getSourceHost, SourceDomainBadge } from "./SourceDomainBadge";
 
 interface Source {
   title?: string;
@@ -19,21 +19,6 @@ export const SourcesDialog = ({
   onOpenChange,
   sources,
 }: SourcesDialogProps) => {
-  const getFaviconUrl = (domain: string) => {
-    return `https://www.google.com/s2/favicons?domain=${domain}&sz=32`;
-  };
-
-  const getDomain = (url: string) => {
-    try {
-      const u = new URL(url);
-      return u.hostname;
-    } catch {
-      // Fallback: try to extract hostname from string
-      const match = url.match(/^(?:https?:\/\/)?([^\/]+)/);
-      return match ? match[1] : url;
-    }
-  };
-
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent
@@ -47,14 +32,7 @@ export const SourcesDialog = ({
           <div className="flex w-full flex-col mt-0">
             <ul className="flex flex-col px-1 py-2">
               {sources.map((src, idx) => {
-                const domain = getDomain(src.url);
-                const displayHost = (() => {
-                  try {
-                    return new URL(src.url).hostname.replace(/^www\./, "");
-                  } catch {
-                    return domain;
-                  }
-                })();
+                const displayHost = getSourceHost(src.url);
                 return (
                   <li key={`link-${idx}`}>
                     <a
@@ -64,14 +42,7 @@ export const SourcesDialog = ({
                       className="hover:bg-secondary flex flex-col gap-1 rounded-xl px-3 py-2.5"
                     >
                       <div className="line-clamp-1 flex h-6 items-center gap-2 text-xs">
-                        <Image
-                          alt=""
-                          width={16}
-                          height={16}
-                          className="bg-background rounded-full object-cover w-4 h-4"
-                          src={getFaviconUrl(domain)}
-                          unoptimized
-                        />
+                        <SourceDomainBadge source={src.url} />
                         {displayHost}
                       </div>
                       <div className="line-clamp-2 text-sm font-semibold break-words">

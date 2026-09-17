@@ -75,6 +75,34 @@ export interface PtyKillMessage {
   targetConnectionId: string;
 }
 
+// ── Consent-scoped desktop access (server → RIFT Desktop) ────────────
+
+export type DesktopLocalAccessOperation =
+  | "list_grants"
+  | "list_entries"
+  | "read_file"
+  | "write_file"
+  | "fetch_loopback"
+  | "open_visible_url"
+  | "computer_action"
+  | "access_status";
+
+export interface DesktopLocalAccessRequestMessage {
+  type: "desktop_local_access_request";
+  requestId: string;
+  operation: DesktopLocalAccessOperation;
+  payload?: Record<string, unknown>;
+  targetConnectionId: string;
+}
+
+export interface DesktopLocalAccessResultMessage {
+  type: "desktop_local_access_result";
+  requestId: string;
+  ok: boolean;
+  result?: unknown;
+  error?: string;
+}
+
 // ── PTY outgoing messages (local runner / desktop bridge → server) ────
 
 export interface PtyReadyMessage {
@@ -120,7 +148,9 @@ export type SandboxMessage =
   | PtyReadyMessage
   | PtyDataMessage
   | PtyExitMessage
-  | PtyErrorMessage;
+  | PtyErrorMessage
+  | DesktopLocalAccessRequestMessage
+  | DesktopLocalAccessResultMessage;
 
 /**
  * Build the Centrifugo channel name for a single local/desktop sandbox
