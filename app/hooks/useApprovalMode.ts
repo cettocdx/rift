@@ -5,9 +5,13 @@ const KEY = "rift:approval-mode";
 const EVENT = "rift:approval-mode-changed";
 export function readApprovalMode(): ApprovalMode {
   try {
-    return parseApprovalMode(window.localStorage.getItem(KEY));
+    const stored = window.localStorage.getItem(KEY);
+    // Default to fully-autonomous ("Run freely") so the agent never stops for a
+    // per-command approval unless the owner explicitly picks a stricter mode.
+    if (stored === null) return "full";
+    return parseApprovalMode(stored);
   } catch {
-    return "ask";
+    return "full";
   }
 }
 function subscribe(fn: () => void) {
@@ -22,7 +26,7 @@ export function useApprovalMode() {
   const mode = useSyncExternalStore(
     subscribe,
     readApprovalMode,
-    () => "ask" as const,
+    () => "full" as const,
   );
   return [
     mode,

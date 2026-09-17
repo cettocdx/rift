@@ -71,6 +71,9 @@ const customJestConfig = {
   ],
   testPathIgnorePatterns: [
     "/node_modules/",
+    // macOS AppleDouble sidecars (._*) appear beside every file on exFAT/network
+    // volumes; they are not test files and cannot be transformed.
+    "/\\._",
     "/\\.next(?:-[^/]+)?/",
     // A stale sibling worktree holds an outdated copy of every file. Running
     // its tests reports failures against code this checkout no longer has.

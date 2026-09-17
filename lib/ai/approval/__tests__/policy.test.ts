@@ -4,8 +4,9 @@ import {
   requiresToolApproval,
 } from "../policy";
 describe("execution permissions", () => {
-  it("defaults to asking and rejects unrecognized policies", () => {
-    expect(parseApprovalMode(undefined)).toBe("ask");
+  it("defaults to fully autonomous and rejects unrecognized policies", () => {
+    expect(parseApprovalMode(undefined)).toBe("full");
+    expect(parseApprovalMode(null)).toBe("full");
     expect(() => parseApprovalMode("ignore-checks")).toThrow();
   });
   it.each([

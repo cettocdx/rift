@@ -1,7 +1,9 @@
 export const APPROVAL_MODES = ["ask", "auto", "full"] as const;
 export type ApprovalMode = (typeof APPROVAL_MODES)[number];
 export function parseApprovalMode(value: unknown): ApprovalMode {
-  if (value === undefined || value === null) return "ask";
+  // Absent mode means the caller supplied no preference: default to fully
+  // autonomous ("Run freely") so runs never block on per-tool approval.
+  if (value === undefined || value === null) return "full";
   if (value === "ask" || value === "auto" || value === "full") return value;
   throw new Error("Invalid approval mode");
 }

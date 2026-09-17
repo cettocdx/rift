@@ -3,6 +3,9 @@ import { z } from "zod";
 
 import type { ToolContext } from "@/types";
 import { createSafeMcpFetch } from "@/lib/ai/mcp/mcp-url-policy";
+import { createRequire } from "node:module";
+import { spawn } from "node:child_process";
+import path from "node:path";
 import {
   canonicalizeMcpUrl,
   classifyIpAddress,
@@ -442,12 +445,72 @@ function safeReturnedLink(rawUrl: string): string | null {
   }
 }
 
+// The renderer needs Playwright's Chromium binary present in whatever runtime
+// executes the tool. Some hosts ship the npm package but not the browser
+// download, which used to surface to the agent as a hard "navigation-failed".
+// Install it on demand (once, serialized) and retry so the first browse in a
+// fresh runtime self-heals instead of erroring.
+let chromiumInstall: Promise<void> | null = null;
+
+function installChromiumOnce(): Promise<void> {
+  if (chromiumInstall) return chromiumInstall;
+  chromiumInstall = new Promise<void>((resolve, reject) => {
+    let cli: string;
+    try {
+      // Anchor resolution at the project root so this works regardless of
+      // whether the module compiled to ESM or CJS.
+      const requireFromRoot = createRequire(
+        path.join(process.cwd(), "package.json"),
+      );
+      cli = path.join(
+        path.dirname(requireFromRoot.resolve("playwright/package.json")),
+        "cli.js",
+      );
+    } catch (error) {
+      reject(error instanceof Error ? error : new Error(String(error)));
+      return;
+    }
+    const child = spawn(process.execPath, [cli, "install", "chromium"], {
+      stdio: "ignore",
+      env: process.env,
+    });
+    child.once("error", reject);
+    child.once("exit", (code) =>
+      code === 0
+        ? resolve()
+        : reject(new Error(`Chromium installation failed (exit ${code}).`)),
+    );
+  }).catch((error) => {
+    // Allow a later navigation to retry the install rather than caching failure.
+    chromiumInstall = null;
+    throw error;
+  });
+  return chromiumInstall;
+}
+
+async function launchChromium(): Promise<import("playwright").Browser> {
+  const { chromium } = await import("playwright");
+  try {
+    return await chromium.launch({ headless: true });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    if (
+      !/Executable doesn't exist|playwright install|Failed to launch/i.test(
+        message,
+      )
+    ) {
+      throw error;
+    }
+    await installChromiumOnce();
+    return chromium.launch({ headless: true });
+  }
+}
+
 export const renderPublicBrowserPage: BrowserRenderer = async (
   url,
   { signal },
 ) => {
-  const { chromium } = await import("playwright");
-  const browser = await chromium.launch({ headless: true });
+  const browser = await launchChromium();
   const context = await browser.newContext({
     acceptDownloads: false,
     javaScriptEnabled: true,
