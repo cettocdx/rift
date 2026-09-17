@@ -46,7 +46,7 @@ export const resolveAgentAutoContinueReason = ({
     finishReason === "preemptive-timeout";
 
   if (reachedTimeLimit) {
-    if (purpose !== "app") return null;
+    if (purpose !== "app" && purpose !== "security") return null;
     return finishReason === "timeout" ? "timeout" : "preemptive-timeout";
   }
 

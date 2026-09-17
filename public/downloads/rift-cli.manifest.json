@@ -3,7 +3,7 @@
   "name": "rift-cli",
   "version": "0.8.4",
   "archive": "rift-cli.tgz",
-  "archiveSha256": "9b3e3b9d35d3c458465429d7ebc665c3c50d28b96b72cb438d527346fa134de4",
+  "archiveSha256": "c94e26e780dc9e27cf541c288f2e4748cc5268ce09983db8314184267564a7d0",
   "sourceSha256": "2e16a2e4ec0554d6d36696881d313024ec3a6ce870f4eaed8dbfa5aaa193456e",
   "sourceInputs": [
     "package.json",

@@ -350,8 +350,8 @@ describe("session-owned background continuations", () => {
     controller.dispose();
   });
 
-  it("never automatically chains a Studio or Hack timeout", async () => {
-    for (const purpose of ["image", "security"]) {
+  it("never automatically chains a Studio (image) timeout", async () => {
+    for (const purpose of ["image"]) {
       const { controller, sendMessage } = setup({ mode: "agent", purpose });
       controller.onData(signal("timeout-leg", "timeout"));
       controller.onFinish();

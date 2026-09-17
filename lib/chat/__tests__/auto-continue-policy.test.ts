@@ -30,7 +30,18 @@ describe("resolveAgentAutoContinueReason", () => {
     },
   );
 
-  it.each(["security", "image"] as const)(
+  it("auto-continues a Hack Workbench (security) run after a timeout", () => {
+    expect(
+      resolveAgentAutoContinueReason({
+        ...base,
+        purpose: "security",
+        finishReason: "preemptive-timeout",
+        stoppedDueToElapsedTimeout: true,
+      }),
+    ).toBe("preemptive-timeout");
+  });
+
+  it.each(["image"] as const)(
     "does not auto-continue time limits for %s runs",
     (purpose) => {
       expect(

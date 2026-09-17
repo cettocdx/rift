@@ -102,7 +102,12 @@ export class RetainedContinuationController {
     this.seenIds.add(id);
     const timeLimit =
       data.reason === "timeout" || data.reason === "preemptive-timeout";
-    if (timeLimit && this.context?.purpose !== "app") return;
+    if (
+      timeLimit &&
+      this.context?.purpose !== "app" &&
+      this.context?.purpose !== "security"
+    )
+      return;
     this.pendingSignal = {
       timeLimit: timeLimit || this.pendingSignal?.timeLimit === true,
     };
@@ -195,8 +200,9 @@ export class RetainedContinuationController {
     const bypassesOrdinaryCap =
       atCap &&
       this.pendingSignal.timeLimit &&
-      this.context?.purpose === "app" &&
-      this.extraBuildTimeLegs < MAX_EXTRA_BUILD_TIME_LEGS;
+      (this.context?.purpose === "security" ||
+        (this.context?.purpose === "app" &&
+          this.extraBuildTimeLegs < MAX_EXTRA_BUILD_TIME_LEGS));
     if (atCap && !bypassesOrdinaryCap) {
       this.pendingSignal = null;
       this.notifyPending();
