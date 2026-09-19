@@ -140,6 +140,29 @@ const buildTerminalSSEResponse = (chunk: {
     headers: sseHeaders,
   });
 
+// A resume handle can name a run that already died. Replaying its durable
+// stream yields only buffered history with no live tail, so without this
+// check the client paints stale chunks and then sits silent forever. Ask the
+// provider once up front; a lookup failure must not kill a healthy resume.
+const readRunStatus = async (
+  runId: string,
+  publicAccessToken: string,
+): Promise<string | undefined> => {
+  try {
+    const { ApiClient } = await getTriggerCore();
+    const apiClient = new ApiClient(
+      "https://api.trigger.dev",
+      publicAccessToken,
+    );
+    const run = (await apiClient.retrieveRun(runId)) as {
+      status?: string;
+    };
+    return run.status;
+  } catch {
+    return undefined;
+  }
+};
+
 // Only truly failed/terminated statuses warrant an immediate abort — the
 // task died and no `finish` chunk will ever arrive. Do NOT include
 // "COMPLETED" here: a successful run still has stream chunks (including
@@ -1091,6 +1114,15 @@ export const resumeAgentLongStream = async (
   }
 
   const handle = await readRunHandle(response);
+  // A terminal run will never emit another live chunk: its stream can only
+  // replay history. Surface the failure instead of replaying into silence.
+  const status = await readRunStatus(handle.runId, handle.publicAccessToken);
+  if (status && TERMINAL_RUN_STATUSES.has(status)) {
+    return buildTerminalSSEResponse({
+      type: "error",
+      errorText: AGENT_WORKER_FAILED_MESSAGE,
+    });
+  }
   // Seed the session before starting the replay: it may already contain the
   // signal that hands this run off to its next bounded continuation leg.
   if (handle.requestContext) onRequestContext?.(handle.requestContext);

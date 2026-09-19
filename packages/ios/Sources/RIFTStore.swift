@@ -180,6 +180,14 @@ final class RIFTStore {
     private var streamTask: Task<Void, Never>?
     private var approvalsTask: Task<Void, Never>?
 
+    /// Test-only escape hatch for scenarios that intentionally end in the
+    /// reconnect backoff loop.
+    func streamTaskCancelForTest() {
+        streamTask?.cancel()
+        approvalsTask?.cancel()
+        working = false
+    }
+
     func restore() async {
         guard service.hasSession else { return }
         loading = true
@@ -354,31 +362,41 @@ final class RIFTStore {
                 if workspace == .hack, let transport = http.value(forHTTPHeaderField: "X-RIFT-Hack-Transport") { hackDurable = transport == "durable" }
                 if http.statusCode == 204 {
                     // A run may have finished while this reader was detached.
-                    // Fetch its saved result; a missing active stream is not a failure.
-                    let saved = try await service.json("/api/mobile/session?chatId=" + chatID)
-                    guard selectedID == chatID, !Task.isCancelled else { return }
-                    let page = saved["page"] as? [[String: Any]] ?? []
-                    if !page.isEmpty {
-                        // The reconnect endpoint returns the newest page, not all
-                        // history the user has already expanded. Replace that
-                        // suffix while retaining the older rows and their cursor.
-                        let pageIDs = page.compactMap { $0["id"] as? String }
-                        let boundary = messages.firstIndex { message in
-                            pageIDs.contains { message.id == $0 || message.id.hasPrefix($0 + ":") }
-                        } ?? messages.endIndex
-                        let older = Array(messages[..<boundary])
-                        messages = older + NativeMessageHistory.decode(page)
-                        if older.isEmpty {
-                            messageCursor = saved["continueCursor"] as? String
-                            messagesDone = saved["isDone"] as? Bool ?? true
+                    // Only an admission this device already sent may end the
+                    // task silently: a fresh send answered 204 never dispatched,
+                    // so its message must surface as reconnectable, not "done".
+                    if nextBody == nil {
+                        // Fetch its saved result; a missing active stream is not a failure.
+                        let saved = try await service.json("/api/mobile/session?chatId=" + chatID)
+                        guard selectedID == chatID, !Task.isCancelled else { return }
+                        let page = saved["page"] as? [[String: Any]] ?? []
+                        if !page.isEmpty {
+                            // The reconnect endpoint returns the newest page, not all
+                            // history the user has already expanded. Replace that
+                            // suffix while retaining the older rows and their cursor.
+                            let pageIDs = page.compactMap { $0["id"] as? String }
+                            let boundary = messages.firstIndex { message in
+                                pageIDs.contains { message.id == $0 || message.id.hasPrefix($0 + ":") }
+                            } ?? messages.endIndex
+                            let older = Array(messages[..<boundary])
+                            messages = older + NativeMessageHistory.decode(page)
+                            if older.isEmpty {
+                                messageCursor = saved["continueCursor"] as? String
+                                messagesDone = saved["isDone"] as? Bool ?? true
+                            }
+                            agentActivity = AgentActivity(); activityAnchor = messages.count
                         }
-                        agentActivity = AgentActivity(); activityAnchor = messages.count
+                        working = false; reconnectAvailable = false; error = nil
+                        approvalsTask?.cancel(); return
                     }
-                    working = false; reconnectAvailable = false; error = nil
-                    approvalsTask?.cancel(); return
+                    throw RIFTFailure(message: "RIFT could not confirm this task. Your message is preserved — reconnecting.")
                 }
                 guard (200..<300).contains(http.statusCode) else {
-                    mayReconnect = NativeRequestError.canReconnect(status: http.statusCode)
+                    // The transport closed mid-task and server proof exists only
+                    // when admission was actually confirmed. A send the server
+                    // rejected (or never saw) must stay retryable — a dead
+                    // worker's 4xx is not evidence of a live one.
+                    mayReconnect = nextBody == nil || NativeRequestError.canReconnect(status: http.statusCode)
                     var errorData = Data()
                     for try await byte in bytes {
                         errorData.append(byte)

@@ -1,4 +1,3 @@
-import { withAgentLongStreamHeartbeat } from "@/lib/chat/agent-long-heartbeat";
 import { NextRequest } from "next/server";
 import { POST as start } from "@/app/api/agent-long/route";
 import { GET as resume } from "@/app/api/agent-long/resume/route";
@@ -24,10 +23,22 @@ function durableHackEnabled() {
 // are enforced there. A reader disconnect never starts a second task.
 async function stream(response: Response, signal: AbortSignal) {
   if (!response.ok || response.status === 204) return response;
+  // Non-JSON rejections (plain-text 400/401/403 bodies from the chat handlers)
+  // must pass through untouched. Parsing them as a run handle throws inside
+  // this route, turning the client's clean rejection into an opaque 500 whose
+  // body the native app cannot decode as a stream error either.
+  if (!response.headers.get("content-type")?.includes("application/json"))
+    return response;
   return buildSSEResponseFromRun(await response.json(), signal);
 }
 // Comments are invisible to the native SSE reducer. Only emit between complete
 // frames: inserting a comment into a split JSON chunk would corrupt the event.
+// Mobile proxies/carriers drop SSE connections after ~30-60s of silence, and
+// TransformStream transforms only fire when a chunk ARRIVES — a pull-driven
+// wrapper would deadlock a quiet stream. A dedicated idle timer plus the
+// single-chunk write path guarantee the heartbeat actually fires mid-silence.
+const NATIVE_STREAM_KEEPALIVE_MS = 15_000;
+
 function keepNativeStreamAlive(
   response: Response,
   signal: AbortSignal,
@@ -40,6 +51,8 @@ function keepNativeStreamAlive(
     return response;
   let tail = "";
   let boundary = true;
+  const encoder = new TextEncoder();
+  const comment = () => encoder.encode(boundary ? ": keep-alive\n\n" : "");
   const source = response.body.pipeThrough(
     new TransformStream<Uint8Array, Uint8Array>({
       transform(chunk, controller) {
@@ -51,18 +64,106 @@ function keepNativeStreamAlive(
       },
     }),
   );
+  const reader = source.getReader();
+  const aborted = Symbol("native-keepalive-aborted");
+  const idle = Symbol("native-keepalive-idle");
+  let terminal = false;
+  let pendingRead: Promise<ReadableStreamReadResult<Uint8Array>> | undefined;
+  let resolveAbort!: (value: typeof aborted) => void;
+  const abortPromise = new Promise<typeof aborted>((resolve) => {
+    resolveAbort = resolve;
+  });
+  const onAbort = () => resolveAbort(aborted);
+  signal.addEventListener("abort", onAbort, { once: true });
+  if (signal.aborted) onAbort();
+  const readNext = () => {
+    pendingRead ??= reader.read().finally(() => {
+      pendingRead = undefined;
+    });
+    return pendingRead;
+  };
+  const release = () => {
+    signal.removeEventListener("abort", onAbort);
+    try {
+      reader.releaseLock();
+    } catch {
+      // A pending read or an already-released reader is harmless here.
+    }
+  };
+  const keptAlive = new ReadableStream<Uint8Array>({
+    async pull(controller) {
+      if (terminal) return;
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      const idlePromise = new Promise<typeof idle>((resolve) => {
+        timer = setTimeout(() => resolve(idle), NATIVE_STREAM_KEEPALIVE_MS);
+      });
+      const closeOnce = () => {
+        try {
+          controller.close();
+        } catch {
+          // Already errored or cancelled by the consumer.
+        }
+      };
+      try {
+        const result = await Promise.race([
+          readNext(),
+          abortPromise,
+          idlePromise,
+        ]);
+        if (terminal) return;
+        if (result === aborted) {
+          terminal = true;
+          await reader.cancel("native stream aborted").catch(() => {});
+          release();
+          closeOnce();
+          return;
+        }
+        if (result === idle) {
+          // A frame split mid-chunk gets nothing; the next boundary emits.
+          // A zero-length enqueue would not resolve the consumer's pending
+          // read, leaving the idle gap (and this timer) untestable.
+          const pulse = comment();
+          if (pulse.length) {
+            controller.enqueue(pulse);
+          } else {
+            controller.enqueue(encoder.encode(""));
+          }
+          return;
+        }
+        if (result.done) {
+          terminal = true;
+          release();
+          closeOnce();
+          return;
+        }
+        controller.enqueue(result.value);
+      } catch (error) {
+        terminal = true;
+        release();
+        try {
+          controller.error(error);
+        } catch {
+          // Already closed by the consumer.
+        }
+      } finally {
+        if (timer) clearTimeout(timer);
+      }
+    },
+    async cancel(reason) {
+      if (terminal) return;
+      terminal = true;
+      release();
+      await reader.cancel(reason).catch(() => {});
+    },
+  });
   const headers = new Headers(response.headers);
   headers.delete("content-length");
   headers.set("X-Accel-Buffering", "no");
-  return new Response(
-    withAgentLongStreamHeartbeat({
-      source,
-      signal,
-      heartbeat: () =>
-        new TextEncoder().encode(boundary ? ": keep-alive\n\n" : ""),
-    }),
-    { status: response.status, statusText: response.statusText, headers },
-  );
+  return new Response(keptAlive, {
+    status: response.status,
+    statusText: response.statusText,
+    headers,
+  });
 }
 export async function POST(request: NextRequest) {
   const purpose = request.nextUrl.searchParams.get("purpose");
