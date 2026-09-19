@@ -97,6 +97,19 @@ it("does not retry a rejected durable dispatch as a second direct task", async (
   ).toBe(400);
   expect(directHack).not.toHaveBeenCalled();
 });
+it("passes a plain-text Build rejection through without parsing it as a run handle", async () => {
+  // createChatHandler rejects with bare text bodies (e.g. "Invalid chat id").
+  // Reading them as JSON would throw inside this route and surface as a 500.
+  const rejection = new Response("Invalid chat id", { status: 400 });
+  jest.mocked(build).mockResolvedValue(rejection);
+  const response = await POST(
+    new NextRequest("https://riftsys.app/api/mobile/stream?purpose=app", {
+      method: "POST",
+    }),
+  );
+  expect(response).toBe(rejection);
+  expect(response.status).toBe(400);
+});
 it("replays direct Hack without dispatching another assessment", async () => {
   delete process.env.RIFT_DURABLE_HACK_ENABLED;
   jest

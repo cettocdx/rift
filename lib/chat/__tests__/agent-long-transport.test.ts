@@ -5,11 +5,13 @@ import { Response as EdgeResponse } from "next/dist/compiled/@edge-runtime/primi
 
 const mockFetchStream = jest.fn();
 const mockSubscribeToRun = jest.fn();
+const mockRetrieveRun = jest.fn();
 
 jest.mock("@trigger.dev/core/v3", () => ({
   ApiClient: jest.fn().mockImplementation(() => ({
     fetchStream: (...args: unknown[]) => mockFetchStream(...args),
     subscribeToRun: (...args: unknown[]) => mockSubscribeToRun(...args),
+    retrieveRun: (...args: unknown[]) => mockRetrieveRun(...args),
   })),
 }));
 
@@ -43,6 +45,9 @@ describe("agent-long transport terminal semantics", () => {
   beforeEach(() => {
     jest.clearAllMocks();
     mockSubscribeToRun.mockReturnValue(createStatusSubscription());
+    // Default: the status probe cannot prove the run dead, so resume behaves
+    // exactly as before. Tests that need a verdict override this.
+    mockRetrieveRun.mockRejectedValue(new Error("unavailable"));
     global.fetch = jest.fn().mockResolvedValue(
       Response.json({
         runId: "run_test",
@@ -77,6 +82,47 @@ describe("agent-long transport terminal semantics", () => {
       delivery: "unconfirmed",
       canceled: false,
     });
+  });
+
+  it.each(["FAILED", "CRASHED", "SYSTEM_FAILURE", "TIMED_OUT", "EXPIRED"])(
+    "surfaces a terminal %s run on resume instead of replaying into silence",
+    async (status) => {
+      mockRetrieveRun.mockResolvedValue({ status });
+      mockFetchStream.mockResolvedValue(
+        createAsyncStream([{ type: "start", messageId: "run_test" }]),
+      );
+      const onReplay = jest.fn();
+      const response = await resumeAgentLongStream(
+        "/api/agent-long/resume?chatId=chat_test",
+        undefined,
+        onReplay,
+      );
+      const body = await response.text();
+      expect(body).toContain('"type":"error"');
+      expect(body).toContain(AGENT_WORKER_FAILED_MESSAGE);
+      // A dead run must never be replayed or registered for the session.
+      expect(mockFetchStream).not.toHaveBeenCalled();
+      expect(onReplay).not.toHaveBeenCalled();
+    },
+  );
+
+  it("resumes normally when the run is still executing", async () => {
+    mockRetrieveRun.mockResolvedValue({ status: "EXECUTING" });
+    mockFetchStream.mockResolvedValue(
+      createAsyncStream([
+        { type: "start", messageId: "run_test" },
+        { type: "finish", finishReason: "stop" },
+      ]),
+    );
+    const onReplay = jest.fn();
+    const response = await resumeAgentLongStream(
+      "/api/agent-long/resume?chatId=chat_test",
+      undefined,
+      onReplay,
+    );
+    const body = await response.text();
+    expect(body).toContain('"type":"finish"');
+    expect(onReplay).toHaveBeenCalledWith("run_test");
   });
 
   it("finishes a durably completed run whose upload was interrupted without requesting a replay", async () => {
