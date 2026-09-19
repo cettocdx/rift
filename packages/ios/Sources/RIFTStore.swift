@@ -297,6 +297,16 @@ final class RIFTStore {
         availableModels.contains(where: { $0.id == selectedModel }) &&
         (!draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !attachments.isEmpty)
     }
+    // Mirror the web's resolveChatModeForPurpose so the durable agent worker is
+    // dispatched with the mode it actually runs. Build and Hack always execute
+    // as the agent worker; Studio is a chat unless a video model is selected,
+    // which the server runs through the same agent stream as the web does.
+    private var dispatchMode: String {
+        switch workspace {
+        case .studio: return selectedModel.hasPrefix("video-") ? "agent" : "ask"
+        case .build, .hack: return "agent"
+        }
+    }
     func send() {
         let text = draft.trimmingCharacters(in: .whitespacesAndNewlines)
         guard canSend else { return }
@@ -316,7 +326,7 @@ final class RIFTStore {
             conversations.insert(Conversation(id: selectedID, title: selectedTitle, updatedAt: Date(), purpose: workspace), at: 0)
         }
         let selectedEffort = selectedReasoningEffort
-        begin(body: ["executionId": messageID, "chatId": selectedID, "messages": [["id": messageID, "role": "user", "parts": parts]], "selectedModel": selectedModel, "mode": workspace == .hack ? "agent" : "ask", "scope": workspace == .hack ? hackScope.trimmingCharacters(in: .whitespacesAndNewlines) : "", "reasoningEffort": selectedEffort, "approvalMode": "full", "sandboxPreference": "e2b", "purpose": workspace.rawValue])
+        begin(body: ["executionId": messageID, "chatId": selectedID, "messages": [["id": messageID, "role": "user", "parts": parts]], "selectedModel": selectedModel, "mode": dispatchMode, "scope": workspace == .hack ? hackScope.trimmingCharacters(in: .whitespacesAndNewlines) : "", "reasoningEffort": selectedEffort, "approvalMode": "full", "sandboxPreference": "e2b", "purpose": workspace.rawValue])
     }
     func resume() { begin(body: nil) }
     func becameActive() {
